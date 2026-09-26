@@ -3,5 +3,5 @@
 mod navigator;
 mod rows;
 
-pub use navigator::{Entry, Navigator};
-pub use rows::{Row, Rows};
+pub use navigator::{Entry, EntryId, Navigator};
+pub use rows::{Line, Row, Rows};

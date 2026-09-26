@@ -5573,6 +5573,7 @@ name = "launcher"
 version = "0.6.5"
 dependencies = [
  "anyhow",
+ "chrono",
  "gpui-kit",
  "gpui-pre",
  "gpui-shell",

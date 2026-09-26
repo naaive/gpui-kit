@@ -1,30 +1,50 @@
 //! Drawing the current page. Nothing here knows extensions exist.
+//!
+//! [`LauncherWindow`] owns every interaction: the search field, selection,
+//! keyboard, overlays and the effects of actions. The other modules draw one
+//! region each from the current [`PageModel`](crate::model::PageModel).
 
+mod action_panel;
+mod detail_view;
 mod footer;
+mod form_view;
 mod launcher_window;
 mod list_view;
+mod picture;
+mod toast;
 
 pub use launcher_window::LauncherWindow;
 
-use gpui_kit::{App, KeyBinding, actions};
+use std::sync::Arc;
+
+use gpui_kit::{App, ElementId, KeyBinding, SharedString, actions};
 
 pub(crate) const CONTEXT: &str = "Launcher";
 
 actions!(
     launcher,
     [
-        /// Moves the selection up.
+        /// Moves the selection up, or scrolls a detail page up.
         SelectPrevious,
-        /// Moves the selection down.
+        /// Moves the selection down, or scrolls a detail page down.
         SelectNext,
         /// Performs the selected item's primary action.
         Confirm,
-        /// Performs the selected item's secondary action.
+        /// Performs the selected item's secondary action; on a form, submits.
         ConfirmSecondary,
-        /// Clears the search, then returns to the previous page.
+        /// Closes the topmost layer: the action panel, the search text, the
+        /// page, and finally the window.
         Back,
+        /// Shows or hides the actions of the selected item or page.
+        ToggleActions,
     ]
 );
+
+/// An element id for something the model identifies by string, such as an
+/// item, a field or a stack entry.
+pub(crate) fn keyed_id(name: &'static str, key: impl Into<SharedString>) -> ElementId {
+    ElementId::NamedChild(Arc::new(ElementId::from(name)), key.into())
+}
 
 pub fn init(cx: &mut App) {
     let context = Some(CONTEXT);
@@ -36,5 +56,6 @@ pub fn init(cx: &mut App) {
         KeyBinding::new("enter", Confirm, context),
         KeyBinding::new("secondary-enter", ConfirmSecondary, context),
         KeyBinding::new("escape", Back, context),
+        KeyBinding::new("secondary-k", ToggleActions, context),
     ]);
 }
