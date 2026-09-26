@@ -1,6 +1,4 @@
-use gpui_kit::{
-    Context, Entity, IntoElement as _, Render as _, SharedString, Subscription, Window,
-};
+use gpui_kit::{Context, Entity, SharedString, Subscription, Window};
 use gpui_shell::ScriptView;
 
 use super::Page;
@@ -39,17 +37,21 @@ impl ScriptPage {
 
     fn build(&self, window: &mut Window, cx: &mut Context<Self>) -> PageModel {
         // Rendering inside the extension's identity lets `Action.launch` name
-        // a sibling command by its bare name, whichever page is on top.
+        // a sibling command by its bare name, whichever page is on top. The
+        // window asks for a model from its event handlers too, outside any
+        // frame, so the view is asked for its description, never for its own
+        // failure surface.
         let extension: SharedString = self.view.read(cx).policy().application().to_owned().into();
-        let mut element = render_for_extension(&extension, || {
+        let element = render_for_extension(&extension, || {
             self.view
-                .update(cx, |view, cx| view.render(window, cx).into_any_element())
+                .update(cx, |view, cx| view.render_description(window, cx))
         });
-        if let Some(error) = self.view.read(cx).build_error() {
-            return PageModel::failure("The command failed", error.to_owned());
+        match element {
+            Ok(mut element) => take_page_model(&mut element).unwrap_or_else(|reason| {
+                PageModel::failure("The command returned no page", reason)
+            }),
+            Err(error) => PageModel::failure("The command failed", error),
         }
-        take_page_model(&mut element)
-            .unwrap_or_else(|reason| PageModel::failure("The command returned no page", reason))
     }
 }
 
