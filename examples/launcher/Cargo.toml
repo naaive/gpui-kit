@@ -12,8 +12,12 @@ dirs = "6"
 global-hotkey = "0.8"
 gpui-kit.workspace = true
 gpui-shell.workspace = true
+icns = "0.3"
 interprocess = "2"
-percent-encoding = "2"
+notify.workspace = true
+percent-encoding = "2.3"
+pinyin = { version = "0.10", default-features = false, features = ["heteronym", "plain"] }
+plist = "1"
 serde.workspace = true
 serde_json.workspace = true
 smol.workspace = true
@@ -23,6 +27,7 @@ url = "2"
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
 objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSResponder", "NSRunningApplication"] }
+sys-locale = "0.3"
 
 [dev-dependencies]
 gpui = { workspace = true, features = ["test-support"] }

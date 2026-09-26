@@ -629,9 +629,18 @@ impl LauncherWindow {
         cx: &mut Context<Self>,
     ) {
         match effect {
-            Effect::OpenUrl(url) => cx.open_url(&url),
-            Effect::OpenPath(path) => cx.open_with_system(&path),
-            Effect::RevealPath(path) => cx.reveal_path(&path),
+            Effect::OpenUrl(url) => {
+                cx.open_url(&url);
+                self.close(window, cx);
+            }
+            Effect::OpenPath(path) => {
+                cx.open_with_system(&path);
+                self.close(window, cx);
+            }
+            Effect::RevealPath(path) => {
+                cx.reveal_path(&path);
+                self.close(window, cx);
+            }
             Effect::Copy(text) => {
                 cx.write_to_clipboard(ClipboardItem::new_string(text.to_string()));
                 show_toast(
@@ -1300,8 +1309,9 @@ mod tests {
                 "# Extensions",
                 ">com.gpui-kit.links/links:Command",
                 "com.gpui-kit.links/checklist:Command",
-                "# Launcher",
-                "system/website:Link",
+                "# System",
+                "system/toggle-appearance:Command",
+                "system/settings:Command",
                 "system/quit:Command",
             ]
         );
