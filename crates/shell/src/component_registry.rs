@@ -1608,6 +1608,50 @@ impl ComponentCallback {
         runtime.dispatch_component_callback_value(self.id, arguments, window, cx)
     }
 
+    /// Invokes a callback that returns a new View instance, and gives that view
+    /// an entity of its own.
+    ///
+    /// For script navigation the host renders: `() => new DetailPage({ repo })`
+    /// becomes an `Entity<ScriptView>` the host can push, render through
+    /// [`gpui::Render`] inside `entity.update`, or mount like any other view.
+    ///
+    /// The callback runs under the policy and application of the view that
+    /// registered it, and so does the view it returns. That view's `init(props)`
+    /// runs after the callback returns, under the new entity, so work it starts
+    /// — tasks, timers, retained state — belongs to the new view: `cx.notify()`
+    /// from it refreshes the new entity, and dropping the entity cancels it and
+    /// releases what it retained. Any other view the callback constructs is
+    /// initialized under the calling view before the callback's result is
+    /// adopted.
+    ///
+    /// The returned view does not outlive its application: when the extension
+    /// that produced it is unloaded, its callbacks and tasks stop with the rest
+    /// of that application.
+    ///
+    /// Fails, without leaving retained state behind, when the callback throws,
+    /// returns something that is not a View it constructed, or `init` throws.
+    pub fn invoke_view(
+        &self,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> anyhow::Result<gpui::Entity<crate::ScriptView>> {
+        self.invoke_view_with(&[], window, cx)
+    }
+
+    /// [`Self::invoke_view`] with arguments, passed before the script `cx`.
+    pub fn invoke_view_with(
+        &self,
+        arguments: &[ComponentCallbackArgument],
+        window: &mut Window,
+        cx: &mut App,
+    ) -> anyhow::Result<gpui::Entity<crate::ScriptView>> {
+        let runtime = self
+            .runtime
+            .upgrade()
+            .ok_or_else(|| anyhow::anyhow!("component callback runtime has been released"))?;
+        runtime.dispatch_component_view_callback(self.id, arguments, window, cx)
+    }
+
     /// Invokes the script callback and reports any failure through the shell's
     /// tracing subscriber.
     ///

@@ -848,11 +848,25 @@ impl EntityStore {
             return None;
         };
 
+        let owners = HashSet::from([view.entity_id()]);
+        let removed = HashSet::from([id]);
+        Some(self.take_owned_tree(owners, removed))
+    }
+
+    /// Releases everything created under one view's ownership, for a view the
+    /// store itself does not hold (a hosted view, released by its drop).
+    pub(crate) fn release_owned_by(&mut self, owner: EntityId) -> EntityRelease {
+        self.take_owned_tree(HashSet::from([owner]), HashSet::new())
+    }
+
+    fn take_owned_tree(
+        &mut self,
+        mut owners: HashSet<EntityId>,
+        mut removed: HashSet<u32>,
+    ) -> EntityRelease {
         // A child can create retained state, and eventually other child views,
         // during init, events and tasks. Discover the complete ownership tree
         // before removing anything so no drop can re-enter a half-mutated map.
-        let mut owners = HashSet::from([view.entity_id()]);
-        let mut removed = HashSet::from([id]);
         loop {
             let mut changed = false;
             for (candidate_id, stored) in &self.records {
@@ -872,7 +886,7 @@ impl EntityStore {
             }
         }
 
-        Some(self.take_records(removed))
+        self.take_records(removed)
     }
 
     /// Releases every handle. The runtime dropping the store does this anyway;

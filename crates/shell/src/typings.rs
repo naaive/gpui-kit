@@ -461,6 +461,12 @@ fn host_modules() -> String {
         let Ok(module) = registry.get(name) else {
             continue;
         };
+        if module.script_source().is_some() && module.declared().is_none() {
+            // Its exports are whatever its JavaScript says; without a face
+            // from the host, the honest declaration is an untyped module.
+            let _ = writeln!(out, "\ndeclare module \"{name}\";");
+            continue;
+        }
         let _ = writeln!(out, "\ndeclare module \"{name}\" {{");
         match module.declared() {
             Some(declarations) => out.push_str(&reindented(declarations)),
