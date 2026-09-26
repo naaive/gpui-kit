@@ -1,9 +1,9 @@
 # Launcher 架构方案
 
-> 状态：M0 原型已实现（`examples/launcher`，运行 `cargo run -p launcher`），
-> 其余为方案。定位为 GPUI Kit 的旗舰示例，架构按独立产品的标准设计。
-> 引用的现有能力以 `crates/shell`、`crates/component-shell` 的源码与
-> [GPUI Shell](gpui-shell.md) 为准；原型的结论见 §9。
+> 状态：M0–M2 与 M3 的大部分已实现（`examples/launcher`，运行 `cargo run -p launcher`）；
+> 未实现的部分与已知限制见 §10、§12。定位为 GPUI Kit 的旗舰示例，架构按独立产品的标准
+> 设计。使用与 SDK 参考见 [examples/launcher/README.md](../examples/launcher/README.md)；
+> 引用的现有能力以 `crates/shell` 的源码与 [GPUI Shell](gpui-shell.md) 为准。
 
 ## 0. 已确定的决策
 
@@ -76,20 +76,19 @@
 
 ```text
 examples/launcher/
-├── Cargo.toml
 ├── src/
-│   ├── main.rs
-│   ├── model/          # page.rs · action.rs：PageModel、Item、Action、Effect
-│   ├── search/         # matcher.rs：模糊匹配（M1 加拼音与 frecency）
-│   ├── session/        # navigator.rs · rows.rs：页面栈、可见行与选择
-│   ├── pages/          # root_search.rs · script_page.rs
-│   ├── ui/             # launcher_window.rs · list_view.rs · footer.rs
-│   ├── extensions/     # manifest.rs · catalog.rs · host.rs
-│   │   └── bridge/     # components.rs · host_api.rs · carrier.rs
-│   ├── shell/          # （M1）hotkey.rs · single_instance.rs · platform/
-│   └── sources/        # （M1）applications/{macos,linux}.rs · system.rs
-└── extensions/
-    └── gpui-kit/       # 示例扩展：links（静态页面）、checklist（有状态页面）
+│   ├── main.rs         # 命令行 → 转交已运行的实例，或启动
+│   ├── model/          # PageModel、Item、Action、Effect、Detail、Form、Image、Callback
+│   ├── session/        # 页面栈、可见行（列表与网格）、选择
+│   ├── pages/          # Page 接口、根搜索、ScriptPage
+│   ├── ui/             # 窗口、列表/网格、Detail、Form、操作面板、页脚、Toast
+│   ├── search/         # 模糊匹配、拼音、frecency
+│   ├── sources/        # 应用（.app、.desktop、开始菜单）、系统命令、计算器、fallback
+│   ├── extensions/     # 清单与目录、宿主（policy、权限、偏好、参数、生命周期）、Git 安装
+│   │   ├── bridge/     # SDK：页面节点、launcher/api、launcher/utils、类型声明
+│   │   └── pages/      # 权限、偏好、参数、扩展管理这些内置页面
+│   └── shell/          # 单实例 IPC、全局快捷键、窗口显隐、深度链接、HUD、粘贴、设置
+└── extensions/         # 参考扩展：gpui-kit、notes、emoji、github
 ```
 
 ## 3. 模型（`model`）
@@ -290,13 +289,21 @@ export default class Checklist extends View {
 ### 6.4 生命周期
 
 1. 发现：读取 `gpui-shell.json` 与 `launcher.json`，建立命令索引，不执行代码。
-2. 执行命令：宿主先记录本次的 launch 上下文，再以命令模块为入口调用
-   `ShellRuntime::load_application` 与 `mount_application`，`init` 在挂载时运行，
-   因此能读到 `launch()`。（M0 所有命令共用运行时的默认 policy，不授予任何权限；
-   M2 改为经 `PluginManager` 按扩展授权，缺少必填偏好时先推入偏好表单。）
-3. 把 `ScriptView` 包装成 `ScriptPage` 压入页面栈。
-4. `Action.push` 的回调返回一个新的 View 实例，宿主为它创建新的 `ScriptPage`。
-5. 最后一个页面出栈后，扩展保持加载 60 秒，便于再次进入；之后 `unload`，
+   目录依次为 `launcher dev`、`LAUNCHER_EXTENSIONS`、设置中的目录、从 Git 安装的目录、
+   随示例附带的目录；靠前的覆盖同 id 的扩展。
+2. 打开命令时依次检查：权限（未决定时推入权限页）、必填偏好（推入偏好表单）、
+   必填参数（推入参数表单）。每个页面回答后重新发起同一个 `LaunchRequest`，
+   所以检查只写在 `ExtensionHost::open` 一处。
+3. 每次打开都有自己的 `Policy`：`with_application(扩展 id)`、批准后的能力、
+   独立的 `localStorage`，以及只属于这次打开的 `launcher/api` 与 `launcher/utils`
+   （`Policy::with_host_module`，后者是 `HostModule::source` 提供的 JS 源码模块）。
+   因此 `launch()` 在任何时候都只回答调用它的命令。
+4. 以 `load_application_with_policy` + `mount_application` 挂载命令模块的 View，
+   包装成 `ScriptPage` 压入页面栈；`no-view` 命令不压页面，在显示 HUD、关闭窗口或
+   30 秒后释放。
+5. `Action.push` 的回调返回一个新的 View 实例，`ComponentCallback::invoke_view`
+   把它变成新的 `ScriptPage`，沿用同一个 policy。
+6. 最后一个页面出栈后，这次打开保留 60 秒，便于立即再次进入；之后释放，
    其名下的调度任务一并取消（GPUI Shell §18.3）。
 
 ### 6.5 权限与偏好
@@ -347,10 +354,13 @@ launcher/utils   纯 JS 辅助层
 - 无标题栏、居中、置顶、失焦即隐藏；尺寸约 `750 × 475`，以 `rem` 表达。
 - 全局快捷键：GPUI 的 `KeyBinding` 只在应用获得焦点时生效，因此用 `global-hotkey`
   crate；Linux Wayland 退化为 Portal `GlobalShortcuts` 或 `launcher --toggle`。
-- 单实例：本地 socket；承载 `--toggle`、`launcher dev <dir>`、深度链接
-  `launcher://extensions/<id>/<command>`。
-- 待验证：`WindowKind::PopUp` / `Floating` 的层级与全屏空间行为；macOS 不显示 Dock
-  图标的接口；隐藏后再次唤起的焦点恢复。平台差异封装在 `shell/platform/`，不向上泄漏。
+- 单实例：本地 socket（Windows 上为命名管道）；承载 `toggle`、`show`、`hide`、
+  `open <深度链接>`、`dev <dir>`；`types <dir>` 在本进程内写出类型声明。
+- 窗口：macOS 与 Windows 用 `PopUp`、无标题栏；Linux X11 上 `PopUp` 是
+  override-redirect 窗口、拿不到键盘焦点，所以用带客户端装饰的普通窗口。
+  失焦即隐藏：macOS 用 `cx.hide()` 并把焦点还给之前的应用；GPUI 在其他平台无法隐藏
+  窗口，因此关闭后下次再打开。macOS 上 Dock 图标通过 `objc2` 把激活策略设为 Accessory。
+- 平台差异都在 `shell/platform/` 与 `sources/` 的 `cfg` 分支中，不向上泄漏。
 
 ## 8. 界面
 
@@ -399,24 +409,23 @@ M0 实现了一条最窄的端到端路径：窗口 + 宿主搜索框 + 内置�
 - 扩展在运行时声明的快捷键无法注册为 GPUI 的 `KeyBinding`，改为在窗口的
   `on_key_down` 中与选中项的 action 匹配。
 
-仍然需要补充到 `gpui-shell` 的通用接口（均不含启动器语义，`gpui-base` 不需要修改）：
+当时列出的三处 `gpui-shell` 缺口都已补上（均为通用的宿主嵌入接口，`gpui-base` 未修改）：
 
-1. **按扩展授权**：`mount_application` 使用默认 policy。按扩展持有不同权限需要
-   以指定 policy 挂载（或让 `PluginManager` 接受组件注册表与入口模块）。M2 需要。
-2. **`Action.push`**：由脚本回调返回的 View 实例创建新的 `ScriptView`。
-   `ShellRoot` 的对话框已有同类机制，但未公开给宿主。M2 需要。
-3. **调用者身份**：宿主模块函数无法得知是哪个扩展在调用，因此 `launch()` 目前是
-   「挂载前设置、在 `init` 中读取」的约定。按调用帧传递扩展身份后，
-   `launch()` 可以在任何时候调用。
+1. `ShellRuntime::load_application_with_policy`：以指定 policy 加载与挂载。
+2. `ComponentCallback::invoke_view`：由脚本回调返回的 View 实例创建新的 `ScriptView`。
+3. 调用者身份不需要新接口：per-policy 的 host module 优先于全局模块且不回退，
+   每次打开命令各有一个 `launcher/api` 实例。另外新增 `HostModule::source`，用于提供
+   JS 源码写成的模块（`launcher/utils`）。
 
 ## 10. 里程碑
 
 | 阶段 | 内容                                                                                                   | 状态 / 完成标准                                      |
 | ---- | ------------------------------------------------------------------------------------------------------ | ---------------------------------------------------- |
-| M0   | §9 原型：`model`、`session`、`ui` 的 List、`bridge`、`launcher/api` 的 `launch`/`show_toast`、示例扩展 | **已完成**；17 个测试，含端到端键盘路径               |
-| M1   | 根搜索：应用发现（macOS、Linux）、拼音、frecency、系统命令；全局快捷键、单实例与窗口行为；ActionPanel（`Cmd-K`） | macOS 上 `Alt-Space` 唤起后 100 ms 内可输入           |
-| M2   | SDK v1：Detail、Form、`no-view`、`Action.push`、偏好与钥匙串、权限单、`launcher/utils`、开发模式与热重载 | §6.6 前四个参考扩展只用公开 API 完成；未授权能力有测试 |
-| M3   | 从 Git 安装与更新、深度链接、Grid、菜单栏命令、后台刷新、fallback 命令                                   | —                                                    |
+| M0   | §9 原型：`model`、`session`、`ui` 的 List、`bridge`、`launcher/api` 的 `launch`/`show_toast`、示例扩展 | **已完成**                                            |
+| M1   | 根搜索：应用发现（macOS、Linux、Windows）、拼音、frecency、系统命令、计算器；全局快捷键、单实例与窗口行为；ActionPanel（`Cmd-K`） | **已完成**；macOS、Windows 分支未在真机验证            |
+| M2   | SDK v1：Detail、Form、`no-view`、`Action.push`、偏好与钥匙串、权限单、`launcher/utils`、`launcher dev` 与 `launcher types` | **已完成**，热重载除外（见 §12）                      |
+| M3   | 从 Git 安装、更新与卸载，扩展管理页，深度链接，Grid，fallback 命令                                      | **已完成**                                            |
+| —    | 菜单栏命令、后台定时刷新                                                                                | **未实现**：GPUI 没有状态栏（tray）接口，也没有调度后台运行的宿主 |
 
 ## 11. 测试
 
@@ -435,4 +444,12 @@ M0 实现了一条最窄的端到端路径：窗口 + 宿主搜索框 + 内置�
    扩展保存即生效。
 3. **共享一个 VM**：单个扩展的内存失控会影响其他扩展（上限 256 MiB，GPUI Shell §19.3）。
    M2 时测量，必要时改为每个扩展一个隔离 runtime，`Page` 接口不受影响。
-4. **Wayland** 上全局快捷键与置顶窗口依赖合成器，只能提供降级体验。
+4. **Wayland** 上全局快捷键与置顶窗口依赖合成器，只能提供降级体验：需要在桌面的
+   键盘设置里把快捷键绑定到 `launcher toggle`。
+5. **平台代码的验证范围。** macOS 与 Windows 分支（`.app`/开始菜单扫描的入口、Dock
+   图标、`PopUp` 焦点、粘贴、命名管道、系统命令）在 Linux 容器中无法编译；其中能写成
+   纯逻辑的部分（`Info.plist`、`.strings`、`.icns`、`.lnk` 解析）在 Linux 上有测试。
+6. **已知限制。** 窗口总在主显示器打开（GPUI 不提供光标所在显示器）；Linux 与 Windows
+   上窗口失焦会关闭，打开中的页面随之丢失；`launcher dev` 不做热重载（需要为每次打开
+   接入 GPUI Shell 的 `Watcher`）；无钥匙串时密码偏好存入仅本人可读、但未加密的
+   `secrets.json`。

@@ -9,11 +9,62 @@ looks and behaves exactly like a built-in command.
 cargo run -p launcher
 ```
 
-Type to search, `↑`/`↓` to select, `Enter` for the primary action,
-`Cmd/Ctrl-Enter` for the secondary one, `Cmd/Ctrl-K` for every action, `Esc` to
-clear the search, go back, and finally hide the window.
-
 The architecture is described in [`docs/LAUNCHER-DESIGN.md`](../../docs/LAUNCHER-DESIGN.md).
+
+## Using the launcher
+
+| Key                          | Does                                                                   |
+| ---------------------------- | ---------------------------------------------------------------------- |
+| typing                       | Searches the current page                                              |
+| `↑` `↓`, `Ctrl-P` `Ctrl-N`   | Moves the selection; in a grid, `←` `→` move within a row              |
+| `Enter`                      | Performs the selected item's first action                              |
+| `Cmd/Ctrl-Enter`             | Performs its second action; on a form, submits it                      |
+| `Cmd/Ctrl-K`                 | Shows every action of the selection or page, searchable                |
+| `Tab`, `Shift-Tab`           | Moves between form fields, and to a list's filter beside the search    |
+| `Esc`                        | Closes the action panel, clears the search, goes back, then hides      |
+
+The root search lists applications, extension commands and the launcher's own
+commands (appearance, settings, Manage Extensions, system commands such as lock
+and sleep where the platform has them). It ranks what you pick more often
+higher, remembers what you picked for a query, matches Chinese names by pinyin
+and initials (`wx` finds 微信), answers arithmetic (`2^10`), and ends with
+"Use “…” with…" for a web search and every fallback command.
+
+### From the command line
+
+```text
+launcher                 start, or show the launcher already running
+launcher toggle          show, or hide it if it is in front
+launcher show | hide
+launcher open <url>      open a deep link: launcher://extensions/<id>/<command>?arguments=<JSON>
+launcher dev <dir>       load an extension directory ahead of the installed ones
+launcher types <dir>     write TypeScript declarations and the launcher.json schema
+```
+
+Only one launcher runs; the others hand their request to it over a local
+socket (a named pipe on Windows). The summon shortcut defaults to `Alt-Space`
+and is changed in Launcher Settings. Wayland has no global shortcuts for
+applications: bind `launcher toggle` in your desktop's keyboard settings.
+
+### Where things are kept
+
+Under the platform data directory (for example
+`~/.local/share/gpui-kit-launcher` on Linux, `~/Library/Application
+Support/gpui-kit-launcher` on macOS): `settings.json`, `usage.json` (ranking),
+`permissions.json`, `preferences.json`, and `extensions/` for extensions
+installed from Git. Password preferences go to the system keychain; where none
+is available they fall back to an owner-only `secrets.json`, which is not
+encrypted.
+
+### Installing extensions
+
+Manage Extensions installs an extension from a Git URL or `owner/repository`,
+updates it, reveals it, opens its preferences, or removes it with its
+permissions, preferences, secrets and data. Before an extension's code first
+runs, the launcher lists what its `gpui-shell.json` asks for (network hosts,
+folders, commands it may run, clipboard) and runs it only with what you
+allow; an update that asks for more asks again. Required preferences and
+arguments are asked for in a form before the command opens.
 
 ## Bundled extensions
 
@@ -206,6 +257,7 @@ selection stays on the item.
 | `subtitle(text)`                          | Secondary text after the title                                                  |
 | `icon(name)`                              | A Lucide icon name such as `globe`, or an image path inside the extension       |
 | `accessory(text)`, `accessory_icon(name)` | Trailing text or icon                                                           |
+| `accessory_tooltip(text)`                 | Explains the accessory, icon or tag added just before, on hover                 |
 | `tag(text, tone?)`                        | A trailing tag; `tone` is `neutral`, `accent`, `success`, `warning` or `danger` |
 | `keyword(text)`                           | Something the search matches without showing it; call it once per keyword       |
 | `detail(Detail)`                          | Shown beside the list while selected and the list is `showing_detail`           |
@@ -262,7 +314,9 @@ the primary one (`Enter`), the second the secondary one (`Cmd/Ctrl-Enter`), and
 and may add `icon(name)`, `shortcut(keys)` (such as `secondary-shift-c`, where
 `secondary` is Cmd on macOS and Ctrl elsewhere), `destructive()`, and
 `confirm(title, message?)` to ask first. Every effect but `run` and `submit` is
-carried out by the launcher without running extension code.
+carried out by the launcher without running extension code. A shortcut the
+search field already uses (such as `ctrl-x`, Cut, on Linux) never reaches an
+action; prefer `secondary-shift-…` combinations.
 
 ### `launcher/api`
 
