@@ -1524,7 +1524,7 @@ name for the family. Nothing downstream needs it to distinguish two of them:
 dispatch is by `TypeId`, and the id is compared at the listener. The name is
 for the keymap's JSON form and for anything that shows an action to a person.
 
-What is still missing is a contribution registry (§18.4): bindings are
+What is still missing is a contribution registry (§18.5): bindings are
 installed by a running script rather than declared in a manifest, so they
 arrive when `init` does.
 
@@ -2853,6 +2853,37 @@ answers. Argument conversion is depth-limited at 16, which turns "the host was
 handed a 100,000-deep list" from a blown Rust stack into a message at the call
 site.
 
+**A host may also ship a module written in JavaScript.** The plain-data boundary
+rules out a Rust-exported class, but a host often wants to give scripts exactly
+that — a `Query` or `Paginator` built on `cx.notify()`. `HostModule::source`
+builds a module whose body is ES module source the host supplies:
+
+```rust,ignore
+let policy = Policy::new()
+    .with_host_module(HostModule::new("launcher/api").function("show_toast", show_toast))?
+    .with_host_module(HostModule::source("launcher/utils", include_str!("utils.js")))?;
+```
+
+```js
+// utils.js, shipped by the host
+import { show_toast } from "launcher/api";
+export class Query { /* … */ }
+```
+
+It is registered, reserved-name checked, resolved and generation-tagged exactly
+like a generated module, so it is one linked instance per registry generation —
+shared by the applications holding one policy, separate for another policy. It
+carries **no authority of its own**: it is evaluated in the importing
+application's sandbox, and its code runs under the caller's frame and policy,
+so it can do nothing that script could not. Its own imports resolve under the
+same policy and are bare specifiers only — the runtime's modules and the
+policy's other HostModules; a relative import is refused, because a
+host-supplied module has no directory. A source module exports only what its
+source exports, so `validate` refuses one that also registers functions or
+components. `declarations` are published as written, and without them the
+module is declared untyped (`declare module "launcher/utils";`), since its
+exports are whatever the JavaScript says.
+
 ---
 
 ## 18. The Plugin Model
@@ -3063,7 +3094,40 @@ including tasks that deliberately opted out of view ownership. Only then does
 the manager drop the plugin, so owner-less work cannot retain or exercise
 authority after unload.
 
-### 18.4 What is still missing
+### 18.4 Embedding without the plugin manager
+
+A host that runs several extensions on one runtime and draws their views itself
+— a launcher, say — does not need discovery, but it does need each extension to
+run under its own `Policy`.
+
+- `ShellRuntime::load_application_with_policy(dir, entry, policy, window, cx)`
+  links the entry inside a call frame carrying `policy`, so its HostModule
+  imports resolve against the modules registered on that policy with
+  `Policy::with_host_module` — never the default policy's, even when one of
+  the same name exists there, and never another extension's. The returned
+  `LoadedApplication` remembers the policy, and `mount_application` mounts the
+  view under it. Two extensions each importing `launcher` therefore reach two
+  module instances, which is how the host tells which one called. Load and
+  mount take the policy from one place because a module linked against one
+  registry and dispatched against another would be a mismatch nobody asked for.
+- `ComponentCallback::invoke_view` (and `invoke_view_with`) runs a callback
+  that returns `new Page(props)` and gives that view a GPUI entity of its own.
+  The callback and the new view run under the policy and application of the
+  view that registered the callback. The returned instance's `init(props)` is
+  deferred until the callback returns and then runs under the new entity, so
+  its tasks, timers and retained state belong to it: `cx.notify()` from them
+  refreshes that entity. Other views the callback constructs are initialized
+  under the calling view. The entity is _hosted_: no store record holds it,
+  the host's handle is its lifetime, and dropping the last handle cancels its
+  tasks and callbacks and releases its retained records. Root ownership was
+  rejected because dropping a pushed page would retire the whole application;
+  nested ownership because a store record would keep a popped page alive until
+  its owner went away. The view still belongs to its application: unloading
+  the extension stops its callbacks and tasks too. A callback that throws,
+  returns anything but a View it constructed, or whose `init` throws is an
+  error, with everything the attempt retained rolled back.
+
+### 18.5 What is still missing
 
 The complete authorization product — `granted` / `denied` / `prompt`, a
 permission sheet shown before the first run, a decision persisted in host
@@ -4333,6 +4397,10 @@ uses one local application's manifest directly, as does the public
 `ShellRuntime::load` convenience path; `PluginManager` remains available for
 hosts that actually need discovery and id-based unload. Integration tests cover
 both direct loading and asynchronous initialization under a manifest policy.
+Hosts that embed several applications without the manager load each under an
+explicit policy with `ShellRuntime::load_application_with_policy`, build
+host-owned views from script callbacks with `ComponentCallback::invoke_view`,
+and ship JavaScript helper modules with `HostModule::source` (§17.6, §18.4).
 
 ### Not built
 

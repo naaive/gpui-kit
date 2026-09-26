@@ -85,6 +85,15 @@ enum ViewOwnership {
     Root,
     /// A nested view owns only work keyed to its exact GPUI entity identity.
     Nested(EntityId),
+    /// A view the embedding host holds by handle, built from a script callback
+    /// ([`crate::ComponentCallback::invoke_view`]).
+    ///
+    /// Like `Nested` it owns only work keyed to its own entity — never the
+    /// application, whose other views are still running. Unlike `Nested` no
+    /// store record keeps it alive, so the host dropping its last handle is
+    /// the release, and dropping has to take the view's retained records with
+    /// it as well as its tasks.
+    Hosted(EntityId),
 }
 
 impl ScriptView {
@@ -109,6 +118,15 @@ impl ScriptView {
         entity_id: EntityId,
     ) -> Self {
         Self::with_ownership(runtime, object, policy, ViewOwnership::Nested(entity_id))
+    }
+
+    pub(crate) fn hosted(
+        runtime: Rc<ShellRuntime>,
+        object: ViewObject,
+        policy: Rc<Policy>,
+        entity_id: EntityId,
+    ) -> Self {
+        Self::with_ownership(runtime, object, policy, ViewOwnership::Hosted(entity_id))
     }
 
     fn with_ownership(
@@ -279,6 +297,12 @@ impl Drop for ScriptView {
                 // the same operation that removes the child handle. Reaching
                 // back into that RefCell here would re-enter its mutable borrow.
                 crate::engine::quickjs::cancel_view_tasks(&self.runtime, entity_id);
+            }
+            ViewOwnership::Hosted(entity_id) => {
+                // No store record holds this view, so nothing else will remove
+                // what its init, events and tasks retained. The entity is
+                // dropped by GPUI's deferred release, outside any store borrow.
+                self.runtime.release_hosted_view_without_context(entity_id);
             }
         }
     }

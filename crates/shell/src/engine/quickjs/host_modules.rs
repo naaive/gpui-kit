@@ -189,7 +189,7 @@ impl HostModuleLoader {
 impl Resolver for HostModuleLoader {
     fn resolve<'js>(
         &mut self,
-        _ctx: &Ctx<'js>,
+        ctx: &Ctx<'js>,
         base: &str,
         name: &str,
         _attributes: Option<ImportAttributes<'js>>,
@@ -198,6 +198,19 @@ impl Resolver for HostModuleLoader {
         // own file, and answering for one here would let a registered module
         // stand in for a file the author is looking straight at.
         if name.starts_with('.') || name.starts_with('/') {
+            // A source HostModule has no directory, so a path from inside one
+            // names nothing. Saying so beats the application resolver's
+            // "cannot identify the application" for a base that is not a file.
+            if let Some((module, _)) = Self::untag(base) {
+                return Err(Exception::throw_message(
+                    ctx,
+                    &format!(
+                        "HostModule `{module}` imports `{name}`, but a source HostModule may \
+                         import only bare specifiers: the runtime's modules and other \
+                         HostModules"
+                    ),
+                ));
+            }
             return Err(JsError::new_resolving(base, name));
         }
 
@@ -240,6 +253,13 @@ impl Loader for HostModuleLoader {
         let found = registry
             .get(module)
             .map_err(|error| Exception::throw_message(ctx, error.message()))?;
+
+        if let Some(source) = found.script_source() {
+            // Declared under the tagged name like a generated module, so it is
+            // cached per registry generation: one instance per policy's set of
+            // modules, re-read when that set changes.
+            return Module::declare(ctx.clone(), name, source);
+        }
 
         let mut source = String::new();
         for function in found.function_names() {
