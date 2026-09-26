@@ -19,7 +19,10 @@ Commands:
   hide               Hide the launcher
   open <url>         Open a deep link, such as
                      launcher://extensions/<extension-id>/<command>
-  dev <directory>    Load an extension directory ahead of the installed ones
+  dev <directory>    Load an extension directory ahead of the installed ones,
+                     writing its TypeScript declarations first
+  types <directory>  Write TypeScript declarations and the launcher.json
+                     schema into an extension directory
 
 Options:
   -h, --help         Print this help";
@@ -37,6 +40,8 @@ pub enum Command {
     Open(String),
     /// Load a development extension directory.
     Dev(PathBuf),
+    /// Write an extension's TypeScript declarations; needs no instance.
+    Types(PathBuf),
     Help,
 }
 
@@ -50,7 +55,7 @@ impl Command {
             Self::Hide => Message::Hide,
             Self::Open(url) => Message::Open(url.clone()),
             Self::Dev(directory) => Message::Dev(directory.clone()),
-            Self::Help => return None,
+            Self::Types(_) | Self::Help => return None,
         })
     }
 }
@@ -92,6 +97,10 @@ pub fn parse(
         "dev" => {
             let directory = PathBuf::from(operand(&mut arguments, "dev", "a directory")?);
             Command::Dev(current_directory.join(directory))
+        }
+        "types" => {
+            let directory = PathBuf::from(operand(&mut arguments, "types", "a directory")?);
+            Command::Types(current_directory.join(directory))
         }
         other => return Err(UsageError(format!("unknown command `{other}`"))),
     };
@@ -150,6 +159,10 @@ mod tests {
         assert_eq!(
             run(&["dev", "/abs/extension"]),
             Ok(Command::Dev(PathBuf::from("/abs/extension")))
+        );
+        assert_eq!(
+            run(&["types", "ext"]),
+            Ok(Command::Types(PathBuf::from("/work/ext")))
         );
     }
 

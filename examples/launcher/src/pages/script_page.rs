@@ -4,7 +4,10 @@ use gpui_kit::{
 use gpui_shell::ScriptView;
 
 use super::Page;
-use crate::{extensions::take_page_model, model::PageModel};
+use crate::{
+    extensions::{render_for_extension, take_page_model},
+    model::PageModel,
+};
 
 /// An extension command's page.
 ///
@@ -35,9 +38,13 @@ impl ScriptPage {
     }
 
     fn build(&self, window: &mut Window, cx: &mut Context<Self>) -> PageModel {
-        let mut element = self
-            .view
-            .update(cx, |view, cx| view.render(window, cx).into_any_element());
+        // Rendering inside the extension's identity lets `Action.launch` name
+        // a sibling command by its bare name, whichever page is on top.
+        let extension: SharedString = self.view.read(cx).policy().application().to_owned().into();
+        let mut element = render_for_extension(&extension, || {
+            self.view
+                .update(cx, |view, cx| view.render(window, cx).into_any_element())
+        });
         if let Some(error) = self.view.read(cx).build_error() {
             return PageModel::failure("The command failed", error.to_owned());
         }

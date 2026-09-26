@@ -60,15 +60,6 @@ impl EffectSink {
         handler(effect, cx);
     }
 
-    /// Requests from inside a host function, where only the ambient `App` is
-    /// at hand.
-    fn request_from_script(&self, effect: Effect) {
-        let sink = self.clone();
-        if gpui_shell::with_current_app(|cx| sink.request(effect, cx)).is_none() {
-            tracing::warn!("an extension requested an effect outside of a script call");
-        }
-    }
-
     pub(super) fn toast(&self, toast: Toast, cx: &mut App) {
         self.request(Effect::ShowToast(toast), cx);
     }
@@ -88,6 +79,22 @@ impl ChangeNotifier {
     }
 }
 
+/// Where an extension's `update_command_metadata` goes: the root search shows
+/// the new subtitle in place of the manifest's.
+#[derive(Clone, Default)]
+pub(super) struct MetadataNotifier(
+    Rc<RefCell<Option<Rc<dyn Fn(CommandId, bridge::CommandMetadata, &mut App)>>>>,
+);
+
+impl MetadataNotifier {
+    fn notify(&self, command: CommandId, update: bridge::CommandMetadata, cx: &mut App) {
+        let handler = self.0.borrow().clone();
+        if let Some(handler) = handler {
+            handler(command, update, cx);
+        }
+    }
+}
+
 /// What the launcher's own extension pages work with.
 #[derive(Clone)]
 pub(super) struct Services {
@@ -96,6 +103,7 @@ pub(super) struct Services {
     pub(super) preferences: PreferenceStore,
     pub(super) effects: EffectSink,
     pub(super) changed: ChangeNotifier,
+    pub(super) metadata: MetadataNotifier,
 }
 
 /// Everything a command is opened with, and what `launch()` answers.
@@ -130,46 +138,6 @@ impl LaunchContext {
     pub fn cache_dir(&self) -> &Path {
         &self.cache_dir
     }
-
-    /// `launch()`'s return value.
-    fn to_host_value(&self) -> HostValue {
-        let arguments = self
-            .arguments
-            .iter()
-            .fold(HostObject::new(), |object, (name, value)| {
-                object.field(name.to_string(), value.to_string())
-            });
-        let preferences = self
-            .preferences
-            .iter()
-            .fold(HostObject::new(), |object, (name, value)| {
-                object.field(name.clone(), json_to_host(value))
-            });
-        HostObject::new()
-            .field("extension", self.command.extension().to_string())
-            .field("command", self.command.command().to_string())
-            .field("arguments", arguments)
-            .field("preferences", preferences)
-            .into()
-    }
-}
-
-fn json_to_host(value: &serde_json::Value) -> HostValue {
-    match value {
-        serde_json::Value::Null => HostValue::Null,
-        serde_json::Value::Bool(value) => HostValue::Bool(*value),
-        serde_json::Value::Number(value) => HostValue::Number(value.as_f64().unwrap_or_default()),
-        serde_json::Value::String(value) => HostValue::Str(value.clone()),
-        serde_json::Value::Array(values) => {
-            HostValue::Array(values.iter().map(json_to_host).collect())
-        }
-        serde_json::Value::Object(fields) => HostValue::Object(
-            fields
-                .iter()
-                .map(|(name, value)| (name.clone(), json_to_host(value)))
-                .collect(),
-        ),
-    }
 }
 
 /// How a launch's host functions reach the launcher.
@@ -181,95 +149,62 @@ struct LaunchSink {
 }
 
 impl LaunchSink {
-    fn request(&self, effect: Effect) {
-        self.effects.request_from_script(effect);
+    fn request(&self, effect: Effect, cx: &mut App) {
+        self.effects.request(effect, cx);
     }
 
     /// The command said it is done (a HUD, closing the window). Releasing its
     /// view waits until the script call that said so has returned.
-    fn finished(&self) {
+    fn finished(&self, cx: &mut App) {
         let (state, launch) = (self.state.clone(), self.launch);
-        gpui_shell::with_current_app(|cx| {
-            cx.defer(move |cx| {
-                if let Some(state) = state.upgrade() {
-                    state.finish_background(launch, cx);
-                }
-            })
+        cx.defer(move |cx| {
+            if let Some(state) = state.upgrade() {
+                state.finish_background(launch, cx);
+            }
         });
+    }
+
+    fn metadata(&self, command: CommandId, update: bridge::CommandMetadata, cx: &mut App) {
+        if let Some(state) = self.state.upgrade() {
+            state.services.metadata.notify(command, update, cx);
+        }
     }
 }
 
 /// The HostModules a launch's policy grants: the only place that decides
 /// what an extension can import besides the runtime's own modules.
 ///
-/// When the bridge provides `HostApi::module_for(ExtensionContext)` and
-/// `utils_module_source()`, this becomes
-/// `vec![bridge::HostApi::module_for(context.into()), HostModule::source("launcher/utils", bridge::utils_module_source())]`,
-/// with [`LaunchSink`] as the context's effect sink.
+/// `launcher/api` is built per launch, so `launch()` answers for the command
+/// whose code is calling at any time — in `init`, in `render`, in a callback
+/// three seconds later — rather than for whichever command was opened last.
 fn host_modules(context: &LaunchContext, sink: &LaunchSink) -> Vec<HostModule> {
-    vec![api_module(context, sink)]
-}
-
-const API_MODULE: &str = "launcher/api";
-
-const API_DECLARATIONS: &str = r#"
-/** The command this view was opened for, with its arguments and preferences. */
-export function launch(): {
-  extension: string;
-  command: string;
-  arguments: Record<string, string>;
-  preferences: Record<string, string | boolean>;
-};
-/** Shows a message in the launcher. */
-export function show_toast(message: string, style?: "info" | "success" | "failure"): void;
-/** Hides the launcher and shows a short message; a no-view command's way of finishing. */
-export function show_hud(message: string): void;
-/** Hides the launcher. */
-export function close_main_window(): void;
-"#;
-
-/// `launcher/api` for one launch.
-///
-/// Built per launch, so `launch()` answers for the command whose code is
-/// calling at any time — in `init`, in `render`, in a callback three seconds
-/// later — rather than for whichever command was opened last.
-fn api_module(context: &LaunchContext, sink: &LaunchSink) -> HostModule {
-    let launch = context.to_host_value();
-    let toast = sink.clone();
-    let hud = sink.clone();
-    let close = sink.clone();
-    HostModule::new(API_MODULE)
-        .function("launch", move |_| Ok(launch.clone()))
-        .function("show_toast", move |arguments| {
-            let message = arguments.string(0)?.to_owned();
-            let style = match arguments.get(1) {
-                None | Some(HostValue::Null) => ToastStyle::Info,
-                Some(_) => match arguments.string(1)? {
-                    "info" => ToastStyle::Info,
-                    "success" => ToastStyle::Success,
-                    "failure" => ToastStyle::Failure,
-                    other => {
-                        return Err(HostError::new(format!(
-                            "unknown toast style `{other}`; use info, success or failure"
-                        )));
-                    }
-                },
-            };
-            toast.request(Effect::ShowToast(Toast::new(style, message)));
-            Ok(HostValue::Null)
+    let sink = sink.clone();
+    let metadata = sink.clone();
+    let api = context
+        .arguments()
+        .iter()
+        .fold(
+            bridge::ExtensionContext::new(context.command().extension().clone())
+                .with_command(context.command().command().clone()),
+            |api, (name, value)| api.with_argument(name.clone(), value.clone()),
+        )
+        .with_preferences(context.preferences().clone().into_iter().collect())
+        .with_cache_directory(context.cache_dir())
+        .with_effect_sink(move |effect, cx| {
+            // A HUD or closing the window is how a no-view command says it
+            // is done.
+            let finishes = matches!(effect, Effect::ShowHud(_) | Effect::CloseWindow);
+            sink.request(effect, cx);
+            if finishes {
+                sink.finished(cx);
+            }
         })
-        .function("show_hud", move |arguments| {
-            let message = arguments.string(0)?.to_owned();
-            hud.request(Effect::ShowHud(message.into()));
-            hud.finished();
-            Ok(HostValue::Null)
-        })
-        .function("close_main_window", move |_| {
-            close.request(Effect::CloseWindow);
-            close.finished();
-            Ok(HostValue::Null)
-        })
-        .declarations(API_DECLARATIONS)
+        .with_metadata_sink(move |command, update, cx| metadata.metadata(command, update, cx));
+    vec![
+        bridge::HostApi::module_for(api),
+        HostModule::source(bridge::UTILS_MODULE, bridge::utils_module_source())
+            .declarations(bridge::utils_declarations()),
+    ]
 }
 
 /// One opening of a command: the policy its code runs under and its view.
@@ -427,6 +362,7 @@ impl ExtensionHost {
             data,
             effects: EffectSink::default(),
             changed: ChangeNotifier::default(),
+            metadata: MetadataNotifier::default(),
         };
         let state = Rc::new(HostState {
             services,
@@ -454,6 +390,19 @@ impl ExtensionHost {
         self.state
             .services
             .changed
+            .0
+            .replace(Some(Rc::new(handler)));
+    }
+
+    /// Called when an extension updates a command's metadata, such as the
+    /// subtitle the root search shows for it.
+    pub fn set_metadata_handler(
+        &self,
+        handler: impl Fn(CommandId, bridge::CommandMetadata, &mut App) + 'static,
+    ) {
+        self.state
+            .services
+            .metadata
             .0
             .replace(Some(Rc::new(handler)));
     }

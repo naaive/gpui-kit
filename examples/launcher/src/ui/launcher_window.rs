@@ -107,6 +107,18 @@ impl LauncherWindow {
     ) -> Self {
         let input = cx.new(|cx| InputState::new(window, cx));
         let root = cx.new(|_| RootSearchPage::new(&catalog));
+        // An extension that updates a command's subtitle is heard in the root
+        // search, which lists the command.
+        let weak_root = root.downgrade();
+        extensions.set_metadata_handler(move |command, update, cx| {
+            if let Some(subtitle) = update.subtitle().cloned() {
+                weak_root
+                    .update(cx, |root, cx| {
+                        root.set_command_subtitle(&command, subtitle, cx)
+                    })
+                    .ok();
+            }
+        });
         let root_entry = Self::entry(pages::handle(root), cx);
         let subscriptions = vec![cx.subscribe_in(&input, window, Self::on_input_event)];
 

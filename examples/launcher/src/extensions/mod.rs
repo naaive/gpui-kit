@@ -21,7 +21,7 @@ mod paths;
 mod permissions;
 mod preferences;
 
-pub use bridge::take_page_model;
+pub use bridge::{render_for_extension, take_page_model, write_declarations};
 pub use catalog::{Catalog, Extension, ExtensionCommand};
 pub use host::{ExtensionHost, LaunchContext, Opened, page_from_callback};
 pub use manifest::{

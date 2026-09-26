@@ -40,6 +40,31 @@ fn main() -> ExitCode {
         }
     };
 
+    // Declarations are files in the extension directory; writing them needs
+    // no running launcher.
+    match &command {
+        Command::Types(directory) => {
+            return match extensions::write_declarations(directory) {
+                Ok(written) => {
+                    for path in written {
+                        println!("{}", path.display());
+                    }
+                    ExitCode::SUCCESS
+                }
+                Err(error) => {
+                    eprintln!("launcher: {error:#}");
+                    ExitCode::FAILURE
+                }
+            };
+        }
+        Command::Dev(directory) => {
+            if let Err(error) = extensions::write_declarations(directory) {
+                eprintln!("launcher: cannot write declarations: {error:#}");
+            }
+        }
+        _ => {}
+    }
+
     let listener = match forward_or_listen(&command) {
         Ok(Some(listener)) => listener,
         Ok(None) => return ExitCode::SUCCESS,

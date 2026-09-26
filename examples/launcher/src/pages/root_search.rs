@@ -208,6 +208,28 @@ impl RootSearchPage {
                 .is_some_and(|scanned_at| scanned_at.elapsed() > STALE_SCAN)
     }
 
+    /// Shows `subtitle` for an extension command in place of its manifest's,
+    /// as the extension asked through `update_command_metadata`.
+    pub fn set_command_subtitle(
+        &mut self,
+        command: &crate::extensions::CommandId,
+        subtitle: SharedString,
+        cx: &mut Context<Self>,
+    ) {
+        let id = command.to_string();
+        let Some(ix) = self
+            .extensions
+            .items
+            .iter()
+            .position(|item| item.id().as_str() == id)
+        else {
+            return;
+        };
+        let item = self.extensions.items[ix].clone();
+        self.extensions.items[ix] = item.with_subtitle(subtitle);
+        self.invalidate(cx);
+    }
+
     fn invalidate(&mut self, cx: &mut Context<Self>) {
         self.list = None;
         cx.notify();
