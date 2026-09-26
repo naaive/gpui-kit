@@ -222,6 +222,7 @@ impl LauncherWindow {
         if !self.navigator.pop() {
             return false;
         }
+        self.navigator.current().page().clone().did_reappear(cx);
         self.sync_input(window, cx);
         self.page_did_appear(window, cx);
         true

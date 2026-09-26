@@ -11,10 +11,7 @@ function formatDate(time) {
 }
 
 export default class SearchNotes extends View {
-  init(props, cx) {
-    // This `cx` outlives `init`, so a pushed form can re-render the list
-    // after it saves.
-    this.cx = cx;
+  init() {
     this.reload();
   }
 
@@ -34,10 +31,8 @@ export default class SearchNotes extends View {
   edit(note) {
     return new NoteForm({
       note,
-      on_saved: () => {
-        this.reload();
-        this.cx.notify();
-      },
+      // The list renders again when the form pops back to it.
+      on_saved: () => this.reload(),
     });
   }
 

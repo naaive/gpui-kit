@@ -69,6 +69,13 @@ impl Page for ScriptPage {
             .unwrap_or_else(|| PageModel::failure("The command returned no page", ""))
     }
 
+    /// Renders the script again: a page pushed over this one runs in the same
+    /// script (an edit form saving a note), and GPUI Shell's `cx.notify()`
+    /// reaches only the view whose code is running, which was the page above.
+    fn did_reappear(&mut self, cx: &mut Context<Self>) {
+        self.view.update(cx, |view, cx| view.refresh(cx));
+    }
+
     fn set_query(&mut self, query: &str, window: &mut Window, cx: &mut Context<Self>) {
         let handler = match &self.model {
             Some(PageModel::List(list)) => list.on_query_change().cloned(),

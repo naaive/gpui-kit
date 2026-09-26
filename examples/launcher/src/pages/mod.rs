@@ -28,6 +28,10 @@ pub trait Page: 'static + Sized {
     /// Called after one of this page's item actions was performed, so a page
     /// can learn from what the user picks (the root search ranks by it).
     fn did_perform(&mut self, _item: &ItemId, _query: &str, _cx: &mut Context<Self>) {}
+
+    /// Called when the page is on top again after the page above it was
+    /// popped. What that page did may have changed what this one shows.
+    fn did_reappear(&mut self, _cx: &mut Context<Self>) {}
 }
 
 /// A page with its type erased, as the navigation stack holds it.
@@ -36,6 +40,7 @@ pub trait AnyPage {
     fn model(&self, window: &mut Window, cx: &mut App) -> PageModel;
     fn set_query(&self, query: &str, window: &mut Window, cx: &mut App);
     fn did_perform(&self, item: &ItemId, query: &str, cx: &mut App);
+    fn did_reappear(&self, cx: &mut App);
     /// Calls `on_notify` whenever the page asks to be drawn again.
     fn observe(&self, on_notify: Box<dyn Fn(&mut App)>, cx: &mut App) -> Subscription;
 }
@@ -55,6 +60,10 @@ impl<P: Page> AnyPage for Entity<P> {
 
     fn did_perform(&self, item: &ItemId, query: &str, cx: &mut App) {
         self.update(cx, |page, cx| page.did_perform(item, query, cx))
+    }
+
+    fn did_reappear(&self, cx: &mut App) {
+        self.update(cx, |page, cx| page.did_reappear(cx))
     }
 
     fn observe(&self, on_notify: Box<dyn Fn(&mut App)>, cx: &mut App) -> Subscription {
