@@ -214,6 +214,9 @@ fn test_a_missing_required_argument_is_asked_for_first(cx: &mut TestAppContext) 
     );
 
     cx.simulate_input("Ada");
+    // The action panel gives the keyboard back to the field that had it.
+    cx.simulate_keystrokes("tab secondary-k escape");
+    cx.simulate_input("Hi");
     cx.simulate_keystrokes("secondary-enter");
     cx.run_until_parked();
     assert_eq!(
@@ -223,7 +226,7 @@ fn test_a_missing_required_argument_is_asked_for_first(cx: &mut TestAppContext) 
     );
     assert_eq!(
         rows(&launcher, &mut cx),
-        [">argument:how=", "argument:who=Ada"]
+        [">argument:how=Hi", "argument:who=Ada"]
     );
 }
 
@@ -627,4 +630,54 @@ fn test_a_note_created_from_the_list_is_there_when_the_list_opens_again(cx: &mut
     );
     cx.simulate_keystrokes("escape escape");
     assert_eq!(notes(&mut cx), ["Second"]);
+}
+
+#[gpui::test]
+fn test_editing_a_note_returns_to_the_list_with_the_change(cx: &mut TestAppContext) {
+    let (launcher, mut cx) = open(cx, &[bundled()]);
+    cx.simulate_input("create note");
+    cx.simulate_keystrokes("enter");
+    cx.simulate_input("Groceries");
+    cx.simulate_keystrokes("tab");
+    cx.simulate_input("Milk");
+    cx.simulate_keystrokes("secondary-enter");
+    cx.run_until_parked();
+    assert_eq!(
+        depth(&launcher, &mut cx),
+        1,
+        "Cmd/Ctrl-Enter submits from the text area"
+    );
+
+    cx.simulate_input("search notes");
+    cx.simulate_keystrokes("enter");
+    let selection = selected(&launcher, &mut cx);
+    let (note, _) = selection.split_once(':').expect("a note shows its date");
+    cx.simulate_keystrokes("secondary-e");
+    assert_eq!(depth(&launcher, &mut cx), 3, "the form is pushed");
+    let PageModel::Form(form) = page(&launcher, &mut cx) else {
+        panic!("Edit Note pushes a form");
+    };
+    assert_eq!(
+        form.fields()[0].control().initial_value(),
+        crate::model::FormValue::Text("Groceries".into())
+    );
+
+    cx.simulate_input(" and more");
+    cx.simulate_keystrokes("secondary-enter");
+    cx.run_until_parked();
+    assert_eq!(depth(&launcher, &mut cx), 2, "saving returns to the list");
+    assert_eq!(
+        selected(&launcher, &mut cx),
+        selection,
+        "the note stays selected"
+    );
+    assert_eq!(
+        item(&launcher, note, &mut cx).map(|item| item.title().to_string()),
+        Some("Groceries and more".into()),
+        "the list shows the change"
+    );
+    assert!(
+        cx.update(|window, cx| launcher.read(cx).input.focus_handle(cx).is_focused(window)),
+        "the search field has the keyboard again"
+    );
 }
