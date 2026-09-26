@@ -257,13 +257,12 @@ impl LauncherWindow {
             PageModel::Form(form) => {
                 let entry = self.navigator.current().id();
                 self.ensure_form_fields(entry, form, window, cx);
-                match self
+                let focused = self
                     .forms
                     .get(&entry)
-                    .and_then(|fields| fields.first_focus_handle(form, cx))
-                {
-                    Some(handle) => handle.focus(window, cx),
-                    None => self.focus_handle.focus(window, cx),
+                    .is_some_and(|fields| fields.focus_first(form, window, cx));
+                if !focused {
+                    self.focus_handle.focus(window, cx);
                 }
             }
             PageModel::Detail(_) | PageModel::Failure { .. } => self.focus_handle.focus(window, cx),
@@ -568,12 +567,20 @@ impl LauncherWindow {
         cx.notify();
     }
 
-    /// Closes the panel and gives the keyboard back to the page.
+    /// Closes the panel and gives the keyboard back to what had it: the
+    /// field of a form the user was in, say, rather than its first one.
     pub(super) fn close_action_panel(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.action_panel.take().is_some() {
-            self.focus_page(window, cx);
-            cx.notify();
+        let Some(open) = self.action_panel.take() else {
+            return;
+        };
+        match open
+            .return_focus()
+            .filter(|handle| self.focus_handle.contains(handle, window))
+        {
+            Some(handle) => handle.focus(window, cx),
+            None => self.focus_page(window, cx),
         }
+        cx.notify();
     }
 
     /// Performs the action whose shortcut was pressed, from the open panel's

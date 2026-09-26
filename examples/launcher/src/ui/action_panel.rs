@@ -6,9 +6,9 @@
 //! sections, submenus, pictures, shortcuts and destructive actions.
 
 use gpui_kit::{
-    AnyElement, App, AppContext as _, Context, Entity, InteractiveElement as _, IntoElement,
-    Keystroke, ParentElement as _, Role, SharedString, StatefulInteractiveElement as _,
-    Styled as _, WeakEntity, Window,
+    AnyElement, App, AppContext as _, Context, Entity, FocusHandle, InteractiveElement as _,
+    IntoElement, Keystroke, ParentElement as _, Role, SharedString,
+    StatefulInteractiveElement as _, Styled as _, WeakEntity, Window,
     component::{
         ActiveTheme as _, Icon, IconName, IndexPath, Sizable as _,
         command::{Command, CommandGroup, CommandItem, CommandState},
@@ -48,17 +48,25 @@ pub(super) struct OpenPanel {
     /// The item whose actions are listed; `None` for a page's own actions.
     item: Option<ItemId>,
     submenu: Option<EntryPath>,
+    /// What had the keyboard before the panel took it, to give it back.
+    return_focus: Option<FocusHandle>,
 }
 
 impl OpenPanel {
     pub(super) fn new(item: Option<ItemId>, window: &mut Window, cx: &mut App) -> Self {
+        let return_focus = window.focused(cx);
         let command = cx.new(|cx| CommandState::new(window, cx));
         command.update(cx, |command, cx| command.focus(window, cx));
         Self {
             command,
             item,
             submenu: None,
+            return_focus,
         }
+    }
+
+    pub(super) fn return_focus(&self) -> Option<&FocusHandle> {
+        self.return_focus.as_ref()
     }
 
     pub(super) fn item(&self) -> Option<&ItemId> {

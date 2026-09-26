@@ -13,7 +13,7 @@ use gpui_kit::{
     InteractiveElement as _, IntoElement, ParentElement as _, SharedString,
     StatefulInteractiveElement as _, Styled as _, Subscription, Window,
     component::{
-        ActiveTheme as _, IndexPath,
+        ActiveTheme as _, IndexPath, RopeExt as _,
         checkbox::Checkbox,
         date_picker::{DatePicker, DatePickerEvent, DatePickerState},
         h_flex,
@@ -144,11 +144,33 @@ impl FormFields {
             })
     }
 
-    pub(super) fn first_focus_handle(&self, form: &FormModel, cx: &App) -> Option<FocusHandle> {
-        form.fields()
+    /// Focuses the first field that takes the keyboard, with the caret after
+    /// any text it holds, ready to add to it. Returns whether one did.
+    pub(super) fn focus_first(&self, form: &FormModel, window: &mut Window, cx: &mut App) -> bool {
+        let Some(state) = form
+            .fields()
             .iter()
             .filter_map(|field| self.fields.get(field.id()))
-            .find_map(|state| state.focus_handle(cx))
+            .find(|state| state.focus_handle(cx).is_some())
+        else {
+            return false;
+        };
+        match state {
+            FieldState::Text(input) => input.update(cx, |input, cx| {
+                let end = input.text().offset_to_position(input.text().len());
+                input.set_cursor_position(end, window, cx);
+            }),
+            FieldState::TextArea(input) => input.update(cx, |input, cx| {
+                let end = input.text().offset_to_position(input.text().len());
+                input.set_cursor_position(end, window, cx);
+            }),
+            FieldState::Checkbox(_) | FieldState::Dropdown(_) | FieldState::Date(_) => {
+                if let Some(handle) = state.focus_handle(cx) {
+                    handle.focus(window, cx);
+                }
+            }
+        }
+        true
     }
 }
 
