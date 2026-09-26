@@ -55,6 +55,14 @@ pub fn init(cx: &mut App) {
         KeyBinding::new("ctrl-n", SelectNext, context),
         KeyBinding::new("enter", Confirm, context),
         KeyBinding::new("secondary-enter", ConfirmSecondary, context),
+        // A multi-line field takes Cmd/Ctrl-Enter for a line break and keeps
+        // it, so a form could not be submitted from its text area. In the
+        // launcher the key submits, from any field.
+        KeyBinding::new(
+            "secondary-enter",
+            ConfirmSecondary,
+            Some("Launcher > Input"),
+        ),
         KeyBinding::new("escape", Back, context),
         KeyBinding::new("secondary-k", ToggleActions, context),
     ]);
