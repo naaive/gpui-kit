@@ -9,6 +9,7 @@ edition.workspace = true
 anyhow.workspace = true
 gpui-kit.workspace = true
 gpui-shell.workspace = true
+schemars.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tracing.workspace = true

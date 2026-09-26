@@ -935,3 +935,44 @@ export default class Main extends View {
     let cache = std::fs::read_to_string(mounted.root.join("cache").join("cache.json")).unwrap();
     assert_eq!(cache, r#"{"repos":["gpui","kit"]}"#);
 }
+
+#[test]
+fn test_write_declarations_describes_every_module() {
+    let directory =
+        std::env::temp_dir().join(format!("launcher-declarations-{}", std::process::id()));
+    std::fs::remove_dir_all(&directory).ok();
+    let written = super::write_declarations(&directory).unwrap();
+    let names: Vec<String> = written
+        .iter()
+        .map(|path| path.file_name().unwrap().to_string_lossy().into_owned())
+        .collect();
+    for expected in [
+        "gpui-kit.d.ts",
+        "launcher.d.ts",
+        "launcher-api.d.ts",
+        "launcher-utils.d.ts",
+        "launcher.schema.json",
+    ] {
+        assert!(names.iter().any(|name| name == expected), "{expected} in {names:?}");
+    }
+    let components = std::fs::read_to_string(directory.join("gpui-kit.d.ts")).unwrap();
+    let shim = std::fs::read_to_string(directory.join("launcher.d.ts")).unwrap();
+    assert!(shim.contains("declare module \"launcher\""));
+    for export in ["ListDropdown", "MetadataTags", "PasswordField", "ActionPanelSubmenu"] {
+        assert!(components.contains(export), "`{export}` is declared");
+    }
+    let api = std::fs::read_to_string(directory.join("launcher-api.d.ts")).unwrap();
+    assert!(api.contains("declare module \"launcher/api\""));
+    assert!(api.contains("export function cache_set"));
+    let utils = std::fs::read_to_string(directory.join("launcher-utils.d.ts")).unwrap();
+    assert!(utils.contains("export class Query<T>"));
+
+    assert!(
+        super::write_declarations(&directory)
+            .unwrap()
+            .iter()
+            .all(|path| !path.ends_with("launcher-api.d.ts")),
+        "an up-to-date file is not rewritten"
+    );
+    std::fs::remove_dir_all(&directory).ok();
+}

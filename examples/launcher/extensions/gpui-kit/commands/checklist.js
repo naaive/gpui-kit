@@ -19,7 +19,7 @@ export default class Checklist extends View {
   toggle(task, cx) {
     task.done = !task.done;
     if (this.tasks.every((each) => each.done)) {
-      show_toast("Everything is done", "success");
+      show_toast({ title: "Everything is done", style: "success" });
     }
     cx.notify();
   }
@@ -31,7 +31,7 @@ export default class Checklist extends View {
         new Action(task.done ? "Mark as Not Done" : "Mark as Done").run((cx) => this.toggle(task, cx)),
       )
       .action(new Action("Copy Title").shortcut("secondary-shift-c").copy(task.title));
-    return task.done ? item.accessory("Done") : item;
+    return task.done ? item.tag("Done", "success") : item;
   }
 
   render() {
@@ -39,6 +39,7 @@ export default class Checklist extends View {
     return new List()
       .placeholder(`Filter tasks (${remaining} remaining)…`)
       .empty_title("No matching task")
+      .empty_description("Clear the search to see every task.")
       .children(this.tasks.map((task) => this.row(task)));
   }
 }

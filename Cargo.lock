@@ -5576,6 +5576,7 @@ dependencies = [
  "gpui-kit",
  "gpui-pre",
  "gpui-shell",
+ "schemars",
  "serde",
  "serde_json",
  "tracing",
