@@ -14,12 +14,14 @@ gpui-kit.workspace = true
 gpui-shell.workspace = true
 icns = "0.3"
 interprocess = "2"
+keyring = "4"
 notify.workspace = true
 percent-encoding = "2.3"
 pinyin = { version = "0.10", default-features = false, features = ["heteronym", "plain"] }
 plist = "1"
 serde.workspace = true
 serde_json.workspace = true
+sha2 = "0.10"
 smol.workspace = true
 tracing.workspace = true
 url = "2"

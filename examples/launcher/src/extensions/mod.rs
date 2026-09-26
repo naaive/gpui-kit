@@ -13,15 +13,23 @@
 mod bridge;
 mod catalog;
 mod host;
+pub mod install;
+mod lifecycle;
 mod manifest;
+mod pages;
+mod paths;
+mod permissions;
+mod preferences;
 
 pub use bridge::take_page_model;
 pub use catalog::{Catalog, Extension, ExtensionCommand};
-pub use host::{ExtensionHost, Opened};
+pub use host::{ExtensionHost, LaunchContext, Opened, page_from_callback};
 pub use manifest::{
     ArgumentInput, ArgumentManifest, CommandMode, PreferenceChoice, PreferenceInput,
     PreferenceManifest,
 };
+pub use paths::DataDirectory;
+pub use preferences::{FileSecrets, KeychainSecrets, MemorySecrets, SecretStore};
 
 use std::fmt;
 
