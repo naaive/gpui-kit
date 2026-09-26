@@ -24,13 +24,15 @@ mod preferences;
 pub use bridge::{render_for_extension, take_page_model, write_declarations};
 pub use catalog::{Catalog, Extension, ExtensionCommand};
 pub use host::{ExtensionHost, Opened};
+#[cfg(test)]
+pub use lifecycle::KEEP_ALIVE;
 pub use manifest::{
     ArgumentInput, ArgumentManifest, CommandMode, PreferenceInput, PreferenceManifest,
 };
 #[cfg(test)]
 pub use paths::DataDirectory;
 #[cfg(test)]
-pub use preferences::MemorySecrets;
+pub use preferences::{MemorySecrets, SecretStore};
 
 use std::fmt;
 

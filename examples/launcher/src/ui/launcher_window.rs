@@ -1170,8 +1170,11 @@ fn entry_key(entry: EntryId) -> SharedString {
 }
 
 #[cfg(test)]
+mod extension_flows;
+
+#[cfg(test)]
 mod tests {
-    use std::{cell::RefCell, ops::Deref as _, path::PathBuf, rc::Rc};
+    use std::{cell::RefCell, path::PathBuf, rc::Rc};
 
     use gpui::{TestAppContext, VisualTestContext};
     use gpui_kit::Context as GpuiContext;
@@ -1187,15 +1190,41 @@ mod tests {
         session::Row,
     };
 
-    fn bundled() -> PathBuf {
+    pub(super) fn bundled() -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("extensions")
     }
 
-    static NEXT_DATA_DIRECTORY: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    /// Keeps a test's data directory alive, and removes it, with the app.
+    struct TestData {
+        _directory: tempfile::TempDir,
+    }
 
-    fn open(
+    impl gpui_kit::Global for TestData {}
+
+    /// Opens the launcher on the extensions under `roots`, with a data
+    /// directory and a secret store of its own.
+    pub(super) fn open(
         cx: &mut TestAppContext,
         roots: &[PathBuf],
+    ) -> (Entity<LauncherWindow>, VisualTestContext) {
+        let data = tempfile::tempdir().unwrap();
+        let path = data.path().to_path_buf();
+        cx.update(|cx| cx.set_global(TestData { _directory: data }));
+        open_in(
+            cx,
+            roots,
+            &path,
+            Rc::new(crate::extensions::MemorySecrets::default()),
+        )
+    }
+
+    /// Opens the launcher with its data in `data` and its passwords in
+    /// `secrets`. Tests never touch the user's data directory or keychain.
+    pub(super) fn open_in(
+        cx: &mut TestAppContext,
+        roots: &[PathBuf],
+        data: &std::path::Path,
+        secrets: Rc<crate::extensions::MemorySecrets>,
     ) -> (Entity<LauncherWindow>, VisualTestContext) {
         cx.update(|cx| {
             gpui_kit::init(cx);
@@ -1203,38 +1232,30 @@ mod tests {
             crate::ui::init(cx);
         });
         let catalog = Rc::new(Catalog::discover(roots));
-        // Tests never touch the user's data directory or keychain.
-        let data = std::env::temp_dir().join(format!(
-            "launcher-window-test-{}-{}",
-            std::process::id(),
-            NEXT_DATA_DIRECTORY.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-        ));
         let extensions = Rc::new(
             cx.update(|cx| {
-                ExtensionHost::new_in(
-                    crate::extensions::DataDirectory::new(data),
-                    Rc::new(crate::extensions::MemorySecrets::default()),
-                    cx,
-                )
+                ExtensionHost::new_in(crate::extensions::DataDirectory::new(data), secrets, cx)
             })
             .unwrap(),
         );
-        let slot = Rc::new(RefCell::new(None));
-        let launcher = slot.clone();
-        let window = cx.add_window(move |window, cx| {
-            let view = cx.new(|cx| LauncherWindow::new(catalog, extensions, window, cx));
-            launcher.replace(Some(view.clone()));
-            gpui_kit::base::Root::new(view, window, cx)
-        });
-        let cx = VisualTestContext::from_window(*window.deref(), cx);
+        let (handle, launcher) = cx
+            .update(|cx| {
+                gpui_kit::open_window(Default::default(), cx, move |window, cx| {
+                    cx.new(|cx| LauncherWindow::new(catalog, extensions, window, cx))
+                })
+            })
+            .unwrap();
+        let cx = VisualTestContext::from_window(handle, cx);
         cx.run_until_parked();
-        let launcher = slot.borrow().clone().unwrap();
         (launcher, cx)
     }
 
     /// The visible rows as `# Header` or `item-id`, with `>` on the selection
     /// and the item's accessory after a colon.
-    fn rows(launcher: &Entity<LauncherWindow>, cx: &mut VisualTestContext) -> Vec<String> {
+    pub(super) fn rows(
+        launcher: &Entity<LauncherWindow>,
+        cx: &mut VisualTestContext,
+    ) -> Vec<String> {
         cx.update(|window, cx| {
             launcher.update(cx, |launcher, cx| {
                 let (_, rows) = launcher.rows(window, cx);
@@ -1260,22 +1281,28 @@ mod tests {
         })
     }
 
-    fn selected(launcher: &Entity<LauncherWindow>, cx: &mut VisualTestContext) -> String {
+    pub(super) fn selected(
+        launcher: &Entity<LauncherWindow>,
+        cx: &mut VisualTestContext,
+    ) -> String {
         rows(launcher, cx)
             .into_iter()
             .find_map(|row| row.strip_prefix('>').map(str::to_owned))
             .unwrap_or_default()
     }
 
-    fn page(launcher: &Entity<LauncherWindow>, cx: &mut VisualTestContext) -> PageModel {
+    pub(super) fn page(launcher: &Entity<LauncherWindow>, cx: &mut VisualTestContext) -> PageModel {
         cx.update(|window, cx| launcher.update(cx, |launcher, cx| launcher.rows(window, cx).0))
     }
 
-    fn depth(launcher: &Entity<LauncherWindow>, cx: &mut VisualTestContext) -> usize {
+    pub(super) fn depth(launcher: &Entity<LauncherWindow>, cx: &mut VisualTestContext) -> usize {
         cx.update(|_, cx| launcher.read(cx).navigator.depth())
     }
 
-    fn panel_is_open(launcher: &Entity<LauncherWindow>, cx: &mut VisualTestContext) -> bool {
+    pub(super) fn panel_is_open(
+        launcher: &Entity<LauncherWindow>,
+        cx: &mut VisualTestContext,
+    ) -> bool {
         cx.update(|_, cx| launcher.read(cx).action_panel.is_some())
     }
 
