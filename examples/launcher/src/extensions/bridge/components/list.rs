@@ -276,6 +276,7 @@ enum ItemOp {
     Icon(String),
     Accessory(String),
     AccessoryIcon(String),
+    AccessoryTooltip(String),
     Tag(String, Tone),
     Keyword(String),
     Detail(ComponentArgument),
@@ -321,6 +322,11 @@ fn list_item() -> ComponentDescriptor {
                 "A trailing icon: a Lucide icon name or an image path.",
                 ItemOp::AccessoryIcon,
             ),
+            string_method(
+                "accessory_tooltip",
+                "Explains the accessory, tag or accessory icon added just before, on hover.",
+                ItemOp::AccessoryTooltip,
+            ),
             tag_method(
                 "A trailing tag. `tone` is neutral (the default), accent, success, warning or \
                  danger; the theme decides the color.",
@@ -360,15 +366,35 @@ impl ComponentMaterializer for ItemMaterializer {
         reject_style(request.take_style(), "ListItem")?;
         let ItemHead { id, title } = payload(&request, "ListItem")?;
         let mut item = Item::new(ItemId::new(id), title);
+        // Collected first, because a tooltip applies to the accessory before it.
+        let mut accessories: Vec<Accessory> = Vec::new();
         for op in recorded::<ItemOp>(&request) {
             item = match op {
                 ItemOp::Subtitle(text) => item.with_subtitle(text),
                 ItemOp::Icon(icon) => item.with_image(Image::parse(&icon)),
-                ItemOp::Accessory(text) => item.with_accessory(Accessory::text(text)),
-                ItemOp::AccessoryIcon(icon) => {
-                    item.with_accessory(Accessory::image(Image::parse(&icon)))
+                ItemOp::Accessory(text) => {
+                    accessories.push(Accessory::text(text));
+                    item
                 }
-                ItemOp::Tag(text, tone) => item.with_accessory(Accessory::tag(text, tone)),
+                ItemOp::AccessoryIcon(icon) => {
+                    accessories.push(Accessory::image(Image::parse(&icon)));
+                    item
+                }
+                ItemOp::AccessoryTooltip(tooltip) => {
+                    let accessory = accessories.pop().ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "ListItem `{}`: accessory_tooltip must follow an accessory, tag or \
+                             accessory_icon",
+                            item.id().as_str()
+                        )
+                    })?;
+                    accessories.push(accessory.with_tooltip(tooltip));
+                    item
+                }
+                ItemOp::Tag(text, tone) => {
+                    accessories.push(Accessory::tag(text, tone));
+                    item
+                }
                 ItemOp::Keyword(word) => item.with_keyword(word),
                 ItemOp::Detail(detail) => item.with_detail(resolve_detail(&mut request, &detail)?),
                 ItemOp::Actions(panel) => {
@@ -379,7 +405,11 @@ impl ComponentMaterializer for ItemMaterializer {
                 }
             };
         }
-        Ok(carry(item))
+        Ok(carry(
+            accessories
+                .into_iter()
+                .fold(item, |item, accessory| item.with_accessory(accessory)),
+        ))
     }
 }
 

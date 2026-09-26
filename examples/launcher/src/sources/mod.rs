@@ -16,7 +16,7 @@ use gpui_kit::SharedString;
 
 use crate::{
     extensions::{Catalog, LaunchRequest},
-    model::{Accessory, Action, Effect, Item, ItemId},
+    model::{Accessory, Action, Effect, Item, ItemId, PushHandler},
 };
 
 /// A collection of commands that does not depend on the query.
@@ -64,6 +64,22 @@ impl CommandSource for ExtensionCommands<'_> {
                     "Open Command",
                     Effect::Launch(LaunchRequest::new(command.id().clone())),
                 ));
+                // Only an extension with settings has anything to configure.
+                let has_preferences =
+                    !extension.preferences().is_empty() || !command.preferences().is_empty();
+                let id = command.id().clone();
+                let item = match has_preferences {
+                    true => item.with_action(
+                        Action::new(
+                            "Configure Extension",
+                            Effect::Push(PushHandler::new(move |window, cx| {
+                                crate::shell::launcher::preferences_page(&id, window, cx)
+                            })),
+                        )
+                        .with_shortcut("secondary-shift-,"),
+                    ),
+                    false => item,
+                };
                 let item = match command.icon() {
                     Some(icon) => item.with_icon(icon.clone()),
                     None => item,

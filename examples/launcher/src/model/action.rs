@@ -117,10 +117,6 @@ impl ActionPanel {
         &self.sections
     }
 
-    pub fn is_empty(&self) -> bool {
-        self.actions().next().is_none()
-    }
-
     /// Every top-level action, in order, skipping submenus.
     pub fn actions(&self) -> impl Iterator<Item = &Action> {
         self.sections

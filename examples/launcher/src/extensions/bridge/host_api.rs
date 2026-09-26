@@ -20,7 +20,7 @@ use std::{
     rc::Rc,
 };
 
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 use gpui_kit::{App, SharedString};
 use gpui_shell::{HostArguments, HostError, HostModule, HostObject, HostValue};
 use serde_json::{Map, Value};
@@ -28,7 +28,6 @@ use serde_json::{Map, Value};
 use super::{
     cache::{self, Cache},
     components::parse_toast_style,
-    note_launched,
 };
 use crate::{
     extensions::{CommandId, LaunchRequest},
@@ -53,7 +52,7 @@ export interface Launch {
   /** The extension's and the command's preferences, by preference name. */
   preferences: { [name: string]: Json };
   /** Whether the user opened the command or the launcher ran it on its own. */
-  launch_type: "user_initiated" | "background";
+  launch_type: "user_initiated";
 }
 
 export interface ToastOptions {
@@ -113,20 +112,18 @@ pub type EffectSink = Rc<dyn Fn(Effect, &mut App)>;
 /// Where metadata updates go; the root search shows them.
 pub type MetadataSink = Rc<dyn Fn(CommandId, CommandMetadata, &mut App)>;
 
-/// Whether the user opened the command or the launcher ran it on its own.
+/// How a command was opened. The launcher runs nothing on its own schedule,
+/// so every launch is the user's; the type leaves room for scheduled runs.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum LaunchType {
     #[default]
     UserInitiated,
-    /// Run by the launcher, such as a scheduled refresh.
-    Background,
 }
 
 impl LaunchType {
     fn as_str(self) -> &'static str {
         match self {
             Self::UserInitiated => "user_initiated",
-            Self::Background => "background",
         }
     }
 }
@@ -217,11 +214,6 @@ impl ExtensionContext {
         self
     }
 
-    pub fn with_launch_type(self, launch_type: LaunchType) -> Self {
-        self.0.launch.borrow_mut().launch_type = launch_type;
-        self
-    }
-
     /// The resolved preference values, extension and command ones together,
     /// with defaults applied. Passwords belong here too: only this extension's
     /// module ever reads them.
@@ -230,6 +222,7 @@ impl ExtensionContext {
         self
     }
 
+    #[cfg(test)]
     pub fn with_preference(self, name: impl Into<String>, value: Value) -> Self {
         self.0.preferences.borrow_mut().insert(name.into(), value);
         self
@@ -253,12 +246,6 @@ impl ExtensionContext {
         self
     }
 
-    pub fn with_cache_limit(self, bytes: usize) -> Self {
-        self.0.cache_limit.set(bytes);
-        self.0.cache.replace(None);
-        self
-    }
-
     pub fn with_effect_sink(self, sink: impl Fn(Effect, &mut App) + 'static) -> Self {
         self.set_effect_sink(Rc::new(sink));
         self
@@ -276,13 +263,14 @@ impl ExtensionContext {
 
     /// Records the command about to be mounted. Call it before
     /// `mount_application`, because a View reads `launch()` in `init`.
+    #[cfg(test)]
     pub fn begin_launch(&self, request: &LaunchRequest, launch_type: LaunchType) {
         self.0.launch.replace(Launch {
             command: Some(request.command().command().clone()),
             arguments: request.arguments().clone(),
             launch_type,
         });
-        note_launched(&self.0.extension);
+        super::note_launched(&self.0.extension);
     }
 
     pub fn set_preferences(&self, preferences: Map<String, Value>) {
@@ -301,20 +289,12 @@ impl ExtensionContext {
         self.0.launch.borrow().command.clone()
     }
 
-    pub fn launch_type(&self) -> LaunchType {
-        self.0.launch.borrow().launch_type
-    }
-
     pub fn locale(&self) -> SharedString {
         self.0.locale.borrow().clone()
     }
 
     pub fn is_development(&self) -> bool {
         self.0.development.get()
-    }
-
-    pub fn cache_directory(&self) -> Option<PathBuf> {
-        self.0.cache_directory.borrow().clone()
     }
 
     fn request(&self, effect: Effect) {
@@ -401,12 +381,8 @@ impl ExtensionContext {
     }
 }
 
-/// Builds `launcher/api` module instances.
-pub struct HostApi {
-    /// The context of the command launched last, for the process-wide module.
-    current: RefCell<Option<ExtensionContext>>,
-    effects: RefCell<Option<EffectSink>>,
-}
+/// The `launcher/api` host module; each extension gets an instance of its own.
+pub struct HostApi;
 
 impl HostApi {
     /// The `launcher/api` module for one extension, to register on its
@@ -414,54 +390,6 @@ impl HostApi {
     pub fn module_for(context: ExtensionContext) -> HostModule {
         module(Rc::new(move || Ok(context.clone())))
     }
-
-    /// Registers `launcher/api` for every runtime on this thread, answering for
-    /// whichever command [`Self::set_launch`] named last.
-    pub fn export() -> Result<Rc<Self>> {
-        let api = Rc::new(Self {
-            current: RefCell::new(None),
-            effects: RefCell::new(None),
-        });
-        let current = api.clone();
-        let module =
-            module(Rc::new(move || {
-                current.current.borrow().clone().ok_or_else(|| {
-                    HostError::new("launcher/api is only available to a command's view")
-                })
-            }));
-        gpui_shell::export_module(module).map_err(|error| anyhow!("{error}"))?;
-        Ok(api)
-    }
-
-    /// Records which command the next mounted view belongs to.
-    ///
-    /// Its cache lives under the system's temporary directory, since this
-    /// process-wide path has no per-extension data directory to offer.
-    pub fn set_launch(&self, command: CommandId) {
-        let context = ExtensionContext::new(command.extension().clone())
-            .with_cache_directory(default_cache_directory(command.extension()));
-        if let Some(sink) = self.effects.borrow().clone() {
-            context.set_effect_sink(sink);
-        }
-        context.begin_launch(&LaunchRequest::new(command), LaunchType::UserInitiated);
-        self.current.replace(Some(context));
-    }
-
-    /// Where requested effects go; the launcher window performs them.
-    pub fn set_effect_handler(&self, handler: impl Fn(Effect, &mut App) + 'static) {
-        let sink: EffectSink = Rc::new(handler);
-        if let Some(context) = self.current.borrow().as_ref() {
-            context.set_effect_sink(sink.clone());
-        }
-        self.effects.replace(Some(sink));
-    }
-}
-
-fn default_cache_directory(extension: &str) -> PathBuf {
-    std::env::temp_dir()
-        .join("gpui-kit-launcher")
-        .join("cache")
-        .join(extension)
 }
 
 type ContextSource = Rc<dyn Fn() -> Result<ExtensionContext, HostError>>;
@@ -851,14 +779,12 @@ mod tests {
 
     #[test]
     fn test_launch_reports_command_arguments_and_preferences() {
-        let context = ExtensionContext::new("com.example.github")
-            .with_preferences(
-                json!({ "token": "secret", "limit": 20 })
-                    .as_object()
-                    .unwrap()
-                    .clone(),
-            )
-            .with_launch_type(LaunchType::Background);
+        let context = ExtensionContext::new("com.example.github").with_preferences(
+            json!({ "token": "secret", "limit": 20 })
+                .as_object()
+                .unwrap()
+                .clone(),
+        );
         assert!(context.launch_value().is_err(), "no command launched yet");
         context.begin_launch(
             &LaunchRequest::new(CommandId::new("com.example.github", "search"))

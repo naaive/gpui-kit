@@ -165,7 +165,7 @@ pub fn installed(data: &DataDirectory) -> Result<Vec<InstalledExtension>> {
             })
         })
         .collect();
-    extensions.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    extensions.sort_by_key(|extension| extension.name.to_lowercase());
     Ok(extensions)
 }
 

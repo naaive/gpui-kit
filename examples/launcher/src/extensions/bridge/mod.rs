@@ -31,9 +31,9 @@ use anyhow::{Context as _, Result, anyhow};
 use gpui_kit::{AnyElement, SharedString};
 use gpui_shell::{ComponentRegistry, FrozenComponentRegistry};
 
-pub use host_api::{
-    CommandMetadata, EffectSink, ExtensionContext, HostApi, LaunchType, MetadataSink,
-};
+#[cfg(test)]
+pub use host_api::LaunchType;
+pub use host_api::{CommandMetadata, ExtensionContext, HostApi};
 pub use utils::{UTILS_MODULE, utils_declarations, utils_module_source};
 
 use crate::model::PageModel;
@@ -120,8 +120,9 @@ fn module_declaration(module: &str, body: &str) -> String {
 thread_local! {
     /// The extension whose page is being rendered, when the host says so.
     static RENDERING: RefCell<Option<SharedString>> = const { RefCell::new(None) };
-    /// The extension launched last: the answer when nobody said otherwise,
-    /// which is right for the page on top of the stack.
+    /// The extension launched last, for tests that render a page without
+    /// naming its extension.
+    #[cfg(test)]
     static LAUNCHED: RefCell<Option<SharedString>> = const { RefCell::new(None) };
 }
 
@@ -138,12 +139,14 @@ pub fn render_for_extension<R>(extension: &SharedString, render: impl FnOnce() -
     result
 }
 
+#[cfg(test)]
 pub(super) fn note_launched(extension: &SharedString) {
     LAUNCHED.with(|launched| launched.replace(Some(extension.clone())));
 }
 
 pub(super) fn current_extension() -> Option<SharedString> {
-    RENDERING
-        .with(|rendering| rendering.borrow().clone())
-        .or_else(|| LAUNCHED.with(|launched| launched.borrow().clone()))
+    let rendering = RENDERING.with(|rendering| rendering.borrow().clone());
+    #[cfg(test)]
+    let rendering = rendering.or_else(|| LAUNCHED.with(|launched| launched.borrow().clone()));
+    rendering
 }

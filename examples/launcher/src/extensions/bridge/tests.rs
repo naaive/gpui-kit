@@ -13,7 +13,7 @@ use std::{
 };
 
 use gpui::{Empty, Entity, TestAppContext, VisualTestContext};
-use gpui_kit::{AppContext as _, IntoElement as _, ParentElement as _, Render as _, Styled as _};
+use gpui_kit::{AppContext as _, IntoElement as _, ParentElement as _, Styled as _};
 use gpui_shell::{Capabilities, ScriptView, ShellRuntime, plugin::PluginManifest, policy::Policy};
 
 use super::{ExtensionContext, HostApi, components, take_page_model};

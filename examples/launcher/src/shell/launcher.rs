@@ -32,7 +32,7 @@ use super::{
     settings::{Appearance, Settings},
 };
 use crate::{
-    extensions::{Catalog, ExtensionHost, LaunchRequest},
+    extensions::{Catalog, CommandId, ExtensionHost, LaunchRequest},
     ui::LauncherWindow,
 };
 
@@ -125,6 +125,16 @@ pub struct Launcher {
 impl Global for Launcher {}
 
 impl Launcher {
+    /// Directories whose extensions count as in development: the ones named
+    /// by `launcher dev` and `LAUNCHER_EXTENSIONS`.
+    fn development_roots(&self) -> Vec<PathBuf> {
+        self.development_directories
+            .iter()
+            .cloned()
+            .chain(std::env::var_os("LAUNCHER_EXTENSIONS").map(PathBuf::from))
+            .collect()
+    }
+
     fn roots(&self) -> Vec<PathBuf> {
         extension_roots(
             &self.development_directories,
@@ -147,6 +157,23 @@ pub fn extensions_page(
         .map(|launcher| launcher.extensions.clone())
         .ok_or_else(|| anyhow::anyhow!("the launcher is not running"))?;
     host.extensions_page(window, cx)
+}
+
+/// Builds the preferences page of a command's extension, with the command's
+/// own settings after the extension's.
+pub fn preferences_page(
+    command: &CommandId,
+    window: &mut Window,
+    cx: &mut App,
+) -> anyhow::Result<crate::pages::PageHandle> {
+    let (host, catalog) = cx
+        .try_global::<Launcher>()
+        .map(|launcher| (launcher.extensions.clone(), launcher.catalog.clone()))
+        .ok_or_else(|| anyhow::anyhow!("the launcher is not running"))?;
+    let (extension, command) = catalog
+        .command(command)
+        .ok_or_else(|| anyhow::anyhow!("no command `{command}`"))?;
+    host.preferences_page(&catalog, extension, Some(command), window, cx)
 }
 
 /// Starts the launcher: loads settings, applies them, listens for requests
@@ -228,7 +255,12 @@ pub fn start(startup: Startup, cx: &mut App) {
         _tasks: tasks,
     });
 
+    let launcher = cx.global::<Launcher>();
+    launcher
+        .extensions
+        .set_development_directories(launcher.development_roots());
     apply_appearance(appearance, None, cx);
+
     super::platform::hide_dock_icon();
     show(cx);
 }
@@ -305,6 +337,9 @@ pub fn add_development_directory(directory: PathBuf, cx: &mut App) {
         launcher.development_directories.retain(|d| *d != directory);
         launcher.development_directories.insert(0, directory);
         launcher.catalog_is_stale = true;
+        launcher
+            .extensions
+            .set_development_directories(launcher.development_roots());
         // A window that is showing keeps the old catalog until shown again.
         hide_now(cx);
         show_now(cx);

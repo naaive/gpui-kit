@@ -6,12 +6,7 @@
 //! system keychain, so a settings file that is backed up or shared never
 //! carries a token.
 
-use std::{
-    cell::{Cell, RefCell},
-    collections::BTreeMap,
-    path::PathBuf,
-    rc::Rc,
-};
+use std::{cell::Cell, collections::BTreeMap, path::PathBuf, rc::Rc};
 
 use anyhow::{Result, anyhow};
 use serde_json::Value;
@@ -182,9 +177,11 @@ impl SecretStore for FileSecrets {
 }
 
 /// Secrets that live as long as the process; for tests.
+#[cfg(test)]
 #[derive(Default)]
-pub struct MemorySecrets(RefCell<BTreeMap<String, String>>);
+pub struct MemorySecrets(std::cell::RefCell<BTreeMap<String, String>>);
 
+#[cfg(test)]
 impl SecretStore for MemorySecrets {
     fn read(&self, account: &str) -> Result<Option<String>> {
         Ok(self.0.borrow().get(account).cloned())

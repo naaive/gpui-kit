@@ -7,10 +7,7 @@ use std::{
 
 use anyhow::{Context as _, Result, anyhow};
 use gpui_kit::{App, AppContext as _, Entity, Global, SharedString, Window};
-use gpui_shell::{
-    ComponentCallback, HostError, HostModule, HostObject, HostValue, ScriptView, ShellRuntime,
-    policy::Policy,
-};
+use gpui_shell::{ComponentCallback, HostModule, ScriptView, ShellRuntime, policy::Policy};
 
 use super::{
     Catalog, CommandId, CommandMode, Extension, ExtensionCommand, LaunchRequest, bridge,
@@ -23,7 +20,7 @@ use super::{
     },
 };
 use crate::{
-    model::{Effect, Toast, ToastStyle},
+    model::{Effect, Toast},
     pages::{self, PageHandle, ScriptPage},
 };
 
@@ -104,6 +101,9 @@ pub(super) struct Services {
     pub(super) effects: EffectSink,
     pub(super) changed: ChangeNotifier,
     pub(super) metadata: MetadataNotifier,
+    /// Directories whose extensions are being developed; `environment()`
+    /// reports it to their code.
+    pub(super) development: RefCell<Vec<PathBuf>>,
 }
 
 /// Everything a command is opened with, and what `launch()` answers.
@@ -114,6 +114,7 @@ pub struct LaunchContext {
     preferences: ResolvedPreferences,
     data_dir: PathBuf,
     cache_dir: PathBuf,
+    development: bool,
 }
 
 impl LaunchContext {
@@ -190,6 +191,8 @@ fn host_modules(context: &LaunchContext, sink: &LaunchSink) -> Vec<HostModule> {
         )
         .with_preferences(context.preferences().clone().into_iter().collect())
         .with_cache_directory(context.cache_dir())
+        .with_development(context.development)
+        .with_locale(locale())
         .with_effect_sink(move |effect, cx| {
             // A HUD or closing the window is how a no-view command says it
             // is done.
@@ -363,6 +366,7 @@ impl ExtensionHost {
             effects: EffectSink::default(),
             changed: ChangeNotifier::default(),
             metadata: MetadataNotifier::default(),
+            development: RefCell::default(),
         };
         let state = Rc::new(HostState {
             services,
@@ -392,6 +396,12 @@ impl ExtensionHost {
             .changed
             .0
             .replace(Some(Rc::new(handler)));
+    }
+
+    /// The directories extensions are developed in, as `launcher dev` and the
+    /// settings name them.
+    pub fn set_development_directories(&self, directories: Vec<PathBuf>) {
+        self.state.services.development.replace(directories);
     }
 
     /// Called when an extension updates a command's metadata, such as the
@@ -470,6 +480,11 @@ impl ExtensionHost {
             preferences: services.preferences.resolve(extension, command)?,
             data_dir: services.data.extension_data_dir(&id),
             cache_dir: services.data.cache_dir(&id),
+            development: services
+                .development
+                .borrow()
+                .iter()
+                .any(|directory| extension.root().starts_with(directory)),
         };
         let grant = requested.grant(&approved, extension.root(), context.data_dir());
         self.run(extension, command, context, approved, grant, window, cx)
@@ -636,4 +651,21 @@ pub fn page_from_callback(
         state.track_page(launch, &page, cx);
     }
     Ok(pages::handle(page))
+}
+
+/// The user's language, as the POSIX locale variables or the platform say.
+fn locale() -> SharedString {
+    ["LC_ALL", "LC_MESSAGES", "LANG"]
+        .iter()
+        .filter_map(|name| std::env::var(name).ok())
+        .find(|value| !value.is_empty() && value != "C" && value != "POSIX")
+        .map(|value| {
+            value
+                .split(['.', '@'])
+                .next()
+                .unwrap_or_default()
+                .replace('_', "-")
+        })
+        .unwrap_or_else(|| "en".to_owned())
+        .into()
 }

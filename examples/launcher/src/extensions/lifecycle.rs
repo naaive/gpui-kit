@@ -97,6 +97,7 @@ impl Lifecycle {
             .is_some_and(|usage| usage.users == 0)
     }
 
+    #[cfg(test)]
     pub fn contains(&self, launch: LaunchId) -> bool {
         self.launches.contains_key(&launch)
     }

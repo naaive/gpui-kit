@@ -50,7 +50,7 @@ pub(super) fn strings_constructor<P: Send + Sync + 'static>(
         export,
         names
             .iter()
-            .map(|name| ArgumentDescriptor::new(*name, ArgumentSchema::String))
+            .map(|name| ArgumentDescriptor::new(name, ArgumentSchema::String))
             .collect(),
         move |arguments| {
             let values = arguments

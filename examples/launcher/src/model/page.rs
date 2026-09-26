@@ -237,6 +237,7 @@ impl ListModel {
         self.on_load_more.as_ref()
     }
 
+    #[cfg(test)]
     pub fn items(&self) -> impl Iterator<Item = &Item> {
         self.sections
             .iter()
@@ -374,11 +375,6 @@ impl Accessory {
             tone: None,
             tooltip: None,
         }
-    }
-
-    pub fn with_image(mut self, image: Image) -> Self {
-        self.image = Some(image);
-        self
     }
 
     pub fn with_tooltip(mut self, tooltip: impl Into<SharedString>) -> Self {

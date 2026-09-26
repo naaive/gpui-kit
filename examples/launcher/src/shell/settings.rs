@@ -93,16 +93,19 @@ impl Default for Settings {
 }
 
 impl Settings {
+    #[cfg(test)]
     pub fn with_summon_shortcut(mut self, shortcut: impl Into<String>) -> Self {
         self.summon_shortcut = shortcut.into();
         self
     }
 
+    #[cfg(test)]
     pub fn with_appearance(mut self, appearance: Appearance) -> Self {
         self.appearance = appearance;
         self
     }
 
+    #[cfg(test)]
     pub fn with_extension_directory(mut self, directory: Option<PathBuf>) -> Self {
         self.extension_directory = directory;
         self
