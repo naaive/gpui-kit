@@ -578,3 +578,53 @@ fn test_an_extension_installed_from_git_is_listed(cx: &mut TestAppContext) {
     cx.simulate_keystrokes("enter");
     assert!(matches!(page(&launcher, &mut cx), PageModel::List(_)));
 }
+
+#[gpui::test]
+fn test_a_note_created_from_the_list_is_there_when_the_list_opens_again(cx: &mut TestAppContext) {
+    let (launcher, mut cx) = open(cx, &[bundled()]);
+    let notes = |cx: &mut VisualTestContext| {
+        cx.simulate_input("search notes");
+        cx.simulate_keystrokes("enter");
+        cx.run_until_parked();
+        let PageModel::List(list) = page(&launcher, cx) else {
+            panic!("notes are listed");
+        };
+        list.sections()
+            .iter()
+            .flat_map(|section| section.items())
+            .map(|item| item.title().to_string())
+            .collect::<Vec<_>>()
+    };
+    let write = |title: &str, cx: &mut VisualTestContext| {
+        cx.simulate_input(title);
+        cx.simulate_keystrokes("secondary-enter");
+        cx.run_until_parked();
+    };
+
+    cx.simulate_input("create note");
+    cx.simulate_keystrokes("enter");
+    write("First", &mut cx);
+    assert_eq!(depth(&launcher, &mut cx), 1, "saving hid the launcher");
+    assert_eq!(notes(&mut cx), ["First"]);
+
+    // "Create Note" from the list opens the other command while the list's
+    // own is still open; its note must not be lost to the list's copy.
+    cx.simulate_keystrokes("secondary-n");
+    assert_eq!(depth(&launcher, &mut cx), 3);
+    write("Second", &mut cx);
+    assert_eq!(depth(&launcher, &mut cx), 1);
+    assert_eq!(notes(&mut cx), ["Second", "First"]);
+
+    // Deleting in the list keeps the note the other command wrote.
+    cx.simulate_keystrokes("down ctrl-x");
+    cx.run_until_parked();
+    cx.simulate_keystrokes("enter");
+    cx.run_until_parked();
+    assert_eq!(
+        depth(&launcher, &mut cx),
+        2,
+        "the list stays after deleting"
+    );
+    cx.simulate_keystrokes("escape escape");
+    assert_eq!(notes(&mut cx), ["Second"]);
+}

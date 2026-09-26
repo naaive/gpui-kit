@@ -231,6 +231,9 @@ struct Launch {
     /// loaded while it is idle.
     policy: Rc<Policy>,
     view: Entity<ScriptView>,
+    /// Another launch of the extension started since; see
+    /// [`HostState::make_way`].
+    superseded: bool,
 }
 
 struct HostState {
@@ -294,12 +297,17 @@ impl HostState {
         }
     }
 
-    /// Releases the idle launches of an extension before another starts.
+    /// Makes way for a new launch of `extension` and answers the policy
+    /// whose storage it should share.
     ///
-    /// Each launch holds its own `localStorage` cache over the extension's one
-    /// file; an idle launch reused after another one wrote the file would
-    /// answer from a stale cache and could write it back.
-    fn release_idle(&self, extension: &SharedString) {
+    /// A launch kept for a quick return shows its view as the user left it,
+    /// which is only right while nothing else of its extension has run: the
+    /// new launch may change what that view read in `init` (a note added,
+    /// say). So idle launches of the extension are released, and those still
+    /// on the stack are no longer reused once they become idle. Launches that
+    /// stay share one `localStorage`, so none answers from a copy of the
+    /// file another has since written.
+    fn make_way(&self, extension: &SharedString) -> Option<Rc<Policy>> {
         let idle: Vec<LaunchId> = {
             let lifecycle = self.lifecycle.borrow();
             self.launches
@@ -314,6 +322,16 @@ impl HostState {
         for launch in idle {
             self.remove(launch);
         }
+        let mut launches = self.launches.borrow_mut();
+        let mut others = launches
+            .values_mut()
+            .filter(|launch| launch.context.command.extension() == extension)
+            .peekable();
+        let storage = others.peek().map(|launch| launch.policy.clone());
+        for launch in others {
+            launch.superseded = true;
+        }
+        storage
     }
 
     /// An idle view-command launch opened with exactly this context and grant.
@@ -324,6 +342,7 @@ impl HostState {
             .iter()
             .find(|(id, launch)| {
                 launch.mode == CommandMode::View
+                    && !launch.superseded
                     && launch.context == *context
                     && launch.grant == *grant
                     && lifecycle.is_idle(**id)
@@ -546,7 +565,7 @@ impl ExtensionHost {
             state.track_page(launch, &page, cx);
             return Ok(Opened::Page(pages::handle(page)));
         }
-        state.release_idle(extension.id());
+        let storage = state.make_way(extension.id());
 
         std::fs::create_dir_all(context.cache_dir())
             .with_context(|| format!("cannot create {}", context.cache_dir().display()))?;
@@ -557,10 +576,13 @@ impl ExtensionHost {
             launch,
         };
         let policy = host_modules(&context, &sink).into_iter().try_fold(
-            Policy::new()
-                .with_application(extension.id())
-                .with_capabilities(grant)
-                .with_storage_path(state.services.data.storage_path(extension.id())),
+            match storage {
+                Some(shared) => Policy::new().with_storage_of(&shared),
+                None => Policy::new()
+                    .with_storage_path(state.services.data.storage_path(extension.id())),
+            }
+            .with_application(extension.id())
+            .with_capabilities(grant),
             |policy, module| {
                 policy
                     .with_host_module(module)
@@ -600,6 +622,7 @@ impl ExtensionHost {
                 mode: command.mode(),
                 policy,
                 view: view.clone(),
+                superseded: false,
             },
         );
 
