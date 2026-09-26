@@ -107,7 +107,7 @@ impl fmt::Display for HotkeyStatus {
                 "Wayland doesn't let applications register system-wide shortcuts. \
                  Bind `launcher toggle` in your desktop's keyboard settings instead.",
             ),
-            Self::Failed(reason) => write!(formatter, "Couldn't register the shortcut: {reason}"),
+            Self::Failed(reason) => write!(formatter, "Couldn’t register the shortcut: {reason}"),
         }
     }
 }

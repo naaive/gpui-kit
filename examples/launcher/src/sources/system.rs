@@ -139,7 +139,7 @@ impl SystemCommand {
         let run = self
             .command
             .clone()
-            .effect(format!("Cannot run “{}”", self.title));
+            .effect(format!("Couldn’t run “{}”", self.title));
         let (effect, style) = match self.confirmation {
             Some((title, confirm)) => (
                 Effect::Confirm(

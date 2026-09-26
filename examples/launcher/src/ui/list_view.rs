@@ -114,7 +114,7 @@ impl LauncherWindow {
                 // state now would flash before the results arrive.
                 return div().into_any_element();
             }
-            let title = list.empty_title().cloned().unwrap_or("No Results".into());
+            let title = list.empty_title().cloned().unwrap_or("No results".into());
             return notice(title, list.empty_description().cloned(), cx);
         }
 

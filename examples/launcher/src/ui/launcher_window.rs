@@ -732,7 +732,7 @@ impl LauncherWindow {
             Effect::Push(build) => match build.build(window, cx) {
                 Ok(page) => self.push(page, window, cx),
                 Err(error) => show_toast(
-                    &Toast::new(ToastStyle::Failure, "Cannot open the page")
+                    &Toast::new(ToastStyle::Failure, "Couldn’t open the page")
                         .with_message(format!("{error:#}")),
                     window,
                     cx,
@@ -829,7 +829,8 @@ impl LauncherWindow {
         let id = request.command();
         let Some((extension, command)) = self.catalog.command(id) else {
             show_toast(
-                &Toast::new(ToastStyle::Failure, format!("No command `{id}`")),
+                &Toast::new(ToastStyle::Failure, "Couldn’t find the command")
+                    .with_message(id.to_string()),
                 window,
                 cx,
             );
@@ -844,7 +845,7 @@ impl LauncherWindow {
             Err(error) => {
                 tracing::error!("{error:#}");
                 show_toast(
-                    &Toast::new(ToastStyle::Failure, "Cannot open the command")
+                    &Toast::new(ToastStyle::Failure, "Couldn’t open the command")
                         .with_message(format!("{error:#}")),
                     window,
                     cx,

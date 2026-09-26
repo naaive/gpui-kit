@@ -98,7 +98,7 @@ impl Application {
             Launch::Open => Effect::OpenPath(self.location.clone()),
             Launch::Run(command) => command
                 .clone()
-                .effect(format!("Cannot open “{}”", self.name)),
+                .effect(format!("Couldn’t open “{}”", self.name)),
         };
         let image = match &self.icon {
             Some(icon) => Image::File(icon.clone()),
