@@ -5623,6 +5623,7 @@ name = "launcher"
 version = "0.6.5"
 dependencies = [
  "anyhow",
+ "chrono",
  "dirs 6.0.0",
  "global-hotkey",
  "gpui-kit",
