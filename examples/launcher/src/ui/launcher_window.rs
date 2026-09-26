@@ -775,10 +775,11 @@ impl LauncherWindow {
         }
     }
 
-    /// Returns to a fresh root search and gets out of the way.
+    /// Returns to a fresh root search and gets out of the way. Hiding goes
+    /// through the shell, because only macOS can hide a window in place.
     fn close(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.reset(window, cx);
-        cx.hide();
+        crate::shell::launcher::hide(cx);
     }
 
     // MARK: Per-frame bookkeeping
