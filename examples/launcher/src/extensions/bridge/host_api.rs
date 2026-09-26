@@ -4,14 +4,12 @@
 //! (GPUI Shell §17.6), so everything here is a question the host answers or a
 //! request it carries out after the call returns.
 //!
-//! Each extension gets its own module instance, built by
+//! Each launch of a command gets its own module instance, built by
 //! [`HostApi::module_for`] around an [`ExtensionContext`] and registered on
-//! that extension's `Policy`. A host function cannot ask which extension is
+//! that launch's `Policy`. A host function cannot ask which extension is
 //! calling it, so the context is how `launch()` knows the command, how the
 //! cache knows its file, and how `launch_command("other")` knows whose
-//! `other` is meant. [`HostApi::export`] serves the same functions process-wide
-//! for a host that has not moved to per-extension policies yet; it answers for
-//! whichever command was launched last.
+//! `other` is meant.
 
 use std::{
     cell::{Cell, RefCell},
@@ -150,12 +148,11 @@ impl CommandMetadata {
     }
 }
 
-/// Everything `launcher/api` answers for one extension.
+/// Everything `launcher/api` answers for one launch of a command.
 ///
-/// Cheap to clone, and clones share one state: the host keeps a clone after
-/// handing one to [`HostApi::module_for`], and updates the launch with
-/// [`Self::begin_launch`] before mounting each command, so one module instance
-/// serves every command of the extension.
+/// The host builds one for each launch and hands it to
+/// [`HostApi::module_for`], so `launch()` answers for that command whenever
+/// its code calls: in `init`, in `render`, or in a callback much later.
 #[derive(Clone)]
 pub struct ExtensionContext(Rc<ContextState>);
 
@@ -195,7 +192,7 @@ impl ExtensionContext {
         }))
     }
 
-    /// The command `launch()` reports, before any [`Self::begin_launch`].
+    /// The command `launch()` reports.
     pub fn with_command(self, command: impl Into<SharedString>) -> Self {
         self.0.launch.borrow_mut().command = Some(command.into());
         self
@@ -218,7 +215,7 @@ impl ExtensionContext {
     /// with defaults applied. Passwords belong here too: only this extension's
     /// module ever reads them.
     pub fn with_preferences(self, preferences: Map<String, Value>) -> Self {
-        self.set_preferences(preferences);
+        self.0.preferences.replace(preferences);
         self
     }
 
@@ -247,7 +244,7 @@ impl ExtensionContext {
     }
 
     pub fn with_effect_sink(self, sink: impl Fn(Effect, &mut App) + 'static) -> Self {
-        self.set_effect_sink(Rc::new(sink));
+        self.0.effects.replace(Some(Rc::new(sink)));
         self
     }
 
@@ -271,14 +268,6 @@ impl ExtensionContext {
             launch_type,
         });
         super::note_launched(&self.0.extension);
-    }
-
-    pub fn set_preferences(&self, preferences: Map<String, Value>) {
-        self.0.preferences.replace(preferences);
-    }
-
-    pub fn set_effect_sink(&self, sink: EffectSink) {
-        self.0.effects.replace(Some(sink));
     }
 
     pub fn extension(&self) -> &SharedString {
