@@ -157,6 +157,19 @@ impl Policy {
         self
     }
 
+    /// Shares `other`'s `localStorage` and `sessionStorage` rather than
+    /// reading the file again.
+    ///
+    /// For a host that runs one application under more than one policy at a
+    /// time — each with host modules of its own, say — where a second read of
+    /// the file would be a second cache over it: each would answer `get` from
+    /// what it read, and write that back over what the other stored.
+    pub fn with_storage_of(mut self, other: &Policy) -> Self {
+        self.store = other.store.clone();
+        self.session = other.session.clone();
+        self
+    }
+
     /// Adds a HostModule this application may import.
     ///
     /// Per policy rather than per process, because "which host functions may
@@ -339,6 +352,40 @@ mod tests {
 
         assert!(first.modules().get("cards").is_ok());
         assert!(second.modules().get("cards").is_err());
+    }
+
+    /// Two policies for one application, each with its own grant and modules,
+    /// still keep one store.
+    #[test]
+    fn a_policy_can_share_another_policys_store() {
+        let path = std::env::temp_dir().join("gpui-shell-shared-store-test.json");
+        let first = Policy::new().with_storage_path(path);
+        let second = Policy::new()
+            .with_module_unchecked(crate::HostModule::new("market"))
+            .with_storage_of(&first);
+
+        first.with_local_storage(|store| store.touch());
+        assert!(
+            second
+                .with_local_storage(|store| store.is_dirty())
+                .expect("the second policy has the first one's store"),
+            "one store, not a second read of the file"
+        );
+        first
+            .with_session_storage(|store| store.set("tab".into(), "inbox".into()))
+            .unwrap()
+            .unwrap();
+        let tab = second.with_session_storage(|store| {
+            store
+                .values()
+                .map(|values| values.get("tab").cloned())
+                .unwrap()
+        });
+        assert_eq!(tab, Some(Some("inbox".into())), "and one session");
+        assert!(
+            first.modules().get("market").is_err(),
+            "the modules stay apart"
+        );
     }
 
     /// One file, one cache, one write queue. Two would answer `get` differently
