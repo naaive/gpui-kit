@@ -99,6 +99,9 @@ pub struct RootSearchPage {
     extensions: Collection,
     system: Collection,
     fallbacks: Vec<FallbackCommand>,
+    /// The subtitles extension commands had before `update_command_metadata`
+    /// replaced them, by command id.
+    manifest_subtitles: HashMap<String, Option<SharedString>>,
     usage: UsageStore,
     query: String,
     /// The list for the current query and data; rebuilt only when one of them
@@ -128,6 +131,7 @@ impl RootSearchPage {
             extensions: Collection::new(&ExtensionCommands::new(catalog)),
             system: Collection::new(&SystemCommands::new(options.platform_commands)),
             fallbacks: FallbackCommand::from_catalog(catalog),
+            manifest_subtitles: HashMap::new(),
             usage: UsageStore::in_memory(),
             query: String::new(),
             list: None,
@@ -209,24 +213,32 @@ impl RootSearchPage {
     }
 
     /// Shows `subtitle` for an extension command in place of its manifest's,
-    /// as the extension asked through `update_command_metadata`.
+    /// as the extension asked through `update_command_metadata`; `None`
+    /// restores the manifest's.
     pub fn set_command_subtitle(
         &mut self,
         command: &crate::extensions::CommandId,
-        subtitle: SharedString,
+        subtitle: Option<SharedString>,
         cx: &mut Context<Self>,
     ) {
         let id = command.to_string();
-        let Some(ix) = self
+        let Some(item) = self
             .extensions
             .items
-            .iter()
-            .position(|item| item.id().as_str() == id)
+            .iter_mut()
+            .find(|item| item.id().as_str() == id)
         else {
             return;
         };
-        let item = self.extensions.items[ix].clone();
-        self.extensions.items[ix] = item.with_subtitle(subtitle);
+        let manifest = self
+            .manifest_subtitles
+            .entry(id)
+            .or_insert_with(|| item.subtitle().cloned());
+        let subtitle = subtitle.or_else(|| manifest.clone());
+        if item.subtitle() == subtitle.as_ref() {
+            return;
+        }
+        *item = item.clone().with_subtitle(subtitle.unwrap_or_default());
         self.invalidate(cx);
     }
 

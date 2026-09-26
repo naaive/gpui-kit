@@ -1,6 +1,6 @@
 use std::{
     cell::RefCell,
-    collections::{BTreeMap, BTreeSet},
+    collections::{BTreeMap, BTreeSet, HashMap},
     path::{Path, PathBuf},
     rc::{Rc, Weak},
 };
@@ -76,16 +76,26 @@ impl ChangeNotifier {
     }
 }
 
+type MetadataHandler = Rc<dyn Fn(CommandId, bridge::CommandMetadata, &mut App)>;
+
 /// Where an extension's `update_command_metadata` goes: the root search shows
 /// the new subtitle in place of the manifest's.
+///
+/// The latest update of each command is kept for as long as the launcher
+/// runs, so a root search created later (the window is recreated on every
+/// summon where it cannot be hidden) shows it too.
 #[derive(Clone, Default)]
-pub(super) struct MetadataNotifier(
-    Rc<RefCell<Option<Rc<dyn Fn(CommandId, bridge::CommandMetadata, &mut App)>>>>,
-);
+pub(super) struct MetadataNotifier {
+    handler: Rc<RefCell<Option<MetadataHandler>>>,
+    latest: Rc<RefCell<HashMap<CommandId, bridge::CommandMetadata>>>,
+}
 
 impl MetadataNotifier {
     fn notify(&self, command: CommandId, update: bridge::CommandMetadata, cx: &mut App) {
-        let handler = self.0.borrow().clone();
+        self.latest
+            .borrow_mut()
+            .insert(command.clone(), update.clone());
+        let handler = self.handler.borrow().clone();
         if let Some(handler) = handler {
             handler(command, update, cx);
         }
@@ -383,6 +393,23 @@ impl ExtensionHost {
         &self.state.services.data
     }
 
+    /// How many launches hold a view and a policy right now.
+    #[cfg(test)]
+    pub fn loaded_launches(&self) -> usize {
+        self.state.launches.borrow().len()
+    }
+
+    /// The policies of the loaded launches.
+    #[cfg(test)]
+    pub fn loaded_policies(&self) -> Vec<Rc<Policy>> {
+        self.state
+            .launches
+            .borrow()
+            .values()
+            .map(|launch| launch.policy.clone())
+            .collect()
+    }
+
     /// Where effects requested by extensions and by the extension pages go.
     pub fn set_effect_handler(&self, handler: impl Fn(Effect, &mut App) + 'static) {
         self.state.services.effects.set(handler);
@@ -405,16 +432,24 @@ impl ExtensionHost {
     }
 
     /// Called when an extension updates a command's metadata, such as the
-    /// subtitle the root search shows for it.
+    /// subtitle the root search shows for it; called at once with every
+    /// update made so far.
     pub fn set_metadata_handler(
         &self,
         handler: impl Fn(CommandId, bridge::CommandMetadata, &mut App) + 'static,
+        cx: &mut App,
     ) {
-        self.state
-            .services
-            .metadata
-            .0
-            .replace(Some(Rc::new(handler)));
+        let notifier = &self.state.services.metadata;
+        let latest: Vec<_> = notifier
+            .latest
+            .borrow()
+            .iter()
+            .map(|(command, update)| (command.clone(), update.clone()))
+            .collect();
+        for (command, update) in latest {
+            handler(command, update, cx);
+        }
+        notifier.handler.replace(Some(Rc::new(handler)));
     }
 
     /// Opens a command.
