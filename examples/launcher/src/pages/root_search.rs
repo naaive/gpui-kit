@@ -449,8 +449,14 @@ mod tests {
                 "app:/apps/Safari",
                 "app:/apps/Terminal",
                 "# Extensions",
+                "com.gpui-kit.emoji/search-emoji",
+                "com.gpui-kit.github/search-repositories",
                 "com.gpui-kit.links/links",
                 "com.gpui-kit.links/checklist",
+                "com.gpui-kit.links/search-docs",
+                "com.gpui-kit.links/copy-date",
+                "com.gpui-kit.notes/search-notes",
+                "com.gpui-kit.notes/create-note",
                 "# System",
                 "system/toggle-appearance",
                 "system/settings",
@@ -517,7 +523,9 @@ mod tests {
                 "# Calculator",
                 "calculator/result",
                 "# Use “2 + 2” with…",
-                "fallback/google"
+                "fallback/google",
+                "fallback/com.gpui-kit.github/search-repositories",
+                "fallback/com.gpui-kit.links/search-docs"
             ]
         );
 

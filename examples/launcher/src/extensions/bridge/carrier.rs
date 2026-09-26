@@ -80,3 +80,25 @@ impl<T: 'static> Element for Carrier<T> {
 pub(super) fn take<T: 'static>(element: &mut AnyElement) -> Option<T> {
     element.downcast_mut::<Carrier<T>>()?.0.take()
 }
+
+thread_local! {
+    /// The first failure of a launcher node in the render being taken apart.
+    static FAILURE: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Records why a node could not be materialized.
+///
+/// GPUI Shell logs a failed node and draws a placeholder in its place, so its
+/// parent sees an element carrying nothing and fails too, with a vaguer
+/// sentence. Keeping the first failure lets [`take_failure`] report the cause
+/// rather than that echo.
+pub(super) fn record_failure(message: String) {
+    FAILURE.with(|failure| {
+        failure.borrow_mut().get_or_insert(message);
+    });
+}
+
+/// Takes the recorded failure, leaving none for the next render.
+pub(super) fn take_failure() -> Option<String> {
+    FAILURE.with(|failure| failure.borrow_mut().take())
+}

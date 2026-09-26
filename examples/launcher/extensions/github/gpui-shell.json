@@ -1,0 +1,11 @@
+{
+  "id": "com.gpui-kit.github",
+  "name": "GitHub",
+  "version": "0.1.0",
+  "entry": "commands/search-repositories.js",
+  "capabilities": {
+    "network": {
+      "http": [{ "host": "api.github.com", "methods": ["GET"], "paths": ["/search/repositories"] }]
+    }
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "$schema": "./launcher.schema.json",
+  "icon": "face-slightly-smiling",
+  "commands": [
+    {
+      "name": "search-emoji",
+      "title": "Search Emoji",
+      "keywords": ["emoji", "symbol", "smiley"],
+      "module": "commands/search-emoji.js"
+    }
+  ],
+  "preferences": [
+    {
+      "name": "primary_action",
+      "title": "Primary Action",
+      "description": "What Enter does with the selected emoji.",
+      "type": "dropdown",
+      "default": "paste",
+      "choices": [
+        { "value": "paste", "title": "Paste in Active App" },
+        { "value": "copy", "title": "Copy to Clipboard" }
+      ]
+    }
+  ]
+}

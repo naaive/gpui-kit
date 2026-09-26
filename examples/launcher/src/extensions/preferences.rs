@@ -462,7 +462,7 @@ mod tests {
                     "preferences": [
                         { "name": "sort", "title": "Sort", "type": "dropdown",
                           "choices": [{ "value": "stars", "title": "Stars" }, { "value": "updated", "title": "Updated" }] },
-                        { "name": "token", "title": "Command Token", "type": "password" }
+                        { "name": "command_token", "title": "Command Token", "type": "password" }
                     ]
                 }],
                 "preferences": [
@@ -527,7 +527,8 @@ mod tests {
             Some("ghp_secret")
         );
 
-        // The command's own `token` wins the shared name.
+        // A command's own secret is kept under the command, apart from the
+        // extension's.
         let command_scope = PreferenceScope::command("com.example.github", "search");
         store
             .set(
@@ -538,13 +539,14 @@ mod tests {
             .unwrap();
         assert_eq!(
             secrets
-                .read("com.example.github/search/token")
+                .read("com.example.github/search/command_token")
                 .unwrap()
                 .as_deref(),
             Some("cmd")
         );
         let resolved = store.resolve(extension, command).unwrap();
-        assert_eq!(resolved["token"], "cmd");
+        assert_eq!(resolved["command_token"], "cmd");
+        assert_eq!(resolved["token"], "ghp_secret");
         assert_eq!(resolved["host"], "example.com");
 
         // A reopened store reads the same values.

@@ -1,9 +1,11 @@
 {
+  "$schema": "./launcher.schema.json",
   "icon": "book-open",
   "commands": [
     {
       "name": "links",
       "title": "Browse GPUI Kit Links",
+      "subtitle": "Documentation and community",
       "keywords": ["docs", "documentation", "github"],
       "module": "commands/links.js"
     },
@@ -13,6 +15,24 @@
       "icon": "circle-check",
       "keywords": ["todo", "tasks"],
       "module": "commands/checklist.js"
+    },
+    {
+      "name": "search-docs",
+      "title": "Search GPUI Kit Docs",
+      "icon": "book-search",
+      "keywords": ["docs", "documentation", "find"],
+      "module": "commands/search-docs.js",
+      "mode": "no-view",
+      "fallback": true,
+      "arguments": [{ "name": "query", "placeholder": "Search terms" }]
+    },
+    {
+      "name": "copy-date",
+      "title": "Copy Today's Date",
+      "icon": "calendar",
+      "keywords": ["iso", "today", "clipboard"],
+      "module": "commands/copy-date.js",
+      "mode": "no-view"
     }
   ]
 }

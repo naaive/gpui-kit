@@ -1,0 +1,77 @@
+// A small, hand-picked set. A real picker would load the Unicode emoji list.
+export const CATEGORIES = [
+  {
+    id: "smileys",
+    title: "Smileys",
+    emoji: [
+      ["😀", "grinning face", "happy smile"],
+      ["😂", "face with tears of joy", "laugh lol"],
+      ["🙂", "slightly smiling face", "smile"],
+      ["😉", "winking face", "wink"],
+      ["😍", "smiling face with heart eyes", "love"],
+      ["🤔", "thinking face", "hmm think"],
+      ["😴", "sleeping face", "tired zzz"],
+      ["😭", "loudly crying face", "sad cry"],
+    ],
+  },
+  {
+    id: "gestures",
+    title: "Gestures",
+    emoji: [
+      ["👍", "thumbs up", "yes ok approve +1"],
+      ["👎", "thumbs down", "no disapprove -1"],
+      ["👏", "clapping hands", "applause bravo"],
+      ["🙌", "raising hands", "celebrate hooray"],
+      ["🙏", "folded hands", "please thanks"],
+      ["👋", "waving hand", "hello bye"],
+      ["💪", "flexed biceps", "strong"],
+      ["✌️", "victory hand", "peace"],
+    ],
+  },
+  {
+    id: "nature",
+    title: "Nature",
+    emoji: [
+      ["🌱", "seedling", "plant grow"],
+      ["🌸", "cherry blossom", "flower spring"],
+      ["🌙", "crescent moon", "night"],
+      ["☀️", "sun", "sunny weather"],
+      ["🔥", "fire", "hot lit"],
+      ["🌊", "water wave", "sea ocean"],
+      ["🐱", "cat face", "pet kitten"],
+      ["🐶", "dog face", "pet puppy"],
+    ],
+  },
+  {
+    id: "objects",
+    title: "Objects",
+    emoji: [
+      ["💡", "light bulb", "idea"],
+      ["📌", "pushpin", "pin"],
+      ["📎", "paperclip", "attachment"],
+      ["🔒", "locked", "lock secure"],
+      ["🔑", "key", "password"],
+      ["🧪", "test tube", "experiment test"],
+      ["🛠️", "hammer and wrench", "tools build fix"],
+      ["📦", "package", "box ship release"],
+    ],
+  },
+  {
+    id: "symbols",
+    title: "Symbols",
+    emoji: [
+      ["✅", "check mark button", "done yes"],
+      ["❌", "cross mark", "no wrong"],
+      ["⚠️", "warning", "caution"],
+      ["❤️", "red heart", "love"],
+      ["⭐", "star", "favorite"],
+      ["✨", "sparkles", "new shiny"],
+      ["🚀", "rocket", "launch ship fast"],
+      ["🎉", "party popper", "celebrate tada"],
+    ],
+  },
+].map(({ id, title, emoji }) => ({
+  id,
+  title,
+  emoji: emoji.map(([character, name, keywords]) => ({ character, name, keywords: keywords.split(" ") })),
+}));
