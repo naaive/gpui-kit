@@ -50,7 +50,8 @@ fn main() -> ExitCode {
     };
 
     let application = gpui_kit::application()
-        .with_assets(gpui_kit::assets::Assets)
+        // Extensions may name any Lucide icon, so the whole catalog is embedded.
+        .with_assets(gpui_kit::assets::AllAssets)
         // The launcher lives on with its window hidden or closed.
         .with_quit_mode(QuitMode::Explicit);
     let (open_urls, opened_urls) = smol::channel::unbounded();

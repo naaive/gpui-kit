@@ -1178,6 +1178,8 @@ mod tests {
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("extensions")
     }
 
+    static NEXT_DATA_DIRECTORY: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
     fn open(
         cx: &mut TestAppContext,
         roots: &[PathBuf],
@@ -1188,7 +1190,22 @@ mod tests {
             crate::ui::init(cx);
         });
         let catalog = Rc::new(Catalog::discover(roots));
-        let extensions = Rc::new(cx.update(ExtensionHost::new).unwrap());
+        // Tests never touch the user's data directory or keychain.
+        let data = std::env::temp_dir().join(format!(
+            "launcher-window-test-{}-{}",
+            std::process::id(),
+            NEXT_DATA_DIRECTORY.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ));
+        let extensions = Rc::new(
+            cx.update(|cx| {
+                ExtensionHost::new_in(
+                    crate::extensions::DataDirectory::new(data),
+                    Rc::new(crate::extensions::MemorySecrets::default()),
+                    cx,
+                )
+            })
+            .unwrap(),
+        );
         let slot = Rc::new(RefCell::new(None));
         let launcher = slot.clone();
         let window = cx.add_window(move |window, cx| {
@@ -1312,6 +1329,7 @@ mod tests {
                 "# System",
                 "system/toggle-appearance:Command",
                 "system/settings:Command",
+                "system/extensions:Command",
                 "system/quit:Command",
             ]
         );

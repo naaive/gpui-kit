@@ -76,11 +76,13 @@ impl Startup {
 
 /// The directories extensions are discovered in, in order; an earlier one
 /// wins a duplicate extension id. A development directory overrides an
-/// installed copy of the same extension.
+/// installed copy of the same extension, and an installed copy overrides the
+/// bundled one.
 pub fn extension_roots(
     development: &[PathBuf],
     environment: Option<PathBuf>,
     configured: Option<&Path>,
+    installed: &Path,
     bundled: &Path,
 ) -> Vec<PathBuf> {
     let mut roots: Vec<PathBuf> = Vec::new();
@@ -89,7 +91,7 @@ pub fn extension_roots(
         .cloned()
         .chain(environment)
         .chain(configured.map(Path::to_path_buf))
-        .chain([bundled.to_path_buf()]);
+        .chain([installed.to_path_buf(), bundled.to_path_buf()]);
     for root in candidates {
         if !roots.contains(&root) {
             roots.push(root);
@@ -128,9 +130,23 @@ impl Launcher {
             &self.development_directories,
             std::env::var_os("LAUNCHER_EXTENSIONS").map(PathBuf::from),
             self.settings.extension_directory(),
+            &self.extensions.data().extensions_dir(),
             &self.bundled_extensions,
         )
     }
+}
+
+/// Builds the page listing installed extensions, where they are installed
+/// from Git, updated and removed.
+pub fn extensions_page(
+    window: &mut Window,
+    cx: &mut App,
+) -> anyhow::Result<crate::pages::PageHandle> {
+    let host = cx
+        .try_global::<Launcher>()
+        .map(|launcher| launcher.extensions.clone())
+        .ok_or_else(|| anyhow::anyhow!("the launcher is not running"))?;
+    host.extensions_page(window, cx)
 }
 
 /// Starts the launcher: loads settings, applies them, listens for requests
@@ -187,8 +203,16 @@ pub fn start(startup: Startup, cx: &mut App) {
         &startup.development_directories,
         std::env::var_os("LAUNCHER_EXTENSIONS").map(PathBuf::from),
         settings.extension_directory(),
+        &startup.extensions.data().extensions_dir(),
         &startup.bundled_extensions,
     ));
+    // Installing, updating or removing an extension changes the catalog; like
+    // any other change, it is read again the next time the launcher is shown.
+    startup.extensions.set_extensions_changed_handler(|cx| {
+        if cx.has_global::<Launcher>() {
+            cx.global_mut::<Launcher>().catalog_is_stale = true;
+        }
+    });
     let appearance = settings.appearance();
     cx.set_global(Launcher {
         extensions: startup.extensions,
@@ -470,14 +494,15 @@ mod tests {
     fn test_extension_roots_order_and_duplicates() {
         let bundled = PathBuf::from("/bundled");
         assert_eq!(
-            extension_roots(&[], None, None, &bundled),
-            [PathBuf::from("/bundled")]
+            extension_roots(&[], None, None, Path::new("/installed"), &bundled),
+            [PathBuf::from("/installed"), "/bundled".into()]
         );
         assert_eq!(
             extension_roots(
                 &["/dev/a".into(), "/dev/b".into()],
                 Some("/env".into()),
                 Some(Path::new("/configured")),
+                Path::new("/installed"),
                 &bundled,
             ),
             [
@@ -485,6 +510,7 @@ mod tests {
                 "/dev/b".into(),
                 "/env".into(),
                 "/configured".into(),
+                "/installed".into(),
                 "/bundled".into(),
             ]
         );
@@ -493,6 +519,7 @@ mod tests {
                 &["/same".into()],
                 Some("/same".into()),
                 Some(Path::new("/bundled")),
+                Path::new("/same"),
                 &bundled
             ),
             [PathBuf::from("/same"), "/bundled".into()],

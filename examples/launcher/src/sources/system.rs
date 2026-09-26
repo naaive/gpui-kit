@@ -50,7 +50,7 @@ impl CommandSource for SystemCommands {
     }
 }
 
-fn launcher_commands() -> [Item; 3] {
+fn launcher_commands() -> [Item; 4] {
     [
         command_item("system/toggle-appearance", "Toggle Appearance", "sun-moon")
             .with_keyword("dark mode")
@@ -71,6 +71,13 @@ fn launcher_commands() -> [Item; 3] {
             .with_action(Action::new(
                 "Open Settings",
                 Effect::Push(PushHandler::new(settings_page)),
+            )),
+        command_item("system/extensions", "Manage Extensions", "layout-dashboard")
+            .with_keyword("install")
+            .with_keyword("plugins")
+            .with_action(Action::new(
+                "Open Extensions",
+                Effect::Push(PushHandler::new(crate::shell::launcher::extensions_page)),
             )),
         command_item("system/quit", "Quit Launcher", "circle-x")
             .with_keyword("exit")
@@ -432,7 +439,12 @@ mod tests {
             .collect();
         assert_eq!(
             titles,
-            ["Toggle Appearance", "Launcher Settings", "Quit Launcher"]
+            [
+                "Toggle Appearance",
+                "Launcher Settings",
+                "Manage Extensions",
+                "Quit Launcher"
+            ]
         );
     }
 }

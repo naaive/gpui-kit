@@ -454,6 +454,7 @@ mod tests {
                 "# System",
                 "system/toggle-appearance",
                 "system/settings",
+                "system/extensions",
                 "system/quit",
             ]
         );
