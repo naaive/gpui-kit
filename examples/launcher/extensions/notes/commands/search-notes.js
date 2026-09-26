@@ -42,6 +42,9 @@ export default class SearchNotes extends View {
   }
 
   row(note) {
+    // A note may have a title and no body; pasting or copying it then gives
+    // the title, since an action needs something to carry.
+    const text = note.body.trim() ? note.body : note.title;
     const item = new ListItem(note.id, note.title).icon("sticky-note").accessory(formatDate(note.updated));
     // The body is searched too, without being shown in the row.
     return (note.body.trim() ? item.keyword(note.body) : item)
@@ -53,8 +56,8 @@ export default class SearchNotes extends View {
       )
       .actions(
         new ActionPanel().children([
-          new Action("Paste Note").icon("clipboard-paste").paste(note.body),
-          new Action("Copy Note").icon("copy").copy(note.body),
+          new Action("Paste Note").icon("clipboard-paste").paste(text),
+          new Action("Copy Note").icon("copy").copy(text),
           new ActionPanelSection("Manage").children([
             new Action("Edit Note").icon("pencil").shortcut("secondary-e").push(() => this.edit(note)),
             new Action("Create Note").icon("plus").shortcut("secondary-n").launch("create-note"),
