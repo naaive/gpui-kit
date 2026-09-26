@@ -5,7 +5,7 @@ use gpui_kit::{App, AppContext as _, Window};
 use gpui_shell::ShellRuntime;
 
 use super::{
-    Extension, ExtensionCommand,
+    Extension, ExtensionCommand, LaunchRequest,
     bridge::{self, HostApi},
 };
 use crate::{
@@ -52,9 +52,11 @@ impl ExtensionHost {
         &self,
         extension: &Extension,
         command: &ExtensionCommand,
+        request: &LaunchRequest,
         window: &mut Window,
         cx: &mut App,
     ) -> Result<Opened> {
+        let _ = request;
         self.api.set_launch(command.id().clone());
         let application = self
             .runtime
@@ -68,4 +70,15 @@ impl ExtensionHost {
         let page = cx.new(|cx| ScriptPage::new(title, view, cx));
         Ok(Opened::Page(pages::handle(page)))
     }
+}
+
+/// Builds the page an extension pushes: `callback` returns an instance of a
+/// `View` subclass, which becomes a page of its own.
+pub fn page_from_callback(
+    _callback: &gpui_shell::ComponentCallback,
+    _title: gpui_kit::SharedString,
+    _window: &mut Window,
+    _cx: &mut App,
+) -> Result<PageHandle> {
+    anyhow::bail!("pushing an extension page is not supported by this build")
 }

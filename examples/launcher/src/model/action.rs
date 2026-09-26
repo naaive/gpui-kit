@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use gpui_kit::SharedString;
 
 use super::{FormHandler, Image, PushHandler, RunHandler};
-use crate::extensions::CommandId;
+use crate::extensions::LaunchRequest;
 
 /// Something the user can do to an item, a detail page or a form.
 ///
@@ -259,7 +259,7 @@ pub enum Effect {
     /// A short message shown after the launcher window hides.
     ShowHud(SharedString),
     /// Opens a command, pushing its page (or running it, for a no-view command).
-    Launch(CommandId),
+    Launch(LaunchRequest),
     /// Pushes a page built by the page that produced the action.
     Push(PushHandler),
     Pop,

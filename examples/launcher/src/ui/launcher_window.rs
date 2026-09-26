@@ -20,7 +20,7 @@ use super::{
 };
 use crate::{
     extensions::Opened,
-    extensions::{Catalog, CommandId, ExtensionHost},
+    extensions::{Catalog, ExtensionHost, LaunchRequest},
     model::{Action, Effect, FormValues, ItemId, PageModel, Toast, ToastStyle},
     pages::{self, PageHandle, RootSearchPage},
     session::{Entry, Navigator, Rows},
@@ -323,7 +323,7 @@ impl LauncherWindow {
                 self.close(window, cx);
                 crate::shell::platform::show_hud(text, cx);
             }
-            Effect::Launch(id) => self.launch(&id, window, cx),
+            Effect::Launch(request) => self.launch(&request, window, cx),
             Effect::Push(build) => match build.build(window, cx) {
                 Ok(page) => self.push(page, window, cx),
                 Err(error) => show_toast(
@@ -352,7 +352,28 @@ impl LauncherWindow {
         cx.notify();
     }
 
-    fn launch(&mut self, id: &CommandId, window: &mut Window, cx: &mut Context<Self>) {
+    /// Returns to a fresh root search with the search field focused, as the
+    /// launcher should look each time it is summoned.
+    pub fn reset(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.navigator.pop_to_root();
+        self.set_query(SharedString::default(), window, cx);
+        self.sync_input(window, cx);
+        self.input.update(cx, |input, cx| input.focus(window, cx));
+    }
+
+    /// Opens a command from outside the window, such as a deep link.
+    pub fn open_command(
+        &mut self,
+        request: LaunchRequest,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.reset(window, cx);
+        self.launch(&request, window, cx);
+    }
+
+    fn launch(&mut self, request: &LaunchRequest, window: &mut Window, cx: &mut Context<Self>) {
+        let id = request.command();
         let Some((extension, command)) = self.catalog.command(id) else {
             show_toast(
                 &Toast::new(ToastStyle::Failure, format!("No command `{id}`")),
@@ -361,7 +382,10 @@ impl LauncherWindow {
             );
             return;
         };
-        match self.extensions.open(extension, command, window, cx) {
+        match self
+            .extensions
+            .open(extension, command, request, window, cx)
+        {
             Ok(Opened::Page(page)) => self.push(page, window, cx),
             Ok(Opened::Background) => {}
             Err(error) => {

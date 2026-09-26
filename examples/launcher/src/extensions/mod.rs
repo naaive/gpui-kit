@@ -56,3 +56,36 @@ impl fmt::Display for CommandId {
         write!(formatter, "{}/{}", self.extension, self.command)
     }
 }
+
+/// A request to open a command, with the arguments it was given.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct LaunchRequest {
+    command: CommandId,
+    arguments: std::collections::BTreeMap<SharedString, SharedString>,
+}
+
+impl LaunchRequest {
+    pub fn new(command: CommandId) -> Self {
+        Self {
+            command,
+            arguments: Default::default(),
+        }
+    }
+
+    pub fn with_argument(
+        mut self,
+        name: impl Into<SharedString>,
+        value: impl Into<SharedString>,
+    ) -> Self {
+        self.arguments.insert(name.into(), value.into());
+        self
+    }
+
+    pub fn command(&self) -> &CommandId {
+        &self.command
+    }
+
+    pub fn arguments(&self) -> &std::collections::BTreeMap<SharedString, SharedString> {
+        &self.arguments
+    }
+}

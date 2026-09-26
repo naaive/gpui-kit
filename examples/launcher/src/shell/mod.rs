@@ -5,3 +5,4 @@
 //! branches on the operating system.
 
 pub mod platform;
+pub mod settings;

@@ -2,7 +2,7 @@ use gpui_kit::{Context, SharedString, Window};
 
 use super::Page;
 use crate::{
-    extensions::Catalog,
+    extensions::{Catalog, LaunchRequest},
     model::{Accessory, Action, Effect, Item, ItemId, ListModel, PageModel, RunHandler, Section},
     search::score_item,
 };
@@ -35,7 +35,7 @@ impl RootSearchPage {
                 .with_accessory(Accessory::text("Command"))
                 .with_action(Action::new(
                     "Open Command",
-                    Effect::Launch(command.id().clone()),
+                    Effect::Launch(LaunchRequest::new(command.id().clone())),
                 ));
                 let item = match command.icon() {
                     Some(icon) => item.with_icon(icon.clone()),
