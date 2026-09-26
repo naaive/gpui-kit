@@ -7,15 +7,26 @@ edition.workspace = true
 
 [dependencies]
 anyhow.workspace = true
+dirs = "6"
 gpui-kit.workspace = true
 gpui-shell.workspace = true
+icns = "0.3"
+notify.workspace = true
+percent-encoding = "2.3"
+pinyin = { version = "0.10", default-features = false, features = ["heteronym", "plain"] }
+plist = "1"
 serde.workspace = true
 serde_json.workspace = true
+smol.workspace = true
 tracing.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+sys-locale = "0.3"
 
 [dev-dependencies]
 gpui = { workspace = true, features = ["test-support"] }
 gpui-kit = { workspace = true, features = ["test-support"] }
+tempfile = "3"
 
 [lints]
 workspace = true

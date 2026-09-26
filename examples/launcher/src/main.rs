@@ -10,6 +10,7 @@ mod pages;
 mod search;
 mod session;
 mod shell;
+mod sources;
 mod ui;
 
 use std::{path::PathBuf, rc::Rc};
