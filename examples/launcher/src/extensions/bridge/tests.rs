@@ -14,14 +14,14 @@ use std::{
 
 use gpui::{Empty, Entity, TestAppContext, VisualTestContext};
 use gpui_kit::{AppContext as _, IntoElement as _, ParentElement as _, Render as _, Styled as _};
-use gpui_shell::{Capabilities, ScriptView, ShellRuntime, policy::Policy};
+use gpui_shell::{Capabilities, ScriptView, ShellRuntime, plugin::PluginManifest, policy::Policy};
 
 use super::{ExtensionContext, HostApi, components, take_page_model};
 use crate::{
-    extensions::{CommandId, LaunchRequest},
+    extensions::{Catalog, CommandId, LaunchRequest},
     model::{
         Accessory, ActionEntry, ActionStyle, Control, DetailModel, Effect, FormModel, FormValue,
-        FormValues, Image, Layout, ListModel, MetadataValue, PageModel, ToastStyle, Tone,
+        FormValues, Image, Item, Layout, ListModel, MetadataValue, PageModel, ToastStyle, Tone,
     },
 };
 
@@ -953,12 +953,20 @@ fn test_write_declarations_describes_every_module() {
         "launcher-utils.d.ts",
         "launcher.schema.json",
     ] {
-        assert!(names.iter().any(|name| name == expected), "{expected} in {names:?}");
+        assert!(
+            names.iter().any(|name| name == expected),
+            "{expected} in {names:?}"
+        );
     }
     let components = std::fs::read_to_string(directory.join("gpui-kit.d.ts")).unwrap();
     let shim = std::fs::read_to_string(directory.join("launcher.d.ts")).unwrap();
     assert!(shim.contains("declare module \"launcher\""));
-    for export in ["ListDropdown", "MetadataTags", "PasswordField", "ActionPanelSubmenu"] {
+    for export in [
+        "ListDropdown",
+        "MetadataTags",
+        "PasswordField",
+        "ActionPanelSubmenu",
+    ] {
         assert!(components.contains(export), "`{export}` is declared");
     }
     let api = std::fs::read_to_string(directory.join("launcher-api.d.ts")).unwrap();
@@ -975,4 +983,284 @@ fn test_write_declarations_describes_every_module() {
         "an up-to-date file is not rewritten"
     );
     std::fs::remove_dir_all(&directory).ok();
+}
+
+// MARK: Bundled extensions
+
+/// Mounts a bundled command the way the launcher will: with its extension's
+/// id and the capabilities its `gpui-shell.json` declares, its preferences'
+/// defaults, and `arguments`. Storage and cache live in a temporary directory
+/// that outlives remounts, so a command sees what an earlier one saved.
+fn open_bundled(
+    runtime: &Rc<ShellRuntime>,
+    cx: &mut VisualTestContext,
+    effects: &Rc<RefCell<Vec<Effect>>>,
+    data: &Path,
+    command: &str,
+    arguments: &[(&str, &str)],
+) -> Entity<ScriptView> {
+    let (extension_id, name) = command.split_once('/').expect("`extension/command`");
+    let catalog =
+        Catalog::discover(&[PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("extensions")]);
+    let (extension, command) = catalog
+        .command(&CommandId::new(extension_id, name))
+        .unwrap_or_else(|| panic!("`{extension_id}/{name}` is bundled"));
+    let manifest = PluginManifest::read(extension.root()).unwrap();
+    let preferences: serde_json::Map<String, serde_json::Value> = extension
+        .preferences()
+        .iter()
+        .chain(command.preferences())
+        .filter_map(|preference| Some((preference.name.clone(), preference.default.clone()?)))
+        .collect();
+    let request = arguments.iter().fold(
+        LaunchRequest::new(command.id().clone()),
+        |request, (name, value)| request.with_argument(*name, *value),
+    );
+
+    std::fs::create_dir_all(data).unwrap();
+    let sink = effects.clone();
+    let context = ExtensionContext::new(extension.id().clone())
+        .with_preferences(preferences)
+        .with_cache_directory(data.join("cache"))
+        .with_effect_sink(move |effect, _| sink.borrow_mut().push(effect));
+    context.begin_launch(&request, LaunchType::UserInitiated);
+    gpui_shell::policy::set_default(
+        Policy::new()
+            .with_application(extension.id())
+            .with_capabilities(manifest.capabilities(extension.root(), data))
+            .with_storage_path(data.join("storage.json"))
+            .with_host_module(HostApi::module_for(context))
+            .unwrap(),
+    );
+    let view = cx.update(|window, cx| {
+        let application = runtime
+            .load_application(extension.root(), command.module())
+            .unwrap();
+        runtime.mount_application(&application, window, cx).unwrap()
+    });
+    cx.run_until_parked();
+    view
+}
+
+fn mount_bundled(cx: &mut TestAppContext, command: &str, arguments: &[(&str, &str)]) -> Mounted {
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        gpui_shell::init(cx);
+    });
+    let runtime =
+        cx.update(|cx| ShellRuntime::new_with_components(cx, components().unwrap()).unwrap());
+    let window = cx.add_window(|_, _| Empty);
+    let mut cx = VisualTestContext::from_window(*window.deref(), cx);
+    let effects = Rc::new(RefCell::new(Vec::new()));
+    let root = std::env::temp_dir().join(format!(
+        "launcher-bundled-{}-{}",
+        command.replace('/', "-"),
+        std::process::id()
+    ));
+    std::fs::remove_dir_all(&root).ok();
+    let view = open_bundled(&runtime, &mut cx, &effects, &root, command, arguments);
+    let mut mounted = Mounted {
+        runtime,
+        view,
+        cx,
+        effects,
+        root,
+    };
+    mounted.settle();
+    mounted
+}
+
+impl Mounted {
+    /// Opens another bundled command on the same runtime and data directory.
+    fn open_bundled(&mut self, command: &str, arguments: &[(&str, &str)]) {
+        self.effects.borrow_mut().clear();
+        self.view = open_bundled(
+            &self.runtime,
+            &mut self.cx,
+            &self.effects,
+            &self.root,
+            command,
+            arguments,
+        );
+        self.settle();
+    }
+}
+
+fn action_titles(item: &Item) -> Vec<String> {
+    item.actions()
+        .all_actions()
+        .map(|action| action.title().to_string())
+        .collect()
+}
+
+#[gpui::test]
+fn test_bundled_gpui_kit_commands(cx: &mut TestAppContext) {
+    let mut mounted = mount_bundled(cx, "com.gpui-kit.links/links", &[]);
+    let list = mounted.list();
+    assert_eq!(list.sections().len(), 2);
+    let home = list.items().next().unwrap();
+    assert_eq!(
+        action_titles(home),
+        [
+            "Open in Browser",
+            "Copy URL",
+            "Copy as Markdown",
+            "Show Details"
+        ]
+    );
+    assert!(matches!(
+        home.primary_action().unwrap().effect(),
+        Effect::OpenUrl(_)
+    ));
+
+    mounted.open_bundled("com.gpui-kit.links/checklist", &[]);
+    // The first task starts done; its primary action undoes that.
+    let list = mounted.list();
+    assert!(list.placeholder().unwrap().contains("remaining"));
+    let first_action = |list: &ListModel| {
+        list.items()
+            .next()
+            .unwrap()
+            .primary_action()
+            .unwrap()
+            .title()
+            .to_string()
+    };
+    assert_eq!(first_action(&list), "Mark as Not Done");
+    let Effect::Run(toggle) = list
+        .items()
+        .next()
+        .unwrap()
+        .primary_action()
+        .unwrap()
+        .effect()
+        .clone()
+    else {
+        panic!("the primary action toggles the task");
+    };
+    mounted.call(|window, cx| toggle.run(window, cx));
+    assert_eq!(first_action(&mounted.list()), "Mark as Done");
+
+    mounted.open_bundled("com.gpui-kit.links/copy-date", &[]);
+    let effects = mounted.effects();
+    assert!(matches!(&effects[0], Effect::Copy(date) if date.len() == "2026-01-01".len()));
+    assert!(matches!(&effects[1], Effect::ShowHud(text) if text.starts_with("Copied ")));
+
+    mounted.open_bundled("com.gpui-kit.links/search-docs", &[("query", "dock")]);
+    let effects = mounted.effects();
+    assert!(matches!(
+        &effects[0],
+        Effect::OpenUrl(url) if url.contains("duckduckgo.com") && url.contains("dock")
+    ));
+    assert!(matches!(&effects[1], Effect::CloseWindow));
+}
+
+#[gpui::test]
+fn test_bundled_notes_commands(cx: &mut TestAppContext) {
+    let mut mounted = mount_bundled(cx, "com.gpui-kit.notes/search-notes", &[]);
+    let list = mounted.list();
+    assert_eq!(list.items().count(), 0);
+    assert_eq!(list.empty_title().unwrap().as_ref(), "No notes yet");
+
+    // The argument fills in the title; an empty title is refused.
+    mounted.open_bundled("com.gpui-kit.notes/create-note", &[("title", "Groceries")]);
+    let form = mounted.form();
+    assert!(matches!(
+        form.fields()[0].control(),
+        Control::Text { value, .. } if value.as_ref() == "Groceries"
+    ));
+    let Effect::SubmitForm(submit) = form.actions().primary().unwrap().effect().clone() else {
+        panic!("the primary action submits");
+    };
+    let blank = FormValues::new()
+        .with("title", FormValue::Text(" ".into()))
+        .with("body", FormValue::Text("".into()));
+    mounted.call(|window, cx| submit.call(blank, window, cx));
+    assert!(mounted.form().fields()[0].error().is_some());
+    let values = FormValues::new()
+        .with("title", FormValue::Text("Groceries".into()))
+        .with("body", FormValue::Text("Milk, eggs".into()));
+    mounted.call(|window, cx| submit.call(values, window, cx));
+    assert!(matches!(
+        mounted.effects().last(),
+        Some(Effect::ShowHud(text)) if text.contains("Groceries")
+    ));
+
+    // The list reads what the form saved, and deletes it after confirming.
+    mounted.open_bundled("com.gpui-kit.notes/search-notes", &[]);
+    let list = mounted.list();
+    assert!(list.is_showing_detail());
+    let note = list.items().next().unwrap();
+    assert_eq!(note.title().as_ref(), "Groceries");
+    assert_eq!(
+        note.detail().unwrap().markdown().as_ref(),
+        "# Groceries\n\nMilk, eggs"
+    );
+    assert_eq!(
+        action_titles(note),
+        [
+            "Paste Note",
+            "Copy Note",
+            "Edit Note",
+            "Create Note",
+            "Delete Note"
+        ]
+    );
+    let delete = note.actions().all_actions().last().unwrap();
+    assert_eq!(delete.style(), ActionStyle::Destructive);
+    let Effect::Confirm(confirmation) = delete.effect() else {
+        panic!("deleting asks first");
+    };
+    let Effect::Run(run) = confirmation.effect().clone() else {
+        panic!("the confirmed effect runs the script");
+    };
+    mounted.call(|window, cx| run.run(window, cx));
+    assert_eq!(mounted.list().items().count(), 0);
+}
+
+#[gpui::test]
+fn test_bundled_emoji_command(cx: &mut TestAppContext) {
+    let mut mounted = mount_bundled(cx, "com.gpui-kit.emoji/search-emoji", &[]);
+    let list = mounted.list();
+    assert_eq!(list.layout(), Layout::Grid { columns: 8 });
+    assert_eq!(list.sections().len(), 5);
+    let first = list.items().next().unwrap();
+    assert!(
+        first
+            .keywords()
+            .iter()
+            .any(|keyword| keyword.as_ref() == "happy")
+    );
+    // The preference's default, `paste`, puts pasting first.
+    assert_eq!(
+        action_titles(first),
+        ["Paste Emoji", "Copy Emoji", "Copy Name"]
+    );
+
+    let on_change = list.dropdown().unwrap().on_change().cloned().unwrap();
+    mounted.call(|window, cx| on_change.call("symbols".into(), window, cx));
+    let list = mounted.list();
+    assert_eq!(list.sections().len(), 1);
+    assert_eq!(list.sections()[0].title().unwrap().as_ref(), "Symbols");
+}
+
+/// Only what happens before a request is sent: the test never goes online.
+#[gpui::test]
+fn test_bundled_repository_search_command(cx: &mut TestAppContext) {
+    let mut mounted = mount_bundled(cx, "com.gpui-kit.github/search-repositories", &[]);
+    let list = mounted.list();
+    assert!(!list.is_filtering(), "the command runs the search itself");
+    assert!(!list.is_loading());
+    assert_eq!(list.empty_title().unwrap().as_ref(), "Search GitHub");
+
+    // Typing waits for a pause before searching; clearing the query cancels it.
+    let typed = list.on_query_change().cloned().unwrap();
+    mounted.call(|window, cx| typed.call("gpui".into(), window, cx));
+    let list = mounted.list();
+    assert!(list.is_loading());
+    assert_eq!(list.empty_title().unwrap().as_ref(), "Searching…");
+    mounted.call(|window, cx| typed.call("".into(), window, cx));
+    let list = mounted.list();
+    assert!(!list.is_loading());
+    assert_eq!(list.empty_title().unwrap().as_ref(), "Search GitHub");
 }

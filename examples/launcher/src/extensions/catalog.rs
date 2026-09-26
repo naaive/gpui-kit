@@ -192,5 +192,30 @@ mod tests {
             .expect("the bundled links command is discovered");
         assert_eq!(extension.name().as_ref(), "GPUI Kit");
         assert_eq!(command.module(), "commands/links.js");
+
+        // A broken manifest would only be logged and skipped, so check that
+        // every bundled extension made it, with a module for each command.
+        let mut ids: Vec<&str> = catalog
+            .extensions
+            .iter()
+            .map(|extension| extension.id().as_ref())
+            .collect();
+        ids.sort();
+        assert_eq!(
+            ids,
+            [
+                "com.gpui-kit.emoji",
+                "com.gpui-kit.github",
+                "com.gpui-kit.links",
+                "com.gpui-kit.notes"
+            ]
+        );
+        for (extension, command) in catalog.commands() {
+            assert!(
+                extension.root().join(command.module()).is_file(),
+                "`{}` has its module",
+                command.id()
+            );
+        }
     }
 }

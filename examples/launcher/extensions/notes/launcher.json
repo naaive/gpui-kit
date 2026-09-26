@@ -1,0 +1,20 @@
+{
+  "$schema": "./launcher.schema.json",
+  "icon": "notebook",
+  "commands": [
+    {
+      "name": "search-notes",
+      "title": "Search Notes",
+      "keywords": ["memo", "text"],
+      "module": "commands/search-notes.js"
+    },
+    {
+      "name": "create-note",
+      "title": "Create Note",
+      "icon": "notebook-pen",
+      "keywords": ["new", "write", "memo"],
+      "module": "commands/create-note.js",
+      "arguments": [{ "name": "title", "placeholder": "Title" }]
+    }
+  ]
+}

@@ -20,6 +20,10 @@ pub const MAX_ARGUMENTS: usize = 3;
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct LauncherManifest {
+    /// The schema an editor validates this file against, normally
+    /// `./launcher.schema.json`. The launcher ignores it.
+    #[serde(default, rename = "$schema")]
+    _schema: Option<String>,
     /// A Lucide icon name, or a path inside the extension, shown beside the
     /// extension's commands.
     #[serde(default)]
@@ -351,7 +355,9 @@ fn validate_preference_input(at: &str, preference: &PreferenceManifest) -> Resul
                 Some(Value::String(value)) => {
                     bail!("{at}.default `{value}` is not the value of any of its choices")
                 }
-                Some(other) => bail!("{at}.default must be one of its choices' values, not {other}"),
+                Some(other) => {
+                    bail!("{at}.default must be one of its choices' values, not {other}")
+                }
             }
         }
     }
@@ -509,7 +515,12 @@ mod tests {
 
     #[test]
     fn test_validates_preferences() {
-        let preference = |fields: &str| error(&manifest("", &format!(r#"{{ "name": "p", "title": "P", {fields} }}"#)));
+        let preference = |fields: &str| {
+            error(&manifest(
+                "",
+                &format!(r#"{{ "name": "p", "title": "P", {fields} }}"#),
+            ))
+        };
         assert!(
             preference(r#""type": "dropdown""#)
                 .contains("preferences[0].choices must list at least one choice")
@@ -526,9 +537,7 @@ mod tests {
             )
             .contains("preferences[0].choices[1].value `a` is declared twice")
         );
-        assert!(
-            preference(r#""type": "checkbox""#).contains("preferences[0].label is required")
-        );
+        assert!(preference(r#""type": "checkbox""#).contains("preferences[0].label is required"));
         assert!(
             preference(r#""type": "checkbox", "label": "L", "default": "yes""#)
                 .contains("preferences[0].default must be true or false")

@@ -1,0 +1,6 @@
+{
+  "id": "com.gpui-kit.notes",
+  "name": "Notes",
+  "version": "0.1.0",
+  "entry": "commands/search-notes.js"
+}

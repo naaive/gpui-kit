@@ -1,0 +1,6 @@
+{
+  "id": "com.gpui-kit.emoji",
+  "name": "Emoji",
+  "version": "0.1.0",
+  "entry": "commands/search-emoji.js"
+}
