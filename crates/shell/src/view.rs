@@ -24,7 +24,10 @@
 
 use std::rc::Rc;
 
-use gpui::{Context, EntityId, IntoElement, ParentElement as _, Render, Styled as _, Window, div};
+use gpui::{
+    AnyElement, Context, EntityId, IntoElement, ParentElement as _, Render, Styled as _, Window,
+    div,
+};
 
 use crate::{
     engine::{ShellRuntime, ViewObject},
@@ -308,11 +311,30 @@ impl Drop for ScriptView {
     }
 }
 
-impl Render for ScriptView {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        if self.retired {
-            return div().into_any_element();
+impl ScriptView {
+    /// Builds the script's description, if it is stale, and materializes it,
+    /// without any surface of its own: a failed build is answered with its
+    /// message rather than drawn.
+    ///
+    /// For a host that takes what the script produced apart instead of
+    /// mounting the view. `render` draws a failure as an interface, which
+    /// keeps state in the window and so works only inside a frame; this draws
+    /// nothing itself, so a host may call it from an event handler too.
+    pub fn render_description(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Result<AnyElement, String> {
+        self.prepare(window, cx);
+        match (self.error.as_deref(), self.current.as_ref()) {
+            (Some(message), _) => Err(message.to_owned()),
+            (None, Some(snapshot)) => Ok(materialize(&self.runtime, snapshot, window, cx)),
+            (None, None) => Ok(div().into_any_element()),
         }
+    }
+
+    /// Rebuilds the description when the script or the theme changed.
+    fn prepare(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let theme = crate::theme_tokens::sync(cx);
         if self.theme.as_ref() != Some(&theme) {
             self.theme = Some(theme);
@@ -321,6 +343,15 @@ impl Render for ScriptView {
         if self.is_dirty() {
             self.rebuild(window, cx);
         }
+    }
+}
+
+impl Render for ScriptView {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if self.retired {
+            return div().into_any_element();
+        }
+        self.prepare(window, cx);
 
         match (self.error.as_deref(), self.current.as_ref()) {
             (None, Some(snapshot)) => materialize(&self.runtime, snapshot, window, cx),

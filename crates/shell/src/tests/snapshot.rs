@@ -800,3 +800,26 @@ impl gpui::Render for Empty {
         gpui::div()
     }
 }
+
+#[gpui::test]
+fn render_description_reports_a_failed_build_outside_a_frame(cx: &mut TestAppContext) {
+    let source = r#"
+import { View } from "gpui-kit";
+export default class Broken extends View {
+  render() {
+    throw new Error("no page today");
+  }
+}
+"#;
+    let (_runtime, mut context, view) = script_view(cx, source);
+
+    // An event handler is not a frame: `render` would draw its failure
+    // surface here, which needs one. The description needs none.
+    let result = context.update(|window, cx| {
+        view.update(cx, |view, cx| {
+            view.render_description(window, cx).map(|_| ())
+        })
+    });
+    let error = result.expect_err("the build threw");
+    assert!(error.contains("no page today"), "{error}");
+}
