@@ -357,7 +357,7 @@ mod tests {
     /// Two policies for one application, each with its own grant and modules,
     /// still keep one store.
     #[test]
-    fn a_policy_can_share_another_policys_store() {
+    fn a_policy_can_share_the_store_of_another() {
         let path = std::env::temp_dir().join("gpui-shell-shared-store-test.json");
         let first = Policy::new().with_storage_path(path);
         let second = Policy::new()
