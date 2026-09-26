@@ -2,9 +2,9 @@ use std::{collections::HashMap, rc::Rc, time::Duration};
 
 use gpui_kit::{
     AppContext as _, ClipboardItem, Context, Entity, FocusHandle, Focusable as _,
-    InteractiveElement as _, IntoElement, KeyDownEvent, Keystroke, MouseMoveEvent,
-    ParentElement as _, Pixels, Point, Render, ScrollHandle, ScrollStrategy, SharedString,
-    Styled as _, Subscription, Task, Window,
+    InteractiveElement as _, IntoElement, Keystroke, MouseMoveEvent, ParentElement as _, Pixels,
+    Point, Render, ScrollHandle, ScrollStrategy, SharedString, Styled as _, Subscription, Task,
+    Window,
     component::{
         ActiveTheme as _, IconName, Sizable as _, VirtualListScrollHandle, WindowExt as _,
         button::{Button, ButtonVariant, ButtonVariants as _},
@@ -121,7 +121,24 @@ impl LauncherWindow {
             cx,
         );
         let root_entry = Self::entry(pages::handle(root), cx);
-        let subscriptions = vec![cx.subscribe_in(&input, window, Self::on_input_event)];
+        let this = cx.entity().downgrade();
+        let own_window = window.window_handle();
+        let subscriptions = vec![
+            cx.subscribe_in(&input, window, Self::on_input_event),
+            cx.intercept_keystrokes(move |event, window, cx| {
+                if window.window_handle() != own_window {
+                    return;
+                }
+                let performed = this
+                    .update(cx, |launcher, cx| {
+                        launcher.perform_shortcut(&event.keystroke, window, cx)
+                    })
+                    .unwrap_or(false);
+                if performed {
+                    cx.stop_propagation();
+                }
+            }),
+        ];
 
         // Extensions request effects through `launcher/api` while their code
         // runs; they are carried out once that call has returned.
@@ -560,15 +577,46 @@ impl LauncherWindow {
     }
 
     /// Performs the action whose shortcut was pressed, from the open panel's
-    /// object, the selected item, or the page, submenus included.
+    /// object, the selected item, or the page, submenus included. Returns
+    /// whether one was.
     ///
     /// Shortcuts come from extensions at run time, so they cannot be key
-    /// bindings; they are matched here instead, after the bindings above had
-    /// their chance.
-    fn on_key_down(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
-        let pressed = event.keystroke.unparse();
+    /// bindings. They are matched before the bindings instead: an action's
+    /// shortcut is more specific than the launcher's `Ctrl-N`/`Ctrl-P`
+    /// aliases for moving the selection, which `secondary-n` becomes on
+    /// Linux and Windows. The keys the launcher is driven by (arrows, `Enter`,
+    /// `Esc`, `Tab`, `Cmd/Ctrl-K`) stay the launcher's.
+    fn perform_shortcut(
+        &mut self,
+        pressed: &Keystroke,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if !self.focus_handle.contains_focused(window, cx) || window.has_active_dialog(cx) {
+            return false;
+        }
+        let pressed = pressed.unparse();
+        let reserved = [
+            "up",
+            "down",
+            "left",
+            "right",
+            "enter",
+            "secondary-enter",
+            "escape",
+            "tab",
+            "shift-tab",
+            "secondary-k",
+        ];
+        if reserved
+            .iter()
+            .filter_map(|key| Keystroke::parse(key).ok())
+            .any(|key| key.unparse() == pressed)
+        {
+            return false;
+        }
         let Some(panel) = self.current_panel_actions(window, cx) else {
-            return;
+            return false;
         };
         let Some(action) = panel
             .all_actions()
@@ -580,9 +628,8 @@ impl LauncherWindow {
             })
             .cloned()
         else {
-            return;
+            return false;
         };
-        cx.stop_propagation();
         let item = match &self.action_panel {
             Some(open) => open.item().cloned(),
             None => {
@@ -592,12 +639,13 @@ impl LauncherWindow {
                         .selected_index(self.navigator.current().selected())
                         .and_then(|ix| rows.item(ix))
                         .map(|item| item.id().clone()),
-                    _ => None,
+                    PageModel::Detail(_) | PageModel::Form(_) | PageModel::Failure { .. } => None,
                 }
             }
         };
         self.close_action_panel(window, cx);
         self.perform_panel_action(item, action, window, cx);
+        true
     }
 
     /// `Esc` peels one layer at a time: the action panel (a submenu first),
@@ -1140,7 +1188,6 @@ impl Render for LauncherWindow {
                     cx.stop_propagation();
                 }
             }))
-            .on_key_down(cx.listener(Self::on_key_down))
             .size_full()
             .bg(cx.theme().background)
             .text_color(cx.theme().foreground)
