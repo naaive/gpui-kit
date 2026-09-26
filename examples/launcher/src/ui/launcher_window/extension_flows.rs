@@ -201,6 +201,13 @@ fn test_a_missing_required_argument_is_asked_for_first(cx: &mut TestAppContext) 
         panic!("the arguments are asked for in a form");
     };
     assert_eq!(form.fields().len(), 2);
+    cx.simulate_keystrokes("tab escape");
+    assert_eq!(
+        depth(&launcher, &mut cx),
+        1,
+        "Esc leaves a form from any field"
+    );
+    cx.simulate_keystrokes("enter");
 
     // Submitting without the required one keeps the form, with an error.
     cx.simulate_keystrokes("secondary-enter");
@@ -636,6 +643,12 @@ fn test_a_note_created_from_the_list_is_there_when_the_list_opens_again(cx: &mut
 fn test_editing_a_note_returns_to_the_list_with_the_change(cx: &mut TestAppContext) {
     let (launcher, mut cx) = open(cx, &[bundled()]);
     cx.simulate_input("create note");
+    cx.simulate_keystrokes("enter tab escape");
+    assert_eq!(
+        depth(&launcher, &mut cx),
+        1,
+        "Esc leaves a form from its text area"
+    );
     cx.simulate_keystrokes("enter");
     cx.simulate_input("Groceries");
     cx.simulate_keystrokes("tab");
@@ -680,4 +693,78 @@ fn test_editing_a_note_returns_to_the_list_with_the_change(cx: &mut TestAppConte
         cx.update(|window, cx| launcher.read(cx).input.focus_handle(cx).is_focused(window)),
         "the search field has the keyboard again"
     );
+}
+
+#[gpui::test]
+fn test_a_list_dropdown_narrows_an_extension_grid(cx: &mut TestAppContext) {
+    let (launcher, mut cx) = open(cx, &[bundled()]);
+    cx.simulate_input("search emoji");
+    cx.simulate_keystrokes("enter");
+    let headers = |cx: &mut VisualTestContext| {
+        rows(&launcher, cx)
+            .into_iter()
+            .filter(|row| row.starts_with('#'))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(headers(&mut cx).len(), 5, "every category at first");
+    assert!(
+        cx.update(|_, cx| !launcher.read(cx).dropdowns.is_empty()),
+        "the dropdown is beside the search field"
+    );
+
+    cx.update(|window, cx| {
+        launcher.update(cx, |launcher, cx| {
+            let entry = launcher.navigator.current().id();
+            launcher.dropdown_changed(entry, "nature".into(), window, cx)
+        })
+    });
+    cx.run_until_parked();
+    assert_eq!(headers(&mut cx), ["# Nature"]);
+    assert!(
+        cx.update(|window, cx| launcher.read(cx).input.focus_handle(cx).is_focused(window)),
+        "typing goes back to the search field"
+    );
+
+    // The launcher filters the grid by the search text as well.
+    let before = rows(&launcher, &mut cx).len();
+    cx.simulate_input("pet");
+    let after = rows(&launcher, &mut cx);
+    assert!(after.len() < before && after.len() > 1, "{after:?}");
+}
+
+#[gpui::test]
+fn test_a_command_kept_loaded_opens_in_a_new_window(cx: &mut TestAppContext) {
+    let (launcher, mut cx) = open(cx, &[bundled()]);
+    cx.simulate_input("checklist");
+    cx.simulate_keystrokes("enter down enter");
+    assert_eq!(rows(&launcher, &mut cx)[1], ">run:Done");
+
+    // Where a window cannot be hidden, hiding closes it and the next summon
+    // opens another; the command is still loaded when that happens.
+    let (catalog, extensions) = cx.update(|_, cx| {
+        let launcher = launcher.read(cx);
+        (launcher.catalog.clone(), launcher.extensions.clone())
+    });
+    drop(launcher);
+    cx.update(|window, _| window.remove_window());
+    cx.run_until_parked();
+    assert_eq!(extensions.loaded_launches(), 1);
+
+    let (handle, reopened) = TestAppContext::update(&mut cx, |cx| {
+        gpui_kit::open_window(Default::default(), cx, move |window, cx| {
+            cx.new(|cx| LauncherWindow::new(catalog, extensions, window, cx))
+        })
+    })
+    .unwrap();
+    let mut cx = VisualTestContext::from_window(handle, &mut cx);
+    cx.run_until_parked();
+    cx.simulate_input("checklist");
+    cx.simulate_keystrokes("enter");
+    assert_eq!(
+        rows(&reopened, &mut cx)[..2],
+        [">install:Done", "run:Done"],
+        "the command is as it was left"
+    );
+    cx.simulate_keystrokes("down enter");
+    assert_eq!(rows(&reopened, &mut cx)[1], ">run", "and still works");
 }
