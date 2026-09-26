@@ -9,7 +9,7 @@ use gpui_kit::{
 
 use super::LauncherWindow;
 use crate::{
-    model::{Item, PageModel},
+    model::{Image, Item, PageModel},
     session::{Row, Rows},
 };
 
@@ -48,6 +48,9 @@ impl RenderOnce for ListView {
                 return notice(title.clone(), Some(message.clone()), cx);
             }
             PageModel::List(list) => list,
+            PageModel::Detail(_) | PageModel::Form(_) => {
+                return notice("This page cannot be shown yet".into(), None, cx);
+            }
         };
         if !self.rows.iter().any(|row| matches!(row, Row::Item(_))) {
             if list.is_loading() {
@@ -124,12 +127,8 @@ fn item_row(
                 .flex()
                 .items_center()
                 .justify_center()
-                .when_some(item.icon().cloned(), |this, icon| {
-                    this.child(
-                        Icon::empty()
-                            .path(format!("icons/{icon}.svg"))
-                            .text_color(muted),
-                    )
+                .when_some(item.image().cloned(), |this, image| {
+                    this.child(picture(&image, muted))
                 }),
         )
         .child(
@@ -142,15 +141,12 @@ fn item_row(
                     this.child(div().truncate().text_color(muted).child(subtitle))
                 }),
         )
-        .when_some(item.accessory().cloned(), |this, accessory| {
-            this.child(
-                div()
-                    .flex_none()
-                    .text_sm()
-                    .text_color(muted)
-                    .child(accessory),
-            )
-        })
+        .children(item.accessories().iter().filter_map(|accessory| {
+            accessory
+                .label()
+                .cloned()
+                .map(|label| div().flex_none().text_sm().text_color(muted).child(label))
+        }))
         .on_click(move |_, window, cx| {
             launcher.update(cx, |launcher, cx| launcher.activate(id.clone(), window, cx));
         })
@@ -178,4 +174,15 @@ fn notice(title: SharedString, message: Option<SharedString>, cx: &App) -> AnyEl
             },
         )
         .into_any_element()
+}
+
+/// Draws an item's image: a theme-tinted Lucide icon or an image file.
+pub(super) fn picture(image: &Image, color: gpui_kit::Hsla) -> AnyElement {
+    match image {
+        Image::Icon(name) => Icon::empty()
+            .path(format!("icons/{name}.svg"))
+            .text_color(color)
+            .into_any_element(),
+        Image::File(path) => gpui_kit::img(path.clone()).size_5().into_any_element(),
+    }
 }

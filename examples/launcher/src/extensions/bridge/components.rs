@@ -15,11 +15,11 @@ use gpui_shell::{
     ConstructorDescriptor, MaterializeRequest, MethodDescriptor, RegistryError,
 };
 
-use super::{
-    QueryHandler, ScriptModel,
-    carrier::{Carrier, take},
+use super::carrier::{Carrier, take};
+use crate::model::{
+    Accessory, Action, Effect, Item, ItemId, ListModel, PageModel, RunHandler, Section,
+    TextHandler, Toast,
 };
-use crate::model::{Action, Effect, Item, ItemId, ListModel, PageModel, RunHandler, Section};
 
 const QUERY_CALLBACK: &str = "(query: string, cx: Context) => void";
 const RUN_CALLBACK: &str = "(cx: Context) => void";
@@ -117,20 +117,17 @@ impl ComponentMaterializer for ListMaterializer {
             };
         }
 
-        let on_query_change = on_query_change.map(|callback| {
-            QueryHandler::new(move |query, window, cx| {
+        if let Some(callback) = on_query_change {
+            list = list.with_on_query_change(TextHandler::new(move |query, window, cx| {
                 callback.invoke_and_report_with(
                     "List.on_query_change",
-                    &[ComponentCallbackArgument::String(query.to_owned())],
+                    &[ComponentCallbackArgument::String(query.to_string())],
                     window,
                     cx,
                 )
-            })
-        });
-        Ok(
-            Carrier::new(ScriptModel::new(PageModel::List(list), on_query_change))
-                .into_any_element(),
-        )
+            }));
+        }
+        Ok(Carrier::new(PageModel::List(list)).into_any_element())
     }
 }
 
@@ -259,7 +256,7 @@ impl ComponentMaterializer for ItemMaterializer {
             item = match op {
                 ItemOp::Subtitle(text) => item.with_subtitle(text),
                 ItemOp::Icon(icon) => item.with_icon(icon),
-                ItemOp::Accessory(text) => item.with_accessory(text),
+                ItemOp::Accessory(text) => item.with_accessory(Accessory::text(text)),
                 ItemOp::Keyword(word) => item.with_keyword(word),
                 ItemOp::Action(argument) => {
                     let mut element = request.resolve_element(&argument)?;
@@ -343,10 +340,12 @@ impl ComponentMaterializer for ActionMaterializer {
                 }
                 ActionOp::OpenUrl(url) => Effect::OpenUrl(url.into()),
                 ActionOp::Copy(text) => Effect::Copy(text.into()),
-                ActionOp::Toast(message) => Effect::ShowToast(Default::default(), message.into()),
+                ActionOp::Toast(message) => {
+                    Effect::ShowToast(Toast::new(Default::default(), message))
+                }
                 ActionOp::Run(argument) => {
                     let callback = request.resolve_callback(&argument)?;
-                    Effect::Run(RunHandler::new(move |window, cx| {
+                    Effect::Run(RunHandler::new(move |(), window, cx| {
                         callback.invoke_and_report_with("Action.run", &[], window, cx)
                     }))
                 }

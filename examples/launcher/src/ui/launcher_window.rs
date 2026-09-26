@@ -19,9 +19,10 @@ use super::{
     list_view::ListView,
 };
 use crate::{
+    extensions::Opened,
     extensions::{Catalog, CommandId, ExtensionHost},
-    model::{Action, Effect, ItemId, PageModel, ToastStyle},
-    pages::{Page, PageHandle, RootSearchPage, ScriptPage},
+    model::{Action, Effect, FormValues, ItemId, PageModel, Toast, ToastStyle},
+    pages::{self, PageHandle, RootSearchPage},
     session::{Entry, Navigator, Rows},
 };
 
@@ -55,14 +56,24 @@ impl LauncherWindow {
     ) -> Self {
         let input = cx.new(|cx| InputState::new(window, cx));
         let root = cx.new(|_| RootSearchPage::new(&catalog));
-        let root_entry = Self::entry(root, cx);
+        let root_entry = Self::entry(pages::handle(root), cx);
         let subscriptions = vec![cx.subscribe_in(&input, window, Self::on_input_event)];
 
+        // Extensions request effects through `launcher/api` while their code
+        // runs; they are carried out once that call has returned.
         let handle = window.window_handle();
-        extensions.set_toast_handler(move |style, message, cx| {
+        let launcher = cx.entity().downgrade();
+        extensions.set_effect_handler(move |effect, cx| {
+            let launcher = launcher.clone();
             cx.defer(move |cx| {
                 handle
-                    .update(cx, |_, window, cx| show_toast(style, message, window, cx))
+                    .update(cx, |_, window, cx| {
+                        launcher
+                            .update(cx, |launcher, cx| {
+                                launcher.perform_effect(effect, window, cx)
+                            })
+                            .ok();
+                    })
                     .ok();
             })
         });
@@ -81,9 +92,24 @@ impl LauncherWindow {
     }
 
     /// Wraps a page for the stack; the window redraws whenever the page does.
-    fn entry<P: Page>(page: Entity<P>, cx: &mut Context<Self>) -> Entry {
-        let subscription = cx.observe(&page, |_, _, cx| cx.notify());
-        Entry::new(Rc::new(page) as PageHandle, subscription)
+    fn entry(page: PageHandle, cx: &mut Context<Self>) -> Entry {
+        let launcher = cx.entity().downgrade();
+        let subscription = page.observe(
+            Box::new(move |cx| {
+                launcher.update(cx, |_, cx| cx.notify()).ok();
+            }),
+            cx,
+        );
+        Entry::new(page, subscription)
+    }
+
+    /// Pushes a page and gives it a fresh search field.
+    fn push(&mut self, page: PageHandle, window: &mut Window, cx: &mut Context<Self>) {
+        let entry = Self::entry(page, cx);
+        self.navigator.push(entry);
+        self.sync_input(window, cx);
+        self.scroll.scroll_to_item(0);
+        cx.notify();
     }
 
     fn on_input_event(
@@ -125,7 +151,9 @@ impl LauncherWindow {
         let model = entry.page().model(window, cx);
         let rows = match &model {
             PageModel::List(list) => Rows::new(list, entry.query()),
-            PageModel::Failure { .. } => Rows::default(),
+            PageModel::Detail(_) | PageModel::Form(_) | PageModel::Failure { .. } => {
+                Rows::default()
+            }
         };
         (model, rows)
     }
@@ -178,17 +206,31 @@ impl LauncherWindow {
     fn confirm(&mut self, secondary: bool, window: &mut Window, cx: &mut Context<Self>) {
         let (_, rows) = self.rows(window, cx);
         let selected = self.navigator.current().selected().cloned();
-        let action = rows
+        let item = rows
             .selected_index(selected.as_ref())
             .and_then(|ix| rows.item(ix))
-            .and_then(|item| match secondary {
-                false => item.primary_action(),
-                true => item.secondary_action(),
-            })
             .cloned();
-        if let Some(action) = action {
-            self.perform(&action, window, cx);
+        let action = item.as_ref().and_then(|item| match secondary {
+            false => item.primary_action(),
+            true => item.secondary_action(),
+        });
+        if let (Some(item), Some(action)) = (&item, action) {
+            self.perform_item_action(item.id().clone(), action.clone(), window, cx);
         }
+    }
+
+    /// Performs an item's action and tells the page which item it was.
+    fn perform_item_action(
+        &mut self,
+        item: ItemId,
+        action: Action,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let entry = self.navigator.current();
+        let (page, query) = (entry.page().clone(), entry.query().clone());
+        self.perform(&action, window, cx);
+        page.did_perform(&item, &query, cx);
     }
 
     /// Performs the selected item's action whose shortcut was pressed.
@@ -200,19 +242,27 @@ impl LauncherWindow {
         let pressed = event.keystroke.unparse();
         let (_, rows) = self.rows(window, cx);
         let selected = self.navigator.current().selected().cloned();
-        let action = rows
+        let matches = |action: &&Action| {
+            action
+                .shortcut()
+                .and_then(|shortcut| Keystroke::parse(shortcut).ok())
+                .is_some_and(|shortcut| shortcut.unparse() == pressed)
+        };
+        let item = rows
             .selected_index(selected.as_ref())
             .and_then(|ix| rows.item(ix))
-            .and_then(|item| {
-                item.actions().iter().find(|action| {
-                    action
-                        .shortcut()
-                        .and_then(|shortcut| Keystroke::parse(shortcut).ok())
-                        .is_some_and(|shortcut| shortcut.unparse() == pressed)
-                })
-            })
             .cloned();
-        if let Some(action) = action {
+        if let Some(item) = item {
+            if let Some(action) = item.actions().all_actions().find(matches).cloned() {
+                cx.stop_propagation();
+                self.perform_item_action(item.id().clone(), action, window, cx);
+            }
+        } else if let Some(action) = self
+            .rows(window, cx)
+            .0
+            .page_actions()
+            .and_then(|panel| panel.all_actions().find(matches).cloned())
+        {
             cx.stop_propagation();
             self.perform(&action, window, cx);
         }
@@ -240,25 +290,63 @@ impl LauncherWindow {
     }
 
     pub(super) fn perform(&mut self, action: &Action, window: &mut Window, cx: &mut Context<Self>) {
-        match action.effect().clone() {
+        self.perform_effect(action.effect().clone(), window, cx);
+    }
+
+    /// Carries out an effect. Pages describe effects; only the window performs
+    /// them, which is what keeps every page's behavior consistent.
+    pub(crate) fn perform_effect(
+        &mut self,
+        effect: Effect,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match effect {
             Effect::OpenUrl(url) => cx.open_url(&url),
+            Effect::OpenPath(path) => cx.open_with_system(&path),
+            Effect::RevealPath(path) => cx.reveal_path(&path),
             Effect::Copy(text) => {
                 cx.write_to_clipboard(ClipboardItem::new_string(text.to_string()));
                 show_toast(
-                    ToastStyle::Success,
-                    "Copied to clipboard".into(),
+                    &Toast::new(ToastStyle::Success, "Copied to clipboard"),
                     window,
                     cx,
                 );
             }
-            Effect::ShowToast(style, message) => show_toast(style, message, window, cx),
+            Effect::Paste(text) => {
+                cx.write_to_clipboard(ClipboardItem::new_string(text.to_string()));
+                self.close(window, cx);
+                crate::shell::platform::paste_into_previous_application(cx);
+            }
+            Effect::ShowToast(toast) => show_toast(&toast, window, cx),
+            Effect::ShowHud(text) => {
+                self.close(window, cx);
+                crate::shell::platform::show_hud(text, cx);
+            }
             Effect::Launch(id) => self.launch(&id, window, cx),
+            Effect::Push(build) => match build.build(window, cx) {
+                Ok(page) => self.push(page, window, cx),
+                Err(error) => show_toast(
+                    &Toast::new(ToastStyle::Failure, "Cannot open the page")
+                        .with_message(format!("{error:#}")),
+                    window,
+                    cx,
+                ),
+            },
             Effect::Pop => {
                 if self.navigator.pop() {
                     self.sync_input(window, cx);
                 }
             }
+            Effect::PopToRoot => {
+                self.navigator.pop_to_root();
+                self.sync_input(window, cx);
+            }
             Effect::CloseWindow => self.close(window, cx),
+            Effect::Confirm(confirmation) => {
+                self.perform_effect(confirmation.effect().clone(), window, cx)
+            }
+            Effect::SubmitForm(handler) => handler.call(FormValues::new(), window, cx),
             Effect::Run(handler) => handler.run(window, cx),
         }
         cx.notify();
@@ -267,25 +355,23 @@ impl LauncherWindow {
     fn launch(&mut self, id: &CommandId, window: &mut Window, cx: &mut Context<Self>) {
         let Some((extension, command)) = self.catalog.command(id) else {
             show_toast(
-                ToastStyle::Failure,
-                format!("No command `{id}`").into(),
+                &Toast::new(ToastStyle::Failure, format!("No command `{id}`")),
                 window,
                 cx,
             );
             return;
         };
         match self.extensions.open(extension, command, window, cx) {
-            Ok(view) => {
-                let title = command.title().clone();
-                let page = cx.new(|cx| ScriptPage::new(title, view, cx));
-                let entry = Self::entry(page, cx);
-                self.navigator.push(entry);
-                self.sync_input(window, cx);
-                self.scroll.scroll_to_item(0);
-            }
+            Ok(Opened::Page(page)) => self.push(page, window, cx),
+            Ok(Opened::Background) => {}
             Err(error) => {
                 tracing::error!("{error:#}");
-                show_toast(ToastStyle::Failure, format!("{error:#}").into(), window, cx);
+                show_toast(
+                    &Toast::new(ToastStyle::Failure, "Cannot open the command")
+                        .with_message(format!("{error:#}")),
+                    window,
+                    cx,
+                );
             }
         }
     }
@@ -299,18 +385,20 @@ impl LauncherWindow {
     }
 }
 
-fn show_toast(
-    style: ToastStyle,
-    message: SharedString,
-    window: &mut Window,
-    cx: &mut gpui_kit::App,
-) {
-    let kind = match style {
-        ToastStyle::Info => NotificationType::Info,
+fn show_toast(toast: &Toast, window: &mut Window, cx: &mut gpui_kit::App) {
+    let kind = match toast.style() {
+        ToastStyle::Info | ToastStyle::Progress => NotificationType::Info,
         ToastStyle::Success => NotificationType::Success,
         ToastStyle::Failure => NotificationType::Error,
     };
-    window.push_notification(Notification::new().message(message).with_type(kind), cx);
+    let notification = Notification::new()
+        .title(toast.title().clone())
+        .with_type(kind);
+    let notification = match toast.message() {
+        Some(message) => notification.message(message.clone()),
+        None => notification,
+    };
+    window.push_notification(notification, cx);
 }
 
 impl Render for LauncherWindow {
@@ -320,7 +408,9 @@ impl Render for LauncherWindow {
         let selected = selected_ix.and_then(|ix| rows.item(ix)).cloned();
         let placeholder: SharedString = match &model {
             PageModel::List(list) => list.placeholder().cloned().unwrap_or("Search…".into()),
-            PageModel::Failure { .. } => SharedString::default(),
+            PageModel::Detail(_) | PageModel::Form(_) | PageModel::Failure { .. } => {
+                SharedString::default()
+            }
         };
         if self.applied_placeholder != placeholder {
             self.applied_placeholder = placeholder.clone();
@@ -329,7 +419,7 @@ impl Render for LauncherWindow {
             });
         }
         let can_go_back = self.navigator.depth() > 1;
-        let loading = matches!(&model, PageModel::List(list) if list.is_loading());
+        let loading = model.is_loading();
         let title = self.navigator.current().page().title(cx);
 
         v_flex()
@@ -429,7 +519,9 @@ mod tests {
                             "{}{}{}",
                             if selected == Some(ix) { ">" } else { "" },
                             item.id().as_str(),
-                            item.accessory()
+                            item.accessories()
+                                .first()
+                                .and_then(|a| a.label())
                                 .map(|a| format!(":{a}"))
                                 .unwrap_or_default()
                         ),

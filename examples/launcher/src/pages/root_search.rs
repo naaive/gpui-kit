@@ -3,7 +3,7 @@ use gpui_kit::{Context, SharedString, Window};
 use super::Page;
 use crate::{
     extensions::Catalog,
-    model::{Action, Effect, Item, ItemId, ListModel, PageModel, RunHandler, Section},
+    model::{Accessory, Action, Effect, Item, ItemId, ListModel, PageModel, RunHandler, Section},
     search::score_item,
 };
 
@@ -32,7 +32,7 @@ impl RootSearchPage {
                         .cloned()
                         .unwrap_or_else(|| extension.name().clone()),
                 )
-                .with_accessory("Command")
+                .with_accessory(Accessory::text("Command"))
                 .with_action(Action::new(
                     "Open Command",
                     Effect::Launch(command.id().clone()),
@@ -51,7 +51,7 @@ impl RootSearchPage {
         let system = vec![
             Item::new(ItemId::new("system/website"), "Open GPUI Kit Website")
                 .with_icon("globe")
-                .with_accessory("Link")
+                .with_accessory(Accessory::text("Link"))
                 .with_action(Action::new(
                     "Open in Browser",
                     Effect::OpenUrl("https://gpui-kit.com".into()),
@@ -62,11 +62,11 @@ impl RootSearchPage {
                 )),
             Item::new(ItemId::new("system/quit"), "Quit Launcher")
                 .with_icon("circle-x")
-                .with_accessory("Command")
+                .with_accessory(Accessory::text("Command"))
                 .with_keyword("exit")
                 .with_action(Action::new(
                     "Quit",
-                    Effect::Run(RunHandler::new(|_, cx| cx.quit())),
+                    Effect::Run(RunHandler::new(|(), _, cx| cx.quit())),
                 )),
         ];
 

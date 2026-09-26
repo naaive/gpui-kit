@@ -15,9 +15,13 @@ mod catalog;
 mod host;
 mod manifest;
 
-pub use bridge::ScriptModel;
+pub use bridge::take_page_model;
 pub use catalog::{Catalog, Extension, ExtensionCommand};
-pub use host::ExtensionHost;
+pub use host::{ExtensionHost, Opened};
+pub use manifest::{
+    ArgumentInput, ArgumentManifest, CommandMode, PreferenceChoice, PreferenceInput,
+    PreferenceManifest,
+};
 
 use std::fmt;
 

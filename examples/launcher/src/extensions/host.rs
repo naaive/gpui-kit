@@ -1,14 +1,25 @@
 use std::rc::Rc;
 
 use anyhow::{Context as _, Result};
-use gpui_kit::{App, Entity, SharedString, Window};
-use gpui_shell::{ScriptView, ShellRuntime};
+use gpui_kit::{App, AppContext as _, Window};
+use gpui_shell::ShellRuntime;
 
 use super::{
     Extension, ExtensionCommand,
     bridge::{self, HostApi},
 };
-use crate::model::ToastStyle;
+use crate::{
+    model::Effect,
+    pages::{self, PageHandle, ScriptPage},
+};
+
+/// What opening a command produced.
+pub enum Opened {
+    /// A page to push.
+    Page(PageHandle),
+    /// A no-view command that runs without a page.
+    Background,
+}
 
 /// Runs extension commands on one shared GPUI Shell runtime.
 ///
@@ -28,15 +39,12 @@ impl ExtensionHost {
         Ok(Self { runtime, api })
     }
 
-    /// Where toasts requested through `launcher/api` go.
-    pub fn set_toast_handler(
-        &self,
-        handler: impl Fn(ToastStyle, SharedString, &mut App) + 'static,
-    ) {
-        self.api.set_toast_handler(handler);
+    /// Where effects requested through `launcher/api` go.
+    pub fn set_effect_handler(&self, handler: impl Fn(Effect, &mut App) + 'static) {
+        self.api.set_effect_handler(handler);
     }
 
-    /// Loads a command's module and mounts its View.
+    /// Loads a command's module, mounts its View and wraps it as a page.
     ///
     /// The launch context is set first because a View reads it in `init`,
     /// which runs during mounting.
@@ -46,14 +54,18 @@ impl ExtensionHost {
         command: &ExtensionCommand,
         window: &mut Window,
         cx: &mut App,
-    ) -> Result<Entity<ScriptView>> {
+    ) -> Result<Opened> {
         self.api.set_launch(command.id().clone());
         let application = self
             .runtime
             .load_application(extension.root(), command.module())
             .with_context(|| format!("cannot load `{}`", command.id()))?;
-        self.runtime
+        let view = self
+            .runtime
             .mount_application(&application, window, cx)
-            .with_context(|| format!("cannot start `{}`", command.id()))
+            .with_context(|| format!("cannot start `{}`", command.id()))?;
+        let title = command.title().clone();
+        let page = cx.new(|cx| ScriptPage::new(title, view, cx));
+        Ok(Opened::Page(pages::handle(page)))
     }
 }

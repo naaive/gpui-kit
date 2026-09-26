@@ -14,10 +14,87 @@ pub const FILE: &str = "launcher.json";
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct LauncherManifest {
-    /// A Lucide icon name shown beside the extension's commands.
+    /// A Lucide icon name, or a path inside the extension, shown beside the
+    /// extension's commands.
     #[serde(default)]
     pub icon: Option<String>,
     pub commands: Vec<CommandManifest>,
+    /// Settings shared by every command of the extension.
+    #[serde(default)]
+    pub preferences: Vec<PreferenceManifest>,
+}
+
+/// How a command runs.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "kebab-case")]
+pub enum CommandMode {
+    /// Pushes the page its View renders.
+    #[default]
+    View,
+    /// Runs without a page: the View's `init` does the work and reports back
+    /// with a HUD or toast; its `render` is never shown.
+    NoView,
+}
+
+/// Something the user types before a command runs, such as a search query.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ArgumentManifest {
+    pub name: String,
+    pub placeholder: String,
+    #[serde(default)]
+    pub required: bool,
+    #[serde(default, rename = "type")]
+    pub input: ArgumentInput,
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "kebab-case")]
+pub enum ArgumentInput {
+    #[default]
+    Text,
+    Password,
+}
+
+/// A setting the user fills in once, in the launcher's settings, and the
+/// extension reads through `launch().preferences`.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PreferenceManifest {
+    pub name: String,
+    pub title: String,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(rename = "type")]
+    pub input: PreferenceInput,
+    #[serde(default)]
+    pub required: bool,
+    /// A string, or a boolean for a checkbox.
+    #[serde(default)]
+    pub default: Option<serde_json::Value>,
+    /// The choices of a dropdown.
+    #[serde(default)]
+    pub choices: Vec<PreferenceChoice>,
+    /// The label beside a checkbox.
+    #[serde(default)]
+    pub label: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "kebab-case")]
+pub enum PreferenceInput {
+    Text,
+    /// Stored in the system keychain, never in the settings file.
+    Password,
+    Checkbox,
+    Dropdown,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PreferenceChoice {
+    pub value: String,
+    pub title: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -34,6 +111,17 @@ pub struct CommandManifest {
     /// The module whose default export is the command's View, relative to the
     /// extension directory.
     pub module: String,
+    #[serde(default)]
+    pub mode: CommandMode,
+    #[serde(default)]
+    pub arguments: Vec<ArgumentManifest>,
+    /// Offered at the bottom of the root search, with the query as its first
+    /// argument, when nothing else matches.
+    #[serde(default)]
+    pub fallback: bool,
+    /// Settings of this command only.
+    #[serde(default)]
+    pub preferences: Vec<PreferenceManifest>,
 }
 
 impl LauncherManifest {

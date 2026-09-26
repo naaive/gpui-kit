@@ -9,6 +9,7 @@ mod model;
 mod pages;
 mod search;
 mod session;
+mod shell;
 mod ui;
 
 use std::{path::PathBuf, rc::Rc};

@@ -7,10 +7,13 @@
 use std::{cell::RefCell, rc::Rc};
 
 use anyhow::{Result, anyhow};
-use gpui_kit::{App, SharedString};
+use gpui_kit::App;
 use gpui_shell::{HostError, HostModule, HostObject, HostValue};
 
-use crate::{extensions::CommandId, model::ToastStyle};
+use crate::{
+    extensions::CommandId,
+    model::{Effect, Toast, ToastStyle},
+};
 
 pub const MODULE: &str = "launcher/api";
 
@@ -21,13 +24,13 @@ export function launch(): { extension: string; command: string };
 export function show_toast(message: string, style?: "info" | "success" | "failure"): void;
 "#;
 
-type ToastHandler = Rc<dyn Fn(ToastStyle, SharedString, &mut App)>;
+type EffectHandler = Rc<dyn Fn(Effect, &mut App)>;
 
 /// State shared between the launcher and the functions it exports.
 #[derive(Default)]
 pub struct HostApi {
     launch: RefCell<Option<CommandId>>,
-    on_toast: RefCell<Option<ToastHandler>>,
+    on_effect: RefCell<Option<EffectHandler>>,
 }
 
 impl HostApi {
@@ -53,7 +56,7 @@ impl HostApi {
                         }
                     },
                 };
-                toast.show_toast(style, message.into());
+                toast.request(Effect::ShowToast(Toast::new(style, message)));
                 Ok(HostValue::Null)
             })
             .declarations(DECLARATIONS);
@@ -66,11 +69,9 @@ impl HostApi {
         self.launch.replace(Some(command));
     }
 
-    pub fn set_toast_handler(
-        &self,
-        handler: impl Fn(ToastStyle, SharedString, &mut App) + 'static,
-    ) {
-        self.on_toast.replace(Some(Rc::new(handler)));
+    /// Where requested effects go; the launcher window performs them.
+    pub fn set_effect_handler(&self, handler: impl Fn(Effect, &mut App) + 'static) {
+        self.on_effect.replace(Some(Rc::new(handler)));
     }
 
     fn launch_value(&self) -> Result<HostValue, HostError> {
@@ -84,11 +85,11 @@ impl HostApi {
             .into())
     }
 
-    fn show_toast(&self, style: ToastStyle, message: SharedString) {
-        let Some(handler) = self.on_toast.borrow().clone() else {
-            tracing::info!("toast from an extension with no window: {message}");
+    fn request(&self, effect: Effect) {
+        let Some(handler) = self.on_effect.borrow().clone() else {
+            tracing::info!("effect requested with no launcher window: {effect:?}");
             return;
         };
-        gpui_shell::with_current_app(|cx| handler(style, message, cx));
+        gpui_shell::with_current_app(|cx| handler(effect, cx));
     }
 }

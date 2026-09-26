@@ -7,7 +7,7 @@
 //! - `launcher/api`: host functions returning plain data, such as `launch()`.
 //!
 //! The launcher renders a command's `ScriptView` itself and takes the
-//! [`ScriptModel`] out of the element it returns (see
+//! [`PageModel`] out of the element it returns (see
 //! [`crate::pages::ScriptPage`]), so a page is produced synchronously and its
 //! callbacks always belong to the current render.
 
@@ -15,10 +15,8 @@ mod carrier;
 mod components;
 mod host_api;
 
-use std::rc::Rc;
-
 use anyhow::{Result, anyhow};
-use gpui_kit::{AnyElement, App, Window};
+use gpui_kit::AnyElement;
 use gpui_shell::{ComponentRegistry, FrozenComponentRegistry};
 
 pub(super) use host_api::HostApi;
@@ -38,51 +36,9 @@ pub(super) fn components() -> Result<FrozenComponentRegistry> {
     registry.freeze().map_err(|error| anyhow!("{error}"))
 }
 
-/// What one render of an extension page produced.
-#[derive(Clone)]
-pub struct ScriptModel {
-    page: PageModel,
-    on_query_change: Option<QueryHandler>,
-}
-
-impl ScriptModel {
-    fn new(page: PageModel, on_query_change: Option<QueryHandler>) -> Self {
-        Self {
-            page,
-            on_query_change,
-        }
-    }
-
-    pub fn failure(title: &str, message: impl Into<gpui_kit::SharedString>) -> Self {
-        Self::new(PageModel::failure(title.to_owned(), message), None)
-    }
-
-    /// Takes the model out of the element a command's `render` produced, or
-    /// explains what was returned instead.
-    pub fn take(element: &mut AnyElement) -> Result<Self, &'static str> {
-        carrier::take::<Self>(element)
-            .ok_or("a command's `render` must return a `List` from the `launcher` module")
-    }
-
-    pub fn page(&self) -> &PageModel {
-        &self.page
-    }
-
-    pub fn on_query_change(&self) -> Option<&QueryHandler> {
-        self.on_query_change.as_ref()
-    }
-}
-
-/// Receives the search text of a page that searches for itself.
-#[derive(Clone)]
-pub struct QueryHandler(Rc<dyn Fn(&str, &mut Window, &mut App)>);
-
-impl QueryHandler {
-    fn new(handler: impl Fn(&str, &mut Window, &mut App) + 'static) -> Self {
-        Self(Rc::new(handler))
-    }
-
-    pub fn call(&self, query: &str, window: &mut Window, cx: &mut App) {
-        (self.0)(query, window, cx)
-    }
+/// Takes the page out of the element a command's `render` produced, or
+/// explains what was returned instead.
+pub fn take_page_model(element: &mut AnyElement) -> Result<PageModel, &'static str> {
+    carrier::take::<PageModel>(element)
+        .ok_or("a command's `render` must return a `List` from the `launcher` module")
 }

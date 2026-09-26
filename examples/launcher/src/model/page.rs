@@ -1,11 +1,16 @@
 use gpui_kit::SharedString;
 
-use super::Action;
+use super::{ActionPanel, Choice, DetailModel, FormModel, Image, RunHandler, TextHandler, Tone};
 
 /// One screen of the launcher.
 #[derive(Clone, Debug)]
 pub enum PageModel {
+    /// A searchable list or grid of items.
     List(ListModel),
+    /// One object in full.
+    Detail(DetailModel),
+    /// Fields to fill in and submit.
+    Form(FormModel),
     /// The page could not produce a model; `message` says why.
     Failure {
         title: SharedString,
@@ -20,13 +25,32 @@ impl PageModel {
             message: message.into(),
         }
     }
+
+    /// The panel `Cmd-K` shows when nothing is selected, or the page has no
+    /// items: a detail's or a form's own actions.
+    pub fn page_actions(&self) -> Option<&ActionPanel> {
+        match self {
+            Self::Detail(detail) => Some(detail.actions()),
+            Self::Form(form) => Some(form.actions()),
+            Self::List(_) | Self::Failure { .. } => None,
+        }
+    }
+
+    pub fn is_loading(&self) -> bool {
+        match self {
+            Self::List(list) => list.is_loading(),
+            Self::Detail(detail) => detail.is_loading(),
+            Self::Form(form) => form.is_loading(),
+            Self::Failure { .. } => false,
+        }
+    }
 }
 
 /// Identifies an item across renders.
 ///
 /// Selection is kept by id rather than by position, so a page that reloads its
 /// results keeps the item the user was on.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ItemId(SharedString);
 
 impl ItemId {
@@ -37,16 +61,38 @@ impl ItemId {
     pub fn as_str(&self) -> &str {
         &self.0
     }
+
+    pub fn as_shared(&self) -> &SharedString {
+        &self.0
+    }
 }
 
-/// A searchable, selectable list of items, optionally grouped into sections.
+/// How a list arranges its items.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum Layout {
+    #[default]
+    List,
+    /// Square cells, `columns` per row; for images, emoji, colors.
+    Grid { columns: u8 },
+}
+
+/// A searchable, selectable collection of items, optionally grouped into
+/// sections and drawn as a list or a grid.
 #[derive(Clone, Debug, Default)]
 pub struct ListModel {
     sections: Vec<Section>,
+    layout: Layout,
     placeholder: Option<SharedString>,
     loading: bool,
     filtering: bool,
+    showing_detail: bool,
     empty_title: Option<SharedString>,
+    empty_description: Option<SharedString>,
+    dropdown: Option<Dropdown>,
+    selected: Option<ItemId>,
+    on_query_change: Option<TextHandler>,
+    on_selection_change: Option<TextHandler>,
+    on_load_more: Option<RunHandler>,
 }
 
 impl ListModel {
@@ -71,6 +117,11 @@ impl ListModel {
         self
     }
 
+    pub fn with_layout(mut self, layout: Layout) -> Self {
+        self.layout = layout;
+        self
+    }
+
     pub fn with_placeholder(mut self, placeholder: impl Into<SharedString>) -> Self {
         self.placeholder = Some(placeholder.into());
         self
@@ -88,13 +139,58 @@ impl ListModel {
         self
     }
 
+    /// Shows the selected item's detail beside the list.
+    pub fn with_showing_detail(mut self, showing_detail: bool) -> Self {
+        self.showing_detail = showing_detail;
+        self
+    }
+
     pub fn with_empty_title(mut self, title: impl Into<SharedString>) -> Self {
         self.empty_title = Some(title.into());
         self
     }
 
+    pub fn with_empty_description(mut self, description: impl Into<SharedString>) -> Self {
+        self.empty_description = Some(description.into());
+        self
+    }
+
+    /// A filter beside the search field, such as "My Repositories".
+    pub fn with_dropdown(mut self, dropdown: Dropdown) -> Self {
+        self.dropdown = Some(dropdown);
+        self
+    }
+
+    /// Asks the launcher to select this item. The user's own selection wins
+    /// afterwards, until the page asks again with a different id.
+    pub fn with_selected(mut self, selected: ItemId) -> Self {
+        self.selected = Some(selected);
+        self
+    }
+
+    pub fn with_on_query_change(mut self, handler: TextHandler) -> Self {
+        self.on_query_change = Some(handler);
+        self
+    }
+
+    /// Called with the id of the newly selected item.
+    pub fn with_on_selection_change(mut self, handler: TextHandler) -> Self {
+        self.on_selection_change = Some(handler);
+        self
+    }
+
+    /// Called when the selection nears the end, to load the next page.
+    pub fn with_on_load_more(mut self, handler: RunHandler) -> Self {
+        self.on_load_more = Some(handler);
+        self
+    }
+
     pub fn sections(&self) -> &[Section] {
         &self.sections
+    }
+
+    pub fn layout(&self) -> Layout {
+        self.layout
     }
 
     pub fn placeholder(&self) -> Option<&SharedString> {
@@ -109,8 +205,36 @@ impl ListModel {
         self.filtering
     }
 
+    pub fn is_showing_detail(&self) -> bool {
+        self.showing_detail
+    }
+
     pub fn empty_title(&self) -> Option<&SharedString> {
         self.empty_title.as_ref()
+    }
+
+    pub fn empty_description(&self) -> Option<&SharedString> {
+        self.empty_description.as_ref()
+    }
+
+    pub fn dropdown(&self) -> Option<&Dropdown> {
+        self.dropdown.as_ref()
+    }
+
+    pub fn selected(&self) -> Option<&ItemId> {
+        self.selected.as_ref()
+    }
+
+    pub fn on_query_change(&self) -> Option<&TextHandler> {
+        self.on_query_change.as_ref()
+    }
+
+    pub fn on_selection_change(&self) -> Option<&TextHandler> {
+        self.on_selection_change.as_ref()
+    }
+
+    pub fn on_load_more(&self) -> Option<&RunHandler> {
+        self.on_load_more.as_ref()
     }
 
     pub fn items(&self) -> impl Iterator<Item = &Item> {
@@ -120,9 +244,61 @@ impl ListModel {
     }
 }
 
+/// A choice beside the search field that narrows a list.
+#[derive(Clone, Debug)]
+pub struct Dropdown {
+    tooltip: SharedString,
+    choices: Vec<Choice>,
+    value: Option<SharedString>,
+    on_change: Option<TextHandler>,
+}
+
+impl Dropdown {
+    pub fn new(tooltip: impl Into<SharedString>) -> Self {
+        Self {
+            tooltip: tooltip.into(),
+            choices: Vec::new(),
+            value: None,
+            on_change: None,
+        }
+    }
+
+    pub fn with_choice(mut self, choice: Choice) -> Self {
+        self.choices.push(choice);
+        self
+    }
+
+    pub fn with_value(mut self, value: impl Into<SharedString>) -> Self {
+        self.value = Some(value.into());
+        self
+    }
+
+    pub fn with_on_change(mut self, handler: TextHandler) -> Self {
+        self.on_change = Some(handler);
+        self
+    }
+
+    pub fn tooltip(&self) -> &SharedString {
+        &self.tooltip
+    }
+
+    pub fn choices(&self) -> &[Choice] {
+        &self.choices
+    }
+
+    pub fn value(&self) -> Option<&SharedString> {
+        self.value.as_ref()
+    }
+
+    pub fn on_change(&self) -> Option<&TextHandler> {
+        self.on_change.as_ref()
+    }
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct Section {
     title: Option<SharedString>,
+    subtitle: Option<SharedString>,
     items: Vec<Item>,
 }
 
@@ -133,6 +309,11 @@ impl Section {
 
     pub fn with_title(mut self, title: impl Into<SharedString>) -> Self {
         self.title = Some(title.into());
+        self
+    }
+
+    pub fn with_subtitle(mut self, subtitle: impl Into<SharedString>) -> Self {
+        self.subtitle = Some(subtitle.into());
         self
     }
 
@@ -150,8 +331,76 @@ impl Section {
         self.title.as_ref()
     }
 
+    pub fn subtitle(&self) -> Option<&SharedString> {
+        self.subtitle.as_ref()
+    }
+
     pub fn items(&self) -> &[Item] {
         &self.items
+    }
+}
+
+/// Trailing information on a row: text, a date, a tag, with an optional icon.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Accessory {
+    text: Option<SharedString>,
+    image: Option<Image>,
+    tone: Option<Tone>,
+    tooltip: Option<SharedString>,
+}
+
+impl Accessory {
+    pub fn text(text: impl Into<SharedString>) -> Self {
+        Self {
+            text: Some(text.into()),
+            image: None,
+            tone: None,
+            tooltip: None,
+        }
+    }
+
+    /// Text drawn as a tag in the given tone.
+    pub fn tag(text: impl Into<SharedString>, tone: Tone) -> Self {
+        Self {
+            tone: Some(tone),
+            ..Self::text(text)
+        }
+    }
+
+    pub fn image(image: Image) -> Self {
+        Self {
+            text: None,
+            image: Some(image),
+            tone: None,
+            tooltip: None,
+        }
+    }
+
+    pub fn with_image(mut self, image: Image) -> Self {
+        self.image = Some(image);
+        self
+    }
+
+    pub fn with_tooltip(mut self, tooltip: impl Into<SharedString>) -> Self {
+        self.tooltip = Some(tooltip.into());
+        self
+    }
+
+    pub fn label(&self) -> Option<&SharedString> {
+        self.text.as_ref()
+    }
+
+    pub fn picture(&self) -> Option<&Image> {
+        self.image.as_ref()
+    }
+
+    /// `Some` when drawn as a tag.
+    pub fn tone(&self) -> Option<Tone> {
+        self.tone
+    }
+
+    pub fn tooltip(&self) -> Option<&SharedString> {
+        self.tooltip.as_ref()
     }
 }
 
@@ -160,10 +409,11 @@ pub struct Item {
     id: ItemId,
     title: SharedString,
     subtitle: Option<SharedString>,
-    icon: Option<SharedString>,
-    accessory: Option<SharedString>,
+    image: Option<Image>,
+    accessories: Vec<Accessory>,
     keywords: Vec<SharedString>,
-    actions: Vec<Action>,
+    detail: Option<DetailModel>,
+    actions: ActionPanel,
 }
 
 impl Item {
@@ -172,10 +422,11 @@ impl Item {
             id,
             title: title.into(),
             subtitle: None,
-            icon: None,
-            accessory: None,
+            image: None,
+            accessories: Vec::new(),
             keywords: Vec::new(),
-            actions: Vec::new(),
+            detail: None,
+            actions: ActionPanel::new(),
         }
     }
 
@@ -184,15 +435,18 @@ impl Item {
         self
     }
 
-    /// A Lucide icon name, such as `globe`.
-    pub fn with_icon(mut self, icon: impl Into<SharedString>) -> Self {
-        self.icon = Some(icon.into());
+    pub fn with_image(mut self, image: Image) -> Self {
+        self.image = Some(image);
         self
     }
 
-    /// Short trailing text, such as a count or a kind.
-    pub fn with_accessory(mut self, accessory: impl Into<SharedString>) -> Self {
-        self.accessory = Some(accessory.into());
+    /// A Lucide icon; shorthand for `with_image(Image::Icon(..))`.
+    pub fn with_icon(self, icon: impl Into<SharedString>) -> Self {
+        self.with_image(Image::Icon(icon.into()))
+    }
+
+    pub fn with_accessory(mut self, accessory: Accessory) -> Self {
+        self.accessories.push(accessory);
         self
     }
 
@@ -202,8 +456,20 @@ impl Item {
         self
     }
 
-    pub fn with_action(mut self, action: Action) -> Self {
-        self.actions.push(action);
+    /// Shown beside the list when the list is showing details.
+    pub fn with_detail(mut self, detail: DetailModel) -> Self {
+        self.detail = Some(detail);
+        self
+    }
+
+    pub fn with_actions(mut self, actions: ActionPanel) -> Self {
+        self.actions = actions;
+        self
+    }
+
+    /// Appends an action to the item's panel.
+    pub fn with_action(mut self, action: super::Action) -> Self {
+        self.actions = self.actions.with_action(action);
         self
     }
 
@@ -219,35 +485,39 @@ impl Item {
         self.subtitle.as_ref()
     }
 
-    pub fn icon(&self) -> Option<&SharedString> {
-        self.icon.as_ref()
+    pub fn image(&self) -> Option<&Image> {
+        self.image.as_ref()
     }
 
-    pub fn accessory(&self) -> Option<&SharedString> {
-        self.accessory.as_ref()
+    pub fn accessories(&self) -> &[Accessory] {
+        &self.accessories
     }
 
     pub fn keywords(&self) -> &[SharedString] {
         &self.keywords
     }
 
-    pub fn actions(&self) -> &[Action] {
+    pub fn detail(&self) -> Option<&DetailModel> {
+        self.detail.as_ref()
+    }
+
+    pub fn actions(&self) -> &ActionPanel {
         &self.actions
     }
 
-    pub fn primary_action(&self) -> Option<&Action> {
-        self.actions.first()
+    pub fn primary_action(&self) -> Option<&super::Action> {
+        self.actions.primary()
     }
 
-    pub fn secondary_action(&self) -> Option<&Action> {
-        self.actions.get(1)
+    pub fn secondary_action(&self) -> Option<&super::Action> {
+        self.actions.secondary()
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::Effect;
+    use crate::model::{Action, Effect};
 
     #[test]
     fn test_list_model_builder() {
@@ -260,9 +530,11 @@ mod tests {
                     .with_title("More")
                     .with_item(Item::new(ItemId::new("c"), "Gamma")),
             )
-            .with_item(Item::new(ItemId::new("d"), "Delta"));
+            .with_item(Item::new(ItemId::new("d"), "Delta"))
+            .with_layout(Layout::Grid { columns: 5 });
 
         assert!(list.is_filtering(), "a list filters unless it opts out");
+        assert_eq!(list.layout(), Layout::Grid { columns: 5 });
         assert_eq!(list.placeholder().map(|p| p.as_ref()), Some("Search"));
         // Loose items join the untitled section they follow, and start a new
         // one after a titled section rather than joining it.

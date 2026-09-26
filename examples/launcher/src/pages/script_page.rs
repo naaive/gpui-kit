@@ -4,7 +4,7 @@ use gpui_kit::{
 use gpui_shell::ScriptView;
 
 use super::Page;
-use crate::{extensions::ScriptModel, model::PageModel};
+use crate::{extensions::take_page_model, model::PageModel};
 
 /// An extension command's page.
 ///
@@ -16,7 +16,7 @@ use crate::{extensions::ScriptModel, model::PageModel};
 pub struct ScriptPage {
     title: SharedString,
     view: Entity<ScriptView>,
-    model: Option<ScriptModel>,
+    model: Option<PageModel>,
     _observe: Subscription,
 }
 
@@ -34,15 +34,15 @@ impl ScriptPage {
         }
     }
 
-    fn build(&self, window: &mut Window, cx: &mut Context<Self>) -> ScriptModel {
+    fn build(&self, window: &mut Window, cx: &mut Context<Self>) -> PageModel {
         let mut element = self
             .view
             .update(cx, |view, cx| view.render(window, cx).into_any_element());
         if let Some(error) = self.view.read(cx).build_error() {
-            return ScriptModel::failure("The command failed", error.to_owned());
+            return PageModel::failure("The command failed", error.to_owned());
         }
-        ScriptModel::take(&mut element)
-            .unwrap_or_else(|reason| ScriptModel::failure("The command returned no page", reason))
+        take_page_model(&mut element)
+            .unwrap_or_else(|reason| PageModel::failure("The command returned no page", reason))
     }
 }
 
@@ -56,18 +56,17 @@ impl Page for ScriptPage {
             self.model = Some(self.build(window, cx));
         }
         self.model
-            .as_ref()
-            .map(|model| model.page().clone())
+            .clone()
             .unwrap_or_else(|| PageModel::failure("The command returned no page", ""))
     }
 
     fn set_query(&mut self, query: &str, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(handler) = self
-            .model
-            .as_ref()
-            .and_then(|model| model.on_query_change().cloned())
-        {
-            handler.call(query, window, cx);
+        let handler = match &self.model {
+            Some(PageModel::List(list)) => list.on_query_change().cloned(),
+            _ => None,
+        };
+        if let Some(handler) = handler {
+            handler.call(query.to_owned().into(), window, cx);
         }
     }
 }

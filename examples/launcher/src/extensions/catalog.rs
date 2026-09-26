@@ -4,7 +4,10 @@ use anyhow::{Context as _, Result};
 use gpui_kit::SharedString;
 use gpui_shell::plugin::PluginManifest;
 
-use super::{CommandId, manifest::LauncherManifest};
+use super::{
+    CommandId,
+    manifest::{ArgumentManifest, CommandMode, LauncherManifest, PreferenceManifest},
+};
 
 /// Every installed extension, read from disk without running any of them.
 #[derive(Default)]
@@ -61,6 +64,7 @@ impl Catalog {
 
 pub struct Extension {
     id: SharedString,
+    preferences: Vec<PreferenceManifest>,
     name: SharedString,
     root: PathBuf,
     commands: Vec<ExtensionCommand>,
@@ -85,10 +89,15 @@ impl Extension {
                     .map(Into::into),
                 keywords: command.keywords.into_iter().map(Into::into).collect(),
                 module: command.module,
+                mode: command.mode,
+                arguments: command.arguments,
+                fallback: command.fallback,
+                preferences: command.preferences,
             })
             .collect();
         Ok(Self {
             id,
+            preferences: launcher.preferences,
             name: shell.name().to_owned().into(),
             root: directory.to_path_buf(),
             commands,
@@ -102,10 +111,23 @@ impl Extension {
     pub fn root(&self) -> &Path {
         &self.root
     }
+
+    pub fn id(&self) -> &SharedString {
+        &self.id
+    }
+
+    /// Settings shared by every command of the extension.
+    pub fn preferences(&self) -> &[PreferenceManifest] {
+        &self.preferences
+    }
 }
 
 pub struct ExtensionCommand {
     id: CommandId,
+    mode: CommandMode,
+    arguments: Vec<ArgumentManifest>,
+    fallback: bool,
+    preferences: Vec<PreferenceManifest>,
     title: SharedString,
     subtitle: Option<SharedString>,
     icon: Option<SharedString>,
@@ -137,6 +159,23 @@ impl ExtensionCommand {
     /// The command's module, relative to its extension's root.
     pub fn module(&self) -> &str {
         &self.module
+    }
+
+    pub fn mode(&self) -> CommandMode {
+        self.mode
+    }
+
+    pub fn arguments(&self) -> &[ArgumentManifest] {
+        &self.arguments
+    }
+
+    pub fn is_fallback(&self) -> bool {
+        self.fallback
+    }
+
+    /// Settings of this command only; see also [`Extension::preferences`].
+    pub fn preferences(&self) -> &[PreferenceManifest] {
+        &self.preferences
     }
 }
 
