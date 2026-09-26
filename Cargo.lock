@@ -5569,6 +5569,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "launcher"
+version = "0.6.5"
+dependencies = [
+ "anyhow",
+ "gpui-kit",
+ "gpui-pre",
+ "gpui-shell",
+ "serde",
+ "serde_json",
+ "tracing",
+]
+
+[[package]]
 name = "lazy_static"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

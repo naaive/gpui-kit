@@ -17,6 +17,7 @@ not enable the gallery's test-support development dependency.
 | Streaming Markdown | `cargo run -p example-stream-markdown` |
 | Text selection | `cargo run -p text_selection` |
 | Touch selection | `cargo run -p touch_selection` |
+| Launcher (JavaScript extensions) | `cargo run -p launcher` |
 
 Shared sample documents live in `fixtures/`.
 

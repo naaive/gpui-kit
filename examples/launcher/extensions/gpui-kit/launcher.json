@@ -1,0 +1,18 @@
+{
+  "icon": "book-open",
+  "commands": [
+    {
+      "name": "links",
+      "title": "Browse GPUI Kit Links",
+      "keywords": ["docs", "documentation", "github"],
+      "module": "commands/links.js"
+    },
+    {
+      "name": "checklist",
+      "title": "Getting Started Checklist",
+      "icon": "circle-check",
+      "keywords": ["todo", "tasks"],
+      "module": "commands/checklist.js"
+    }
+  ]
+}

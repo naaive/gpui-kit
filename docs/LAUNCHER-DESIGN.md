@@ -1,9 +1,9 @@
 # Launcher 架构方案
 
-> 状态：方案，尚未实现。定位为 GPUI Kit 的旗舰示例（`examples/launcher`），
-> 架构按独立产品的标准设计。引用的现有能力以 `crates/shell`、
-> `crates/component-shell` 的源码与 [GPUI Shell](gpui-shell.md) 为准；
-> 标注「待验证」的条目由 §9 的原型确认。
+> 状态：M0 原型已实现（`examples/launcher`，运行 `cargo run -p launcher`），
+> 其余为方案。定位为 GPUI Kit 的旗舰示例，架构按独立产品的标准设计。
+> 引用的现有能力以 `crates/shell`、`crates/component-shell` 的源码与
+> [GPUI Shell](gpui-shell.md) 为准；原型的结论见 §9。
 
 ## 0. 已确定的决策
 
@@ -15,6 +15,7 @@
 | 命令声明     | 静态写在 `launcher.json`，根搜索不执行扩展代码                       |
 | VM           | 所有扩展共用一个 `ShellRuntime`，每个扩展持有自己的 `Policy`         |
 | 第一步       | 端到端原型，先验证扩展路径，再做应用搜索与平台细节                   |
+| SDK          | 分三层：`launcher`（页面节点）、`launcher/api`（宿主能力）、`launcher/utils`（纯 JS 辅助）；由参考扩展驱动（§6.6） |
 
 ## 1. 核心思想：一个模型，两个生产者
 
@@ -78,17 +79,17 @@ examples/launcher/
 ├── Cargo.toml
 ├── src/
 │   ├── main.rs
-│   ├── shell/          # window.rs · hotkey.rs · single_instance.rs · platform/
-│   ├── model/          # page.rs · item.rs · action.rs · effect.rs
-│   ├── session/        # navigator.rs · selection.rs · effect_runner.rs
-│   ├── ui/             # search_bar.rs · list_view.rs · detail_view.rs · form_view.rs
-│   │                   # action_panel.rs · footer.rs · launcher_window.rs
-│   ├── pages/          # root_search.rs · settings.rs · script_page.rs
-│   ├── search/         # index.rs · matcher.rs · pinyin.rs · frecency.rs
-│   ├── sources/        # applications/{macos,linux}.rs · system.rs · extensions.rs
-│   └── extensions/     # manifest.rs · catalog.rs · permissions.rs · preferences.rs
-│                       # bridge/（组件注册与宿主模块）
-└── extensions/         # 随示例附带的 JS 扩展：github、color、…
+│   ├── model/          # page.rs · action.rs：PageModel、Item、Action、Effect
+│   ├── search/         # matcher.rs：模糊匹配（M1 加拼音与 frecency）
+│   ├── session/        # navigator.rs · rows.rs：页面栈、可见行与选择
+│   ├── pages/          # root_search.rs · script_page.rs
+│   ├── ui/             # launcher_window.rs · list_view.rs · footer.rs
+│   ├── extensions/     # manifest.rs · catalog.rs · host.rs
+│   │   └── bridge/     # components.rs · host_api.rs · carrier.rs
+│   ├── shell/          # （M1）hotkey.rs · single_instance.rs · platform/
+│   └── sources/        # （M1）applications/{macos,linux}.rs · system.rs
+└── extensions/
+    └── gpui-kit/       # 示例扩展：links（静态页面）、checklist（有状态页面）
 ```
 
 ## 3. 模型（`model`）
@@ -221,40 +222,36 @@ github/
 
 ### 6.2 扩展作者看到的 API
 
-两个模块：`launcher` 提供页面节点，`launcher/host` 提供命令上下文与少量命令式函数
-（模块名以原型验证为准）。方法名遵循 GPUI Shell 的约定：绑定方法用 snake_case，
-作者自己的方法用 camelCase。
+两个模块：`launcher` 提供页面节点，`launcher/api` 提供命令上下文与少量命令式函数。
+写法遵循 GPUI Shell 对已注册组件的约定：用 `new` 构造，绑定方法用 snake_case，
+作者自己的方法用 camelCase。下面是 M0 已实现的 API（`Action.push` 与 `launch()`
+的参数字段属于 M2）：
 
 ```js
 import { View } from "gpui-kit";
-import { List, ListItem, Action } from "launcher";
-import { launch } from "launcher/host";
+import { Action, List, ListItem } from "launcher";
+import { launch, show_toast } from "launcher/api";
 
-export default class SearchRepos extends View {
+export default class Checklist extends View {
   init() {
-    this.repos = [];
-    this.loading = false;
-    this.search(launch().arguments.query ?? "");
+    this.command = launch().command; // 本次打开的命令，只在 init 中读取
+    this.tasks = [{ id: "install", title: "Install Rust", done: false }];
   }
 
-  search(text, cx) {
-    // fetch 受 gpui-shell.json 的 network 权限约束；完成后更新 this.repos 并 cx.notify()
+  toggle(task, cx) {
+    task.done = !task.done;
+    if (this.tasks.every((each) => each.done)) show_toast("Everything is done", "success");
+    cx.notify(); // 请求宿主重新取模型
   }
 
-  render(cx) {
-    return List.new()
-      .placeholder("Search repositories")
-      .loading(this.loading)
-      .on_query_change((text, cx) => this.search(text, cx))
+  render() {
+    return new List()
+      .placeholder("Filter tasks…")
       .children(
-        this.repos.map((repo) =>
-          ListItem.new(repo.full_name)
-            .title(repo.full_name)
-            .subtitle(repo.description ?? "")
-            .accessory(`★ ${repo.stargazers_count}`)
-            .action(Action.open_url("Open in Browser", repo.html_url))
-            .action(Action.copy("Copy Clone URL", repo.clone_url).shortcut("cmd-shift-c"))
-            .action(Action.push("Show Details", () => new RepoDetail({ repo }))),
+        this.tasks.map((task) =>
+          new ListItem(task.id, task.title) // id 跨渲染稳定，选中项才能跟随
+            .action(new Action("Toggle").run((cx) => this.toggle(task, cx)))
+            .action(new Action("Copy Title").shortcut("secondary-shift-c").copy(task.title)),
         ),
       );
   }
@@ -266,19 +263,26 @@ export default class SearchRepos extends View {
 
 ### 6.3 桥接：扩展如何产出 `PageModel`（`extensions/bridge`）
 
-这是整个方案中最关键的机制，全部建立在 `gpui-shell` 已有的扩展点上：
+这是整个方案中最关键的机制，全部建立在 `gpui-shell` 已有的公开接口上，
+没有修改 `gpui-shell`：
 
-1. 启动器用 `ComponentRegistry` 注册 `List`、`ListItem`、`Section`、`Detail`、`Form`、
-   字段和 `Action` 等节点（与 `gpui-component-shell` 注册组件的方式相同）。参数由
-   `ArgumentSchema` 校验，`launcher.d.ts` 由同一份描述生成，二者不会漂移。
-2. 这些节点的 materializer **不绘制任何东西**：`List` 的 materializer 把收到的子节点、
-   参数与回调组装成 `PageModel`，发布给宿主，自身返回一个空元素。
-   这与 `MenuBar` 通过 `app_effects` 把脚本描述安装到原生菜单栏是同一种模式。
-3. 扩展的 `ScriptView` 以零尺寸挂在启动器窗口里，只为参与 GPUI 的渲染循环；
-   `ScriptPage` 把它发布的模型交给 `Navigator`。
-4. 发布走两条通道：**内容**按哈希版本号去重，只有内容变化才让宿主重绘；
-   **回调表**每次渲染都刷新，因此宿主手中的 `CallbackRef` 永远指向最新一代
-   （回调是按渲染代次失效的，见 GPUI Shell §10.1）。
+1. 启动器用 `ComponentRegistry` 注册 `List`、`ListSection`、`ListItem`、`Action`
+   （与 `gpui-component-shell` 注册组件的方式相同），模块名为 `launcher`。参数由
+   `ArgumentSchema` 校验，类型声明由同一份描述生成，二者不会漂移。
+2. 这些节点的 materializer **不绘制任何东西**：它们把记录下来的方法调用重放成
+   `Item`、`Section`、`Action`，装进一个只负责携带数据的元素（`Carrier`）交给父节点；
+   `List` 最终携带整个 `ScriptModel`（`PageModel` 加上 `on_query_change` 回调）。
+   这与 `gpui-component-shell` 中 `Menu` 把类型化子节点交给父节点是同一种模式。
+3. **宿主直接渲染 `ScriptView`，不把它挂进窗口。** `ScriptPage::model` 在
+   `ScriptView` 实体上调用 `render`，从返回的元素中取出 `ScriptModel`。模型是同步
+   产生的，没有「发布—下一帧读取」的延迟，也不需要全局的发布通道。
+4. **回调永远属于当前这一次渲染。** 模型只在脚本请求重绘（`cx.notify()` →
+   `ScriptView` 通知 → `ScriptPage` 观察到后丢弃缓存）或 `ScriptView` 标记为脏时
+   重建；重建后旧的回调随旧快照退役，宿主手中的回调始终来自最新快照。
+   `ScriptView` 还会把上一代快照多保留一代，覆盖「事件落在两次重建之间」的情形
+   （GPUI Shell §10.1）。
+5. `render` 返回的不是 `List`，或脚本抛出异常时，页面变成 `PageModel::Failure`，
+   由宿主显示原因。
 
 结果是：扩展享有 `gpui-shell` 的全部运行时能力（View 状态、`cx.notify()`、异步、
 热重载、沙箱、出错恢复），而界面完全由宿主绘制。
@@ -286,9 +290,11 @@ export default class SearchRepos extends View {
 ### 6.4 生命周期
 
 1. 发现：读取 `gpui-shell.json` 与 `launcher.json`，建立命令索引，不执行代码。
-2. 执行命令：若扩展未加载，经 `PluginManager::load` 加载，授权回调应用已保存的
-   权限决定；缺少必填偏好时先推入偏好表单。
-3. 以命令模块为入口创建 `ScriptView`，包装成 `ScriptPage` 压入页面栈。
+2. 执行命令：宿主先记录本次的 launch 上下文，再以命令模块为入口调用
+   `ShellRuntime::load_application` 与 `mount_application`，`init` 在挂载时运行，
+   因此能读到 `launch()`。（M0 所有命令共用运行时的默认 policy，不授予任何权限；
+   M2 改为经 `PluginManager` 按扩展授权，缺少必填偏好时先推入偏好表单。）
+3. 把 `ScriptView` 包装成 `ScriptPage` 压入页面栈。
 4. `Action.push` 的回调返回一个新的 View 实例，宿主为它创建新的 `ScriptPage`。
 5. 最后一个页面出栈后，扩展保持加载 60 秒，便于再次进入；之后 `unload`，
    其名下的调度任务一并取消（GPUI Shell §18.3）。
@@ -300,6 +306,40 @@ export default class SearchRepos extends View {
   更新后新增的权限重新询问，`execute: "*"` 以警告级别单独展示。
 - 偏好由 `launcher.json` 声明，由宿主用 `Form` 模型渲染（设置页也是一个内置 Form
   页面）；`password` 类型存入系统钥匙串（`keyring`），只通过 `launch()` 交给所属扩展。
+
+### 6.6 SDK 路线
+
+M0 只实现了证明架构所需的最小 SDK。完整的 SDK 分三层，边界与第 1 节的原则一致：
+界面节点只产出模型，宿主能力按权限开放，纯 JS 辅助不含任何原生能力。
+
+```text
+launcher         页面节点 → PageModel（宿主渲染）
+                 List/Section/Item/Dropdown · Detail · Form 与字段 · Grid · ActionPanel/Submenu
+launcher/api     宿主能力（Rust 宿主模块，按权限开放）
+                 context · feedback（Toast/HUD/confirm）· navigation · cache · clipboard
+                 selection · oauth · commands（launch/updateMetadata）· environment
+launcher/utils   纯 JS 辅助层
+                 Query（加载/缓存/出错提示）· Paginator · FormState · Frecency 排序
+```
+
+- **反馈界面也归宿主**：Toast、确认框、HUD 都由宿主绘制，扩展只描述内容。
+- **敏感能力在 `gpui-shell.json` 声明**：读取选中文字、读取剪贴板、AppleScript
+  都走授权流程；复制、打开链接仍是宿主执行的 `Effect`，不需要权限。
+- **没有 hooks，用对象代替**：GPUI Shell 的 View 是类，没有自动依赖追踪，
+  因此提供面向类的辅助对象，例如 `this.repos = Query.new(this, () => fetch(...))`，
+  负责加载状态、缓存和失败提示，并自动 `cx.notify()`。
+- **命令模式**：`view`（默认，推入页面）与 `no-view`（后台执行后以 HUD/Toast 反馈，
+  默认关闭窗口）；`menu-bar` 属于 M3。
+
+每个 API 都要有使用者，由下面的参考扩展驱动：
+
+| 参考扩展                                 | 驱动的能力                                                  |
+| ---------------------------------------- | ----------------------------------------------------------- |
+| GitHub（搜索仓库/PR，打开、复制、详情）   | OAuth、List 分页、筛选下拉、Detail、Query 缓存              |
+| 翻译选中文字（no-view + 结果页）          | no-view、读取选中文字、可更新的 Toast、网络                 |
+| 待办 / 快速笔记                           | Form 校验与草稿、本地存储、ActionPanel 二级菜单、确认删除   |
+| 剪贴板历史或表情搜索                      | Grid、粘贴到前一个应用、Frecency 排序                       |
+| 系统状态（M3）                            | 菜单栏命令、后台定时刷新                                    |
 
 ## 7. 窗口与唤起（`shell`）
 
@@ -337,40 +377,51 @@ export default class SearchRepos extends View {
   动效只用于窗口出现/消失与页面推入/弹出，并遵守减少动态效果设置。
 - 宿主界面文案走 `rust-i18n`（`en`、`zh-CN`、`zh-HK`）。
 
-## 9. 原型：先证明扩展路径
+## 9. 原型结论（M0）
 
-第一步不是应用搜索，而是一条最窄的端到端路径：
+M0 实现了一条最窄的端到端路径：窗口 + 宿主搜索框 + 内置根页面 + JS 扩展返回的
+`List` + 宿主执行的 `Effect` + `Action.run` 回调 + `Esc` 逐层返回。
+`examples/launcher/src/ui/launcher_window.rs` 中的测试用真实的 JS 扩展和模拟按键
+驱动整个窗口，覆盖了下表的前四个问题。
 
-> 窗口 + SearchBar + 内置根页面（写死几条命令）+ 一个 JS 扩展返回 `List`
-> + `Enter` 执行 `OpenUrl` + `Action.run` 回调 + `Esc` 返回。
+| # | 问题                                                   | 结论                                                                                                                                                  |
+| - | ------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1 | 扩展的描述能否变成宿主的模型，且不在渲染中重入          | 能。materializer 以 `Carrier` 逐级交出模型，宿主在自己的 `render` 中直接渲染 `ScriptView` 并取出结果，没有发布通道，也没有重入（§6.3）                |
+| 2 | 不挂载的 `ScriptView` 能否响应 `cx.notify()`           | 能。不需要零尺寸挂载：`ScriptPage` 观察 `ScriptView` 实体，脚本 `cx.notify()` 后缓存失效，宿主重新取模型                                               |
+| 3 | 重建模型后，宿主手中的回调是否总能调用成功              | 能。测试连续两次 `run` 同一个条目，第二次使用的是重建后的新回调；选中项按 id 跟随                                                                   |
+| 4 | 能否用启动器自己的组件注册表，并以命令模块为入口创建 View | 能，且不修改 `gpui-shell`：`ShellRuntime::new_with_components` + `load_application(root, module)` + `mount_application`                               |
+| 5 | 打开一个命令的延迟                                      | Linux 容器、release 构建、测试平台：加载并挂载一个命令约 5–10 ms（运行时在启动时已创建）。运行时创建本身与 macOS 上的数字尚未测量                      |
 
-它回答下面五个问题，任何一个的答案为否，§6.3 都要调整：
+原型还暴露了两点，已处理：
 
-| # | 问题                                                                     | 为否时的替代方案                                      |
-| - | ------------------------------------------------------------------------ | ----------------------------------------------------- |
-| 1 | materializer 能否把模型发布给宿主实体，且不在渲染中重入                    | 改用 `app_effects` 的延迟安装，或读取 `RenderSnapshot` |
-| 2 | 零尺寸挂载的 `ScriptView` 是否持续参与渲染、`cx.notify()` 是否生效        | 在 `gpui-shell` 增加不依赖挂载的「无界面视图」驱动    |
-| 3 | 回调表按代次刷新后，宿主持有的 `CallbackRef` 是否总能调用成功             | 回调改为按 `ActionId` 分发给页面的单一入口            |
-| 4 | `PluginManager` 能否使用启动器自己的 `FrozenComponentRegistry`，并以命令模块为入口创建 View | 在 `gpui-shell` 增加对应构造方法                     |
-| 5 | 首次进入扩展的延迟（GPUI Shell §20.8 尚无数据）                            | 唤起窗口时预热 runtime，或缓存字节码                  |
+- `InputState::set_value` 不发出 `Change` 事件，因此宿主改写搜索框（`Esc` 清空、
+  切换页面恢复查询）时必须自己更新页面的查询，不能依赖输入事件。
+- 扩展在运行时声明的快捷键无法注册为 GPUI 的 `KeyBinding`，改为在窗口的
+  `on_key_down` 中与选中项的 action 匹配。
 
-需要改动 `gpui-shell` 的部分（第 2、4 行，以及 `Action.push` 所需的「由脚本 View 实例
-创建 `ScriptView`」）都是通用的宿主嵌入接口，不含启动器语义，适合回馈到 `gpui-shell`。
-`gpui-base` 不需要修改。
+仍然需要补充到 `gpui-shell` 的通用接口（均不含启动器语义，`gpui-base` 不需要修改）：
+
+1. **按扩展授权**：`mount_application` 使用默认 policy。按扩展持有不同权限需要
+   以指定 policy 挂载（或让 `PluginManager` 接受组件注册表与入口模块）。M2 需要。
+2. **`Action.push`**：由脚本回调返回的 View 实例创建新的 `ScriptView`。
+   `ShellRoot` 的对话框已有同类机制，但未公开给宿主。M2 需要。
+3. **调用者身份**：宿主模块函数无法得知是哪个扩展在调用，因此 `launch()` 目前是
+   「挂载前设置、在 `init` 中读取」的约定。按调用帧传递扩展身份后，
+   `launch()` 可以在任何时候调用。
 
 ## 10. 里程碑
 
-| 阶段 | 内容                                                                                   | 完成标准                                             |
-| ---- | -------------------------------------------------------------------------------------- | ---------------------------------------------------- |
-| M0   | §9 原型：`model`、`session`、`ui` 的 List 部分、`bridge` 最小实现、一个示例扩展           | 五个问题都有结论；`PageModel` 有快照测试              |
-| M1   | 根搜索：应用发现（macOS、Linux）、匹配、拼音、frecency、系统命令；全局快捷键与窗口行为     | macOS 上 `Alt-Space` 唤起后 100 ms 内可输入           |
-| M2   | 扩展平台：`launcher.json` 全量校验、Detail、Form、偏好与钥匙串、权限单、开发模式与热重载  | 两个示例扩展只用文档化的 API 完成；未授权能力有测试    |
-| M3   | 从 Git 安装与更新、深度链接、Grid、菜单栏命令                                           | —                                                    |
+| 阶段 | 内容                                                                                                   | 状态 / 完成标准                                      |
+| ---- | ------------------------------------------------------------------------------------------------------ | ---------------------------------------------------- |
+| M0   | §9 原型：`model`、`session`、`ui` 的 List、`bridge`、`launcher/api` 的 `launch`/`show_toast`、示例扩展 | **已完成**；17 个测试，含端到端键盘路径               |
+| M1   | 根搜索：应用发现（macOS、Linux）、拼音、frecency、系统命令；全局快捷键、单实例与窗口行为；ActionPanel（`Cmd-K`） | macOS 上 `Alt-Space` 唤起后 100 ms 内可输入           |
+| M2   | SDK v1：Detail、Form、`no-view`、`Action.push`、偏好与钥匙串、权限单、`launcher/utils`、开发模式与热重载 | §6.6 前四个参考扩展只用公开 API 完成；未授权能力有测试 |
+| M3   | 从 Git 安装与更新、深度链接、Grid、菜单栏命令、后台刷新、fallback 命令                                   | —                                                    |
 
 ## 11. 测试
 
 - `search`：打分、拼音、缩写、frecency 衰减与排序稳定性的单元测试。
-- `model` / `bridge`：示例扩展渲染出的 `PageModel` 快照测试，无需 GPU（GPUI Shell §22.1）。
+- `model` / `bridge`：示例扩展渲染出的模型，经真实窗口与模拟按键验证（已实现）。
 - `extensions`：`launcher.json` 的错误信息；权限决定到 grant 的映射；卸载时任务被取消。
 - `session`：GPUI 交互测试覆盖键盘路径与 `Esc` 的逐层行为；扩展重新渲染后选中项保持不变。
 - 应用发现：用临时目录中的伪 `.app` / `.desktop` 测试解析，不依赖真实系统。

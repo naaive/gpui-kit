@@ -39,6 +39,7 @@ members = [
     "crates/shell",
     "crates/shell/rquickjs-compat",
     "crates/component-shell",
+    "examples/launcher",
 ]
 resolver = "2"
 
