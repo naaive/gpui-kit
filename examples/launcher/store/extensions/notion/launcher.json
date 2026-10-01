@@ -1,0 +1,43 @@
+{
+  "$schema": "./launcher.schema.json",
+  "icon": "notebook",
+  "description": "Search your Notion pages and databases, and write new pages and notes.",
+  "author": "GPUI Kit",
+  "categories": ["Productivity"],
+  "commands": [
+    {
+      "name": "search",
+      "title": "Search Notion",
+      "subtitle": "Pages and databases",
+      "icon": "search",
+      "keywords": ["notion", "page", "database", "wiki", "docs"],
+      "module": "commands/search.js",
+      "arguments": [{ "name": "query", "placeholder": "Title" }]
+    },
+    {
+      "name": "quick-note",
+      "title": "Create Notion Page",
+      "subtitle": "Quick note",
+      "icon": "file-plus",
+      "keywords": ["notion", "quick note", "new page", "write"],
+      "module": "commands/quick-note.js",
+      "arguments": [{ "name": "title", "placeholder": "Title" }]
+    },
+    {
+      "name": "append-to-page",
+      "title": "Append to Notion Page",
+      "icon": "pencil-line",
+      "keywords": ["notion", "add", "todo", "journal", "log"],
+      "module": "commands/append-to-page.js"
+    }
+  ],
+  "preferences": [
+    {
+      "name": "token",
+      "title": "Integration Token",
+      "description": "The Internal Integration Secret of an integration created at notion.so/my-integrations. Share pages with it from their ••• menu → Connections.",
+      "type": "password",
+      "required": true
+    }
+  ]
+}

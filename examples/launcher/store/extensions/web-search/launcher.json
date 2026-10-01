@@ -1,0 +1,42 @@
+{
+  "$schema": "./launcher.schema.json",
+  "icon": "globe",
+  "description": "Search Google, Bing, DuckDuckGo, Wikipedia or YouTube with suggestions as you type.",
+  "author": "GPUI Kit",
+  "categories": ["Web", "Productivity"],
+  "commands": [
+    {
+      "name": "search-web",
+      "title": "Search the Web",
+      "subtitle": "Suggestions as you type",
+      "keywords": ["google", "bing", "duckduckgo", "wikipedia", "youtube", "search", "web"],
+      "module": "commands/search-web.js",
+      "fallback": true,
+      "arguments": [{ "name": "query", "placeholder": "Search terms" }]
+    }
+  ],
+  "preferences": [
+    {
+      "name": "default_engine",
+      "title": "Default Search Engine",
+      "description": "The engine a search starts with.",
+      "type": "dropdown",
+      "default": "google",
+      "choices": [
+        { "value": "google", "title": "Google" },
+        { "value": "bing", "title": "Bing" },
+        { "value": "duckduckgo", "title": "DuckDuckGo" },
+        { "value": "wikipedia", "title": "Wikipedia" },
+        { "value": "youtube", "title": "YouTube" }
+      ]
+    },
+    {
+      "name": "remember_engine",
+      "title": "Last Engine",
+      "label": "Start with the engine used last",
+      "description": "When off, every search starts with the default engine.",
+      "type": "checkbox",
+      "default": true
+    }
+  ]
+}

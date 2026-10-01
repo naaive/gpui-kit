@@ -293,7 +293,12 @@ fn install_absent_globals(ctx: &Ctx<'_>) -> JsResult<()> {
 /// Output is captured rather than inherited. A script that runs a command
 /// almost always wants what it said, and in a windowed application a child
 /// writing to the host's stdout is writing to nowhere a user will look.
-fn run<'js>(ctx: Ctx<'js>, command: String, args: Opt<Vec<String>>) -> JsResult<Promise<'js>> {
+fn run<'js>(
+    ctx: Ctx<'js>,
+    command: String,
+    args: Opt<Vec<String>>,
+    options: Opt<Object<'js>>,
+) -> JsResult<Promise<'js>> {
     if !host::capabilities().may_run(&command) {
         return Err(Exception::throw_type(
             &ctx,
@@ -302,6 +307,21 @@ fn run<'js>(ctx: Ctx<'js>, command: String, args: Opt<Vec<String>>) -> JsResult<
     }
 
     let args = args.0.unwrap_or_default();
+    // `{ input, env }`: text written to the program's standard input, and
+    // variables the script sets for it.
+    let (input, env): (Option<String>, Vec<(String, String)>) = match options.0 {
+        Some(options) => {
+            let env: Option<Object> = options.get("env")?;
+            let env = match env {
+                Some(env) => env
+                    .props::<String, String>()
+                    .collect::<JsResult<Vec<_>>>()?,
+                None => Vec::new(),
+            };
+            (options.get("input")?, env)
+        }
+        None => (None, Vec::new()),
+    };
     let cancellation = crate::process::Cancellation::new();
     let worker_cancellation = cancellation.clone();
     scheduler::blocking_cancellable(
@@ -309,9 +329,11 @@ fn run<'js>(ctx: Ctx<'js>, command: String, args: Opt<Vec<String>>) -> JsResult<
         "process.run(command, args)",
         move || cancellation.cancel(),
         move || {
-            crate::process::run_bounded(
+            crate::process::run_bounded_with_input(
                 &command,
                 &args,
+                input,
+                &env,
                 crate::process::Limits::default(),
                 worker_cancellation,
             )

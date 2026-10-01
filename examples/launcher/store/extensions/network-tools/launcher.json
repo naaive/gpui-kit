@@ -1,0 +1,34 @@
+{
+  "$schema": "./launcher.schema.json",
+  "icon": "network",
+  "description": "See your public and local IP addresses, find which process listens on a port, and look up DNS records.",
+  "author": "GPUI Kit",
+  "categories": ["System", "Developer Tools"],
+  "commands": [
+    {
+      "name": "my-ip",
+      "title": "My IP Address",
+      "subtitle": "Public and local addresses",
+      "icon": "globe",
+      "keywords": ["ip", "address", "ipv4", "ipv6", "public", "local", "location", "network"],
+      "module": "commands/my-ip.js"
+    },
+    {
+      "name": "search-ports",
+      "title": "Search Ports",
+      "subtitle": "Which process listens where",
+      "icon": "ethernet-port",
+      "keywords": ["port", "listen", "netstat", "lsof", "pid", "kill", "process"],
+      "module": "commands/search-ports.js"
+    },
+    {
+      "name": "dns-lookup",
+      "title": "DNS Lookup",
+      "subtitle": "A, AAAA, CNAME, MX, TXT and NS records",
+      "icon": "earth",
+      "keywords": ["dns", "domain", "nslookup", "dig", "mx", "txt", "records"],
+      "module": "commands/dns-lookup.js",
+      "arguments": [{ "name": "domain", "placeholder": "Domain" }]
+    }
+  ]
+}

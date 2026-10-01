@@ -69,9 +69,53 @@ pub(crate) struct Output {
     pub(crate) stderr: String,
 }
 
+/// Variables naming folders, the search path and the locale: what a program
+/// needs to find its own settings, and nothing that authenticates.
+const LOCATION_VARIABLES: &[&str] = &[
+    "PATH",
+    "PATHEXT",
+    "HOME",
+    "USERPROFILE",
+    "HOMEDRIVE",
+    "HOMEPATH",
+    "APPDATA",
+    "LOCALAPPDATA",
+    "PROGRAMDATA",
+    "PROGRAMFILES",
+    "PROGRAMFILES(X86)",
+    "SYSTEMROOT",
+    "SYSTEMDRIVE",
+    "WINDIR",
+    "COMSPEC",
+    "TEMP",
+    "TMP",
+    "TMPDIR",
+    "XDG_CONFIG_HOME",
+    "XDG_DATA_HOME",
+    "XDG_CACHE_HOME",
+    "XDG_RUNTIME_DIR",
+    "LANG",
+    "LC_ALL",
+];
+
+#[cfg(test)]
 pub(crate) fn run_bounded(
     command: &str,
     args: &[String],
+    limits: Limits,
+    cancellation: Cancellation,
+) -> Result<Output, String> {
+    run_bounded_with_input(command, args, None, &[], limits, cancellation)
+}
+
+/// [`run_bounded`], writing `input` to the program's standard input and
+/// then closing it: how a secret reaches a program without appearing in its
+/// arguments, which other processes can read.
+pub(crate) fn run_bounded_with_input(
+    command: &str,
+    args: &[String],
+    input: Option<String>,
+    env: &[(String, String)],
     limits: Limits,
     cancellation: Cancellation,
 ) -> Result<Output, String> {
@@ -79,11 +123,23 @@ pub(crate) fn run_bounded(
     let mut command_builder = Command::new(&executable);
     command_builder
         // A process grant authorizes one executable, not the host's ambient
-        // credentials. Keep the child environment empty until the public API
-        // grows an explicit, capability-reviewed environment allowlist.
+        // credentials: the child starts from an empty environment and gets
+        // back only the variables that say where things are, which a program
+        // cannot find its own settings without, and never a token.
         .env_clear()
+        .envs(
+            LOCATION_VARIABLES
+                .iter()
+                .filter_map(|name| std::env::var_os(name).map(|value| (*name, value))),
+        )
+        // What the script sets itself, such as a variable a program reads a
+        // secret from: the script already holds it, so nothing is lent.
+        .envs(env.iter().map(|(name, value)| (name, value)))
         .args(args)
-        .stdin(Stdio::null())
+        .stdin(match input {
+            Some(_) => Stdio::piped(),
+            None => Stdio::null(),
+        })
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     configure_process_tree(&mut command_builder);
@@ -99,6 +155,14 @@ pub(crate) fn run_bounded(
         ));
     }
 
+    if let (Some(input), Some(mut stdin)) = (input, child.stdin.take()) {
+        // On a thread of its own: a program that writes before it reads would
+        // otherwise wait on this write while this waits on it.
+        std::thread::spawn(move || {
+            use std::io::Write as _;
+            stdin.write_all(input.as_bytes()).ok();
+        });
+    }
     let stdout = child.stdout.take().expect("piped stdout");
     let stderr = child.stderr.take().expect("piped stderr");
     let exceeded = Arc::new(AtomicU8::new(0));
@@ -438,6 +502,67 @@ fn kill_process_tree(tree: &mut ProcessTree, child: &mut std::process::Child) {
 mod tests {
     use super::*;
     use std::time::Duration;
+
+    #[test]
+    fn writes_input_to_the_program() {
+        let (command, args): (&str, Vec<String>) = if cfg!(windows) {
+            ("findstr", vec!["x".into()])
+        } else {
+            ("cat", Vec::new())
+        };
+        let output = run_bounded_with_input(
+            command,
+            &args,
+            Some(
+                "hex
+nope
+"
+                .into(),
+            ),
+            &[],
+            Limits::for_test(Duration::from_secs(10), 1024),
+            Cancellation::new(),
+        )
+        .expect("the program reads its input");
+        assert!(output.stdout.contains("hex"), "{output:?}");
+    }
+
+    /// A program finds its settings through the folders the environment
+    /// names, and sees nothing else of the host's environment.
+    #[test]
+    fn passes_location_variables_and_nothing_else() {
+        // SAFETY: no other test reads or writes this variable.
+        unsafe { std::env::set_var("GPUI_SHELL_TEST_SECRET", "hunter2") };
+        let (command, args): (&str, Vec<String>) = if cfg!(windows) {
+            ("cmd", vec!["/c".into(), "set".into()])
+        } else {
+            ("env", Vec::new())
+        };
+        let output = run_bounded_with_input(
+            command,
+            &args,
+            None,
+            &[("GPUI_SHELL_GIVEN".into(), "yes".into())],
+            Limits::for_test(Duration::from_secs(10), 64 * 1024),
+            Cancellation::new(),
+        )
+        .expect("the environment is listed");
+        let names: Vec<String> = output
+            .stdout
+            .lines()
+            .filter_map(|line| line.split_once('=').map(|(name, _)| name.to_uppercase()))
+            .collect();
+        let home = if cfg!(windows) { "USERPROFILE" } else { "HOME" };
+        assert!(names.iter().any(|name| name == home), "{names:?}");
+        assert!(
+            names.iter().any(|name| name == "GPUI_SHELL_GIVEN"),
+            "what the script sets is passed: {names:?}"
+        );
+        assert!(
+            !names.iter().any(|name| name == "GPUI_SHELL_TEST_SECRET"),
+            "{names:?}"
+        );
+    }
 
     #[cfg(unix)]
     use std::ffi::OsStr;

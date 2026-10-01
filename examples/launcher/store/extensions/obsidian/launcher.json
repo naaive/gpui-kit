@@ -1,0 +1,86 @@
+{
+  "$schema": "./launcher.schema.json",
+  "icon": "gem",
+  "description": "Search, create and capture notes in your Obsidian vaults.",
+  "author": "GPUI Kit",
+  "categories": ["Productivity"],
+  "commands": [
+    {
+      "name": "search-notes",
+      "title": "Search Obsidian Notes",
+      "subtitle": "Obsidian",
+      "icon": "file-text",
+      "keywords": ["obsidian", "notes", "markdown", "vault"],
+      "module": "commands/search-notes.js"
+    },
+    {
+      "name": "create-note",
+      "title": "Create Obsidian Note",
+      "subtitle": "Obsidian",
+      "icon": "notebook-pen",
+      "keywords": ["obsidian", "new", "note", "write"],
+      "module": "commands/create-note.js",
+      "arguments": [{ "name": "title", "placeholder": "Title" }]
+    },
+    {
+      "name": "quick-capture",
+      "title": "Quick Capture to Obsidian",
+      "subtitle": "Obsidian",
+      "icon": "inbox",
+      "keywords": ["obsidian", "inbox", "append", "daily note", "jot"],
+      "module": "commands/quick-capture.js",
+      "mode": "no-view",
+      "arguments": [{ "name": "text", "placeholder": "Text", "required": true }],
+      "preferences": [
+        {
+          "name": "captureTarget",
+          "title": "Capture To",
+          "description": "Where captured text is appended.",
+          "type": "dropdown",
+          "default": "inbox",
+          "choices": [
+            { "value": "inbox", "title": "Inbox Note" },
+            { "value": "daily", "title": "Today's Daily Note" }
+          ]
+        },
+        {
+          "name": "inboxNote",
+          "title": "Inbox Note",
+          "description": "The note's path inside the vault, such as Inbox.md or Notes/Inbox.md.",
+          "type": "text",
+          "default": "Inbox.md"
+        }
+      ]
+    },
+    {
+      "name": "search-vaults",
+      "title": "Search Obsidian Vaults",
+      "subtitle": "Obsidian",
+      "icon": "vault",
+      "keywords": ["obsidian", "vault", "open"],
+      "module": "commands/search-vaults.js"
+    }
+  ],
+  "preferences": [
+    {
+      "name": "defaultVault",
+      "title": "Default Vault",
+      "description": "The vault Create Note and Quick Capture use first, by name. Empty uses the vault open in Obsidian.",
+      "type": "text"
+    },
+    {
+      "name": "extraVaults",
+      "title": "Extra Vault Folders",
+      "description": "Vault folders Obsidian does not list, separated by semicolons, such as ~/Documents/Notes. They must be inside your home folder.",
+      "type": "text"
+    },
+    {
+      "name": "searchContent",
+      "title": "Content Search",
+      "label": "Search inside notes, not only titles",
+      "description": "Reads up to 2,000 notes in the background while Search Notes is open.",
+      "type": "checkbox",
+      "default": true
+    }
+  ]
+}

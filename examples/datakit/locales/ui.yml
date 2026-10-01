@@ -1,0 +1,1582 @@
+_version: 2
+common:
+  cancel:
+    en: Cancel
+    zh-CN: 取消
+    zh-HK: 取消
+  save:
+    en: Save
+    zh-CN: 保存
+    zh-HK: 儲存
+menu:
+  quit:
+    en: Quit DataKit
+    zh-CN: 退出 DataKit
+    zh-HK: 結束 DataKit
+  exit:
+    en: Exit
+    zh-CN: 退出
+    zh-HK: 結束
+  file:
+    en: File
+    zh-CN: 文件
+    zh-HK: 檔案
+  new_data_source:
+    en: New data source…
+    zh-CN: 新建数据源…
+    zh-HK: 新增數據源…
+  new_console:
+    en: New console
+    zh-CN: 新建控制台
+    zh-HK: 新增控制台
+  close_tab:
+    en: Close tab
+    zh-CN: 关闭标签页
+    zh-HK: 關閉分頁
+  edit:
+    en: Edit
+    zh-CN: 编辑
+    zh-HK: 編輯
+  undo:
+    en: Undo
+    zh-CN: 撤销
+    zh-HK: 復原
+  redo:
+    en: Redo
+    zh-CN: 重做
+    zh-HK: 重做
+  cut:
+    en: Cut
+    zh-CN: 剪切
+    zh-HK: 剪下
+  copy:
+    en: Copy
+    zh-CN: 复制
+    zh-HK: 複製
+  paste:
+    en: Paste
+    zh-CN: 粘贴
+    zh-HK: 貼上
+  select_all:
+    en: Select all
+    zh-CN: 全选
+    zh-HK: 全選
+  view:
+    en: View
+    zh-CN: 视图
+    zh-HK: 檢視
+  explorer:
+    en: Database explorer
+    zh-CN: 数据库浏览器
+    zh-HK: 數據庫瀏覽器
+  history:
+    en: Query history
+    zh-CN: 查询历史
+    zh-HK: 查詢記錄
+  reset_layout:
+    en: Reset layout
+    zh-CN: 重置布局
+    zh-HK: 重設版面配置
+  query:
+    en: Query
+    zh-CN: 查询
+    zh-HK: 查詢
+  execute:
+    en: Execute
+    zh-CN: 执行
+    zh-HK: 執行
+  cancel:
+    en: Cancel execution
+    zh-CN: 取消执行
+    zh-HK: 取消執行
+  navigate:
+    en: "Navigate"
+    zh-CN: "导航"
+    zh-HK: "導覽"
+  search_everywhere:
+    en: "Search everywhere…"
+    zh-CN: "随处搜索…"
+    zh-HK: "全域搜尋…"
+  go_to_object:
+    en: "Go to object…"
+    zh-CN: "转到对象…"
+    zh-HK: "前往物件…"
+  find_action:
+    en: "Find action…"
+    zh-CN: "查找操作…"
+    zh-HK: "尋找動作…"
+  local_history:
+    en: Local history…
+    zh-CN: 本地历史…
+    zh-HK: 本機記錄…
+  recent_files:
+    en: Recent files…
+    zh-CN: 最近的文件…
+    zh-HK: 最近的檔案…
+  explain:
+    en: "Explain plan"
+    zh-CN: "执行计划"
+    zh-HK: "執行計劃"
+  explain_analyze:
+    en: "Explain analyze"
+    zh-CN: "执行并分析计划"
+    zh-HK: "執行並分析計劃"
+  format:
+    en: "Reformat SQL"
+    zh-CN: "格式化 SQL"
+    zh-HK: "重新格式化 SQL"
+  commit:
+    en: "Commit"
+    zh-CN: "提交"
+    zh-HK: "認可"
+  rollback:
+    en: "Roll back"
+    zh-CN: "回滚"
+    zh-HK: "復原"
+  settings:
+    en: "Settings…"
+    zh-CN: "设置…"
+    zh-HK: "設定…"
+  open_sql_file:
+    en: "Open SQL file…"
+    zh-CN: "打开 SQL 文件…"
+    zh-HK: "開啟 SQL 檔案…"
+  attach_folder:
+    en: "Attach folder…"
+    zh-CN: "附加文件夹…"
+    zh-HK: "附加資料夾…"
+  files:
+    en: "Files"
+    zh-CN: "文件"
+    zh-HK: "檔案"
+start:
+  title:
+    en: Start
+    zh-CN: 开始
+    zh-HK: 開始
+  heading:
+    en: Nothing open
+    zh-CN: 没有打开的控制台
+    zh-HK: 沒有開啟的控制台
+  add_data_source_hint:
+    en: Add a data source to connect to a database.
+    zh-CN: 添加数据源以连接数据库。
+    zh-HK: 新增數據源以連線至數據庫。
+  open_console_hint:
+    en: Open a console to write and run SQL.
+    zh-CN: 打开控制台以编写和执行 SQL。
+    zh-HK: 開啟控制台以編寫和執行 SQL。
+  new_data_source:
+    en: New data source…
+    zh-CN: 新建数据源…
+    zh-HK: 新增數據源…
+  new_console:
+    en: New console
+    zh-CN: 新建控制台
+    zh-HK: 新增控制台
+  shortcut_new_console:
+    en: New console
+    zh-CN: 新建控制台
+    zh-HK: 新增控制台
+  shortcut_execute:
+    en: Execute statement
+    zh-CN: 执行语句
+    zh-HK: 執行語句
+datasource:
+  form:
+    new_title:
+      en: New data source
+      zh-CN: 新建数据源
+      zh-HK: 新增數據源
+    edit_title:
+      en: Data source properties
+      zh-CN: 数据源属性
+      zh-HK: 數據源內容
+    name:
+      en: Name
+      zh-CN: 名称
+      zh-HK: 名稱
+    host:
+      en: Host
+      zh-CN: 主机
+      zh-HK: 主機
+    port:
+      en: Port
+      zh-CN: 端口
+      zh-HK: 連接埠
+    port_invalid:
+      en: Enter a port from 1 to 65535.
+      zh-CN: 请输入 1 到 65535 之间的端口。
+      zh-HK: 請輸入 1 至 65535 之間的連接埠。
+    database:
+      en: Database
+      zh-CN: 数据库
+      zh-HK: 數據庫
+    user:
+      en: User
+      zh-CN: 用户
+      zh-HK: 使用者
+    password:
+      en: Password
+      zh-CN: 密码
+      zh-HK: 密碼
+    password_unchanged:
+      en: Unchanged
+      zh-CN: 保持不变
+      zh-HK: 保持不變
+    ssl_mode:
+      en: SSL
+      zh-CN: SSL
+      zh-HK: SSL
+    test:
+      en: Test connection
+      zh-CN: 测试连接
+      zh-HK: 測試連線
+    testing:
+      en: Connecting…
+      zh-CN: 正在连接…
+      zh-HK: 正在連線…
+    test_succeeded:
+      en: "Connected to %{server}"
+      zh-CN: "已连接到 %{server}"
+      zh-HK: "已連線至 %{server}"
+    color:
+      en: Color
+      zh-CN: 颜色
+      zh-HK: 顏色
+    read_only:
+      en: Read-only
+      zh-CN: 只读
+      zh-HK: 唯讀
+    read_only_description:
+      en: Consoles run only statements that read, and tables cannot be edited.
+      zh-CN: 控制台只执行读取数据的语句，表也不能编辑。
+      zh-HK: 控制台只執行讀取數據的語句，表格亦不能編輯。
+  color:
+    none:
+      en: No color
+      zh-CN: 无颜色
+      zh-HK: 無顏色
+    red:
+      en: Red
+      zh-CN: 红色
+      zh-HK: 紅色
+    yellow:
+      en: Yellow
+      zh-CN: 黄色
+      zh-HK: 黃色
+    green:
+      en: Green
+      zh-CN: 绿色
+      zh-HK: 綠色
+    cyan:
+      en: Cyan
+      zh-CN: 青色
+      zh-HK: 青色
+    blue:
+      en: Blue
+      zh-CN: 蓝色
+      zh-HK: 藍色
+    magenta:
+      en: Magenta
+      zh-CN: 品红色
+      zh-HK: 洋紅色
+  read_only_refused:
+    en: "“%{name}” is read-only."
+    zh-CN: "“%{name}”是只读的。"
+    zh-HK: "「%{name}」是唯讀的。"
+  ssl:
+    disable:
+      en: Off
+      zh-CN: 关闭
+      zh-HK: 關閉
+    prefer:
+      en: Prefer encryption
+      zh-CN: 优先加密
+      zh-HK: 優先加密
+    require:
+      en: Require encryption
+      zh-CN: 要求加密
+      zh-HK: 要求加密
+    verify_full:
+      en: Require and verify certificate
+      zh-CN: 要求加密并验证证书
+      zh-HK: 要求加密並驗證憑證
+  form.driver:
+    en: "Database"
+    zh-CN: "数据库"
+    zh-HK: "資料庫"
+  form.file:
+    en: "File"
+    zh-CN: "文件"
+    zh-HK: "檔案"
+  form.file_placeholder:
+    en: "Path to the database file"
+    zh-CN: "数据库文件路径"
+    zh-HK: "資料庫檔案路徑"
+  form.browse:
+    en: "Browse…"
+    zh-CN: "浏览…"
+    zh-HK: "瀏覽…"
+  form.use_ssh:
+    en: "Connect through an SSH tunnel"
+    zh-CN: "通过 SSH 隧道连接"
+    zh-HK: "透過 SSH 通道連線"
+  form.ssh_host:
+    en: "SSH host"
+    zh-CN: "SSH 主机"
+    zh-HK: "SSH 主機"
+  form.ssh_password:
+    en: "SSH password or key passphrase"
+    zh-CN: "SSH 密码或私钥口令"
+    zh-HK: "SSH 密碼或私密金鑰密碼"
+  form.ssh_key:
+    en: "Private key file"
+    zh-CN: "私钥文件"
+    zh-HK: "私密金鑰檔案"
+  form.ssh_key_placeholder:
+    en: "Leave empty to use the password"
+    zh-CN: "留空则使用密码"
+    zh-HK: "留空則使用密碼"
+explorer:
+  title:
+    en: Database explorer
+    zh-CN: 数据库浏览器
+    zh-HK: 數據庫瀏覽器
+  empty:
+    en: No data sources yet.
+    zh-CN: 还没有数据源。
+    zh-HK: 尚未有數據源。
+  load_failed:
+    en: "Couldn’t read the data sources: %{error}"
+    zh-CN: "无法读取数据源：%{error}"
+    zh-HK: "無法讀取數據源：%{error}"
+  loading:
+    en: Loading…
+    zh-CN: 正在加载…
+    zh-HK: 正在載入…
+  tables:
+    en: "Tables %{count}"
+    zh-CN: "表 %{count}"
+    zh-HK: "表格 %{count}"
+  views:
+    en: "Views %{count}"
+    zh-CN: "视图 %{count}"
+    zh-HK: "檢視表 %{count}"
+  new_data_source:
+    en: New data source…
+    zh-CN: 新建数据源…
+    zh-HK: 新增數據源…
+  new_console:
+    en: New console
+    zh-CN: 新建控制台
+    zh-HK: 新增控制台
+  new_console_select:
+    en: New console with SELECT
+    zh-CN: 新建含 SELECT 的控制台
+    zh-HK: 新增含 SELECT 的控制台
+  connect:
+    en: Connect
+    zh-CN: 连接
+    zh-HK: 連線
+  disconnect:
+    en: Disconnect
+    zh-CN: 断开连接
+    zh-HK: 中斷連線
+  refresh:
+    en: Refresh
+    zh-CN: 刷新
+    zh-HK: 重新整理
+  properties:
+    en: Properties…
+    zh-CN: 属性…
+    zh-HK: 內容…
+  remove:
+    en: Remove…
+    zh-CN: 移除…
+    zh-HK: 移除…
+  remove_title:
+    en: "Remove “%{name}”?"
+    zh-CN: "移除“%{name}”？"
+    zh-HK: "移除「%{name}」？"
+  remove_description:
+    en: Its saved password is deleted. Consoles keep their text.
+    zh-CN: 已保存的密码会被删除，控制台中的内容会保留。
+    zh-HK: 已儲存的密碼會被刪除，控制台中的內容會保留。
+  remove_confirm:
+    en: Remove
+    zh-CN: 移除
+    zh-HK: 移除
+  open_data:
+    en: Open data
+    zh-CN: 打开数据
+    zh-HK: 開啟數據
+  compare_data:
+    en: Compare data with…
+    zh-CN: 比较数据…
+    zh-HK: 比較數據…
+  rename:
+    en: Rename…
+    zh-CN: 重命名…
+    zh-HK: 重新命名…
+  copy_name:
+    en: Copy name
+    zh-CN: 复制名称
+    zh-HK: 複製名稱
+  filter:
+    en: "Filter by name"
+    zh-CN: "按名称筛选"
+    zh-HK: "按名稱篩選"
+  routines:
+    en: "Routines %{count}"
+    zh-CN: "例程 %{count}"
+    zh-HK: "常式 %{count}"
+  sequences:
+    en: "Sequences %{count}"
+    zh-CN: "序列 %{count}"
+    zh-HK: "序列 %{count}"
+  keys:
+    en: "Keys %{count}"
+    zh-CN: "键 %{count}"
+    zh-HK: "鍵 %{count}"
+  foreign_keys:
+    en: "Foreign keys %{count}"
+    zh-CN: "外键 %{count}"
+    zh-HK: "外鍵 %{count}"
+  indexes:
+    en: "Indexes %{count}"
+    zh-CN: "索引 %{count}"
+    zh-HK: "索引 %{count}"
+  checks:
+    en: "Checks %{count}"
+    zh-CN: "检查约束 %{count}"
+    zh-HK: "檢查約束 %{count}"
+  triggers:
+    en: "Triggers %{count}"
+    zh-CN: "触发器 %{count}"
+    zh-HK: "觸發程序 %{count}"
+  values:
+    en: "Keys %{count}"
+    zh-CN: "键 %{count}"
+    zh-HK: "鍵 %{count}"
+  roles:
+    en: "Users and roles %{count}"
+    zh-CN: "用户与角色 %{count}"
+    zh-HK: "使用者與角色 %{count}"
+  user:
+    en: User
+    zh-CN: 用户
+    zh-HK: 使用者
+  role:
+    en: Role
+    zh-CN: 角色
+    zh-HK: 角色
+  member_of:
+    en: "Member of %{roles}"
+    zh-CN: "属于 %{roles}"
+    zh-HK: "屬於 %{roles}"
+  view_options:
+    en: "View options"
+    zh-CN: "显示选项"
+    zh-HK: "顯示選項"
+  show_system_schemas:
+    en: "Show system schemas"
+    zh-CN: "显示系统模式"
+    zh-HK: "顯示系統結構描述"
+  new_table:
+    en: "New table…"
+    zh-CN: "新建表…"
+    zh-HK: "新增表格…"
+  modify_table:
+    en: "Modify table…"
+    zh-CN: "修改表…"
+    zh-HK: "修改表格…"
+  diagram:
+    en: "Diagram"
+    zh-CN: "关系图"
+    zh-HK: "關係圖"
+  compare:
+    en: "Compare with…"
+    zh-CN: "比较…"
+    zh-HK: "比較…"
+  import:
+    en: "Import data from file…"
+    zh-CN: "从文件导入数据…"
+    zh-HK: "從檔案匯入資料…"
+  dump:
+    en: "Back up or restore…"
+    zh-CN: "备份或恢复…"
+    zh-HK: "備份或還原…"
+  open_source:
+    en: "Open source"
+    zh-CN: "打开源码"
+    zh-HK: "開啟原始碼"
+  ddl_to_console:
+    en: "DDL to console"
+    zh-CN: "DDL 发送到控制台"
+    zh-HK: "DDL 傳送至控制台"
+  copy_ddl:
+    en: "Copy DDL"
+    zh-CN: "复制 DDL"
+    zh-HK: "複製 DDL"
+  quick_documentation:
+    en: "Quick documentation"
+    zh-CN: "快速文档"
+    zh-HK: "快速說明"
+  drop:
+    en: "Drop…"
+    zh-CN: "删除…"
+    zh-HK: "刪除…"
+  drop_title:
+    en: "Drop “%{name}”?"
+    zh-CN: "删除“%{name}”？"
+    zh-HK: "刪除「%{name}」？"
+  drop_confirm:
+    en: "Drop"
+    zh-CN: "删除"
+    zh-HK: "刪除"
+console:
+  default_name:
+    en: Console
+    zh-CN: 控制台
+    zh-HK: 控制台
+  read_only:
+    en: Read-only
+    zh-CN: 只读
+    zh-HK: 唯讀
+  no_signature:
+    en: DataKit doesn’t know this routine’s arguments.
+    zh-CN: DataKit 不知道这个例程的参数。
+    zh-HK: DataKit 不知道這個例程的參數。
+  read_only_refused:
+    en: "“%{name}” is read-only; nothing was run, because this statement changes data: %{statement}"
+    zh-CN: "“%{name}”是只读的。这条语句会修改数据，所以没有执行任何语句：%{statement}"
+    zh-HK: "「%{name}」是唯讀的。這條語句會修改數據，所以沒有執行任何語句：%{statement}"
+  execute:
+    en: Execute
+    zh-CN: 执行
+    zh-HK: 執行
+  cancel:
+    en: Cancel execution
+    zh-CN: 取消执行
+    zh-HK: 取消執行
+  output:
+    en: Output
+    zh-CN: 输出
+    zh-HK: 輸出
+  data_source_missing:
+    en: Data source removed
+    zh-CN: 数据源已移除
+    zh-HK: 數據源已移除
+  connecting:
+    en: Connecting…
+    zh-CN: 正在连接…
+    zh-HK: 正在連線…
+  connected:
+    en: "Connected to %{server}"
+    zh-CN: "已连接到 %{server}"
+    zh-HK: "已連線至 %{server}"
+  running:
+    en: Running
+    zh-CN: 正在执行
+    zh-HK: 正在執行
+  running_of:
+    en: "Running %{current} of %{total}"
+    zh-CN: "正在执行第 %{current} 条，共 %{total} 条"
+    zh-HK: "正在執行第 %{current} 條，共 %{total} 條"
+  cancelling:
+    en: Cancelling…
+    zh-CN: 正在取消…
+    zh-HK: 正在取消…
+  cancelled:
+    en: The statement was cancelled.
+    zh-CN: 语句已取消。
+    zh-HK: 語句已取消。
+  statement:
+    en: Statement
+    zh-CN: 语句
+    zh-HK: 語句
+  busy:
+    en: The console is running a statement
+    zh-CN: 控制台正在执行语句
+    zh-HK: 控制台正在執行語句
+  filter_not_a_query:
+    en: The filter only applies to a statement that returns rows
+    zh-CN: 筛选只适用于返回行的语句
+    zh-HK: 篩選只適用於傳回列的語句
+  rows_fetched:
+    en: "%{count} rows fetched in %{duration}"
+    zh-CN: "已获取 %{count} 行，用时 %{duration}"
+    zh-HK: "已擷取 %{count} 列，用時 %{duration}"
+  command:
+    en: "%{command} completed in %{duration}"
+    zh-CN: "%{command} 已完成，用时 %{duration}"
+    zh-HK: "%{command} 已完成，用時 %{duration}"
+  command_rows:
+    en: "%{command}: %{count} rows in %{duration}"
+    zh-CN: "%{command}：%{count} 行，用时 %{duration}"
+    zh-HK: "%{command}：%{count} 列，用時 %{duration}"
+  cannot_explain:
+    en: "This database can’t show plans."
+    zh-CN: "此数据库不支持执行计划。"
+    zh-HK: "此資料庫不支援執行計劃。"
+  transaction_started:
+    en: "Transaction started"
+    zh-CN: "事务已开始"
+    zh-HK: "交易已開始"
+  plan:
+    en: "Plan"
+    zh-CN: "计划"
+    zh-HK: "計劃"
+  plan_analyzed:
+    en: "Plan (analyzed)"
+    zh-CN: "计划（实际执行）"
+    zh-HK: "計劃（實際執行）"
+  explained:
+    en: "Plan ready in %{duration}"
+    zh-CN: "计划已生成，用时 %{duration}"
+    zh-HK: "計劃已產生，用時 %{duration}"
+  explain_menu:
+    en: "Explain"
+    zh-CN: "执行计划"
+    zh-HK: "執行計劃"
+  explain:
+    en: "Explain plan"
+    zh-CN: "执行计划"
+    zh-HK: "執行計劃"
+  explain_analyze:
+    en: "Explain analyze"
+    zh-CN: "执行并分析计划"
+    zh-HK: "執行並分析計劃"
+  format:
+    en: "Reformat SQL"
+    zh-CN: "格式化 SQL"
+    zh-HK: "重新格式化 SQL"
+  tx_mode:
+    en: "Transaction mode"
+    zh-CN: "事务模式"
+    zh-HK: "交易模式"
+  tx_auto:
+    en: "Auto-commit"
+    zh-CN: "自动提交"
+    zh-HK: "自動認可"
+  tx_manual:
+    en: "Manual commit"
+    zh-CN: "手动提交"
+    zh-HK: "手動認可"
+  commit:
+    en: "Commit"
+    zh-CN: "提交"
+    zh-HK: "認可"
+  rollback:
+    en: "Roll back"
+    zh-CN: "回滚"
+    zh-HK: "復原"
+  rename_title:
+    en: "Rename alias “%{name}”"
+    zh-CN: "重命名别名“%{name}”"
+    zh-HK: "重新命名別名「%{name}」"
+  rename_label:
+    en: "New name"
+    zh-CN: "新名称"
+    zh-HK: "新名稱"
+  rename:
+    en: "Rename"
+    zh-CN: "重命名"
+    zh-HK: "重新命名"
+  disconnected:
+    en: "Disconnected"
+    zh-CN: "已断开连接"
+    zh-HK: "已中斷連線"
+  choose_data_source:
+    en: "Choose the data source the console runs against"
+    zh-CN: "选择控制台连接的数据源"
+    zh-HK: "選擇控制台連線的數據源"
+  save_failed:
+    en: "Couldn’t save %{path}: %{error}"
+    zh-CN: "无法保存 %{path}：%{error}"
+    zh-HK: "無法儲存 %{path}：%{error}"
+  save_as:
+    en: "Save as SQL file…"
+    zh-CN: "另存为 SQL 文件…"
+    zh-HK: "另存為 SQL 檔案…"
+results:
+  untitled:
+    en: Result
+    zh-CN: 结果
+    zh-HK: 結果
+  record:
+    en: Record view
+    zh-CN: 记录视图
+    zh-HK: 記錄檢視
+  record_row:
+    en: "Row %{row}"
+    zh-CN: "第 %{row} 行"
+    zh-HK: "第 %{row} 列"
+  record_empty:
+    en: No rows
+    zh-CN: 没有行
+    zh-HK: 沒有列
+  aggregate:
+    count:
+      en: "Count %{count}"
+      zh-CN: "计数 %{count}"
+      zh-HK: "計數 %{count}"
+    distinct:
+      en: "Distinct %{count}"
+      zh-CN: "去重 %{count}"
+      zh-HK: "不重複 %{count}"
+    nulls:
+      en: "Null %{count}"
+      zh-CN: "空值 %{count}"
+      zh-HK: "空值 %{count}"
+    sum:
+      en: "Sum %{value}"
+      zh-CN: "求和 %{value}"
+      zh-HK: "總和 %{value}"
+    average:
+      en: "Avg %{value}"
+      zh-CN: "平均 %{value}"
+      zh-HK: "平均 %{value}"
+    min:
+      en: "Min %{value}"
+      zh-CN: "最小 %{value}"
+      zh-HK: "最小 %{value}"
+    max:
+      en: "Max %{value}"
+      zh-CN: "最大 %{value}"
+      zh-HK: "最大 %{value}"
+  rows:
+    en: "%{count} rows"
+    zh-CN: "%{count} 行"
+    zh-HK: "%{count} 列"
+  rows_more:
+    en: "%{count}+ rows"
+    zh-CN: "%{count}+ 行"
+    zh-HK: "%{count}+ 列"
+  no_rows:
+    en: No rows
+    zh-CN: 没有数据
+    zh-HK: 沒有數據
+  copy:
+    en: Copy
+    zh-CN: 复制
+    zh-HK: 複製
+  copy_as:
+    en: Copy as
+    zh-CN: 复制为
+    zh-HK: 複製為
+  export:
+    en: Export
+    zh-CN: 导出
+    zh-HK: 匯出
+  export_failed:
+    en: "Couldn’t write %{path}: %{error}"
+    zh-CN: "无法写入 %{path}：%{error}"
+    zh-HK: "無法寫入 %{path}：%{error}"
+  format:
+    xlsx:
+      en: Excel (XLSX)
+      zh-CN: Excel（XLSX）
+      zh-HK: Excel（XLSX）
+    tsv:
+      en: TSV (spreadsheet)
+      zh-CN: TSV（电子表格）
+      zh-HK: TSV（試算表）
+    csv:
+      en: CSV
+      zh-CN: CSV
+      zh-HK: CSV
+    json:
+      en: JSON
+      zh-CN: JSON
+      zh-HK: JSON
+    sql_insert:
+      en: SQL INSERT statements
+      zh-CN: SQL INSERT 语句
+      zh-HK: SQL INSERT 語句
+    markdown:
+      en: Markdown table
+      zh-CN: Markdown 表格
+      zh-HK: Markdown 表格
+history:
+  title:
+    en: Query history
+    zh-CN: 查询历史
+    zh-HK: 查詢記錄
+  search:
+    en: Search history
+    zh-CN: 搜索历史
+    zh-HK: 搜尋記錄
+  empty:
+    en: Statements you run appear here.
+    zh-CN: 执行过的语句会显示在这里。
+    zh-HK: 執行過的語句會顯示在這裡。
+  open_failed:
+    en: "Couldn’t open the history: %{error}"
+    zh-CN: "无法打开查询历史：%{error}"
+    zh-HK: "無法開啟查詢記錄：%{error}"
+  no_matches:
+    en: No statements match.
+    zh-CN: 没有匹配的语句。
+    zh-HK: 沒有符合的語句。
+  rows:
+    en: "%{count} rows"
+    zh-CN: "%{count} 行"
+    zh-HK: "%{count} 列"
+  affected:
+    en: "%{count} affected"
+    zh-CN: "影响 %{count} 行"
+    zh-HK: "影響 %{count} 列"
+  cancelled:
+    en: Cancelled
+    zh-CN: 已取消
+    zh-HK: 已取消
+  removed_data_source:
+    en: Removed data source
+    zh-CN: 已移除的数据源
+    zh-HK: 已移除的數據源
+  copy_sql:
+    en: Copy SQL
+    zh-CN: 复制 SQL
+    zh-HK: 複製 SQL
+  clear:
+    en: Clear history
+    zh-CN: 清除历史
+    zh-HK: 清除記錄
+objects:
+  schema:
+    en: "schema"
+    zh-CN: "模式"
+    zh-HK: "結構描述"
+  owner:
+    en: "Owner"
+    zh-CN: "所有者"
+    zh-HK: "擁有者"
+  table:
+    en: "table"
+    zh-CN: "表"
+    zh-HK: "表格"
+  partitioned_table:
+    en: "partitioned table"
+    zh-CN: "分区表"
+    zh-HK: "分割表格"
+  foreign_table:
+    en: "foreign table"
+    zh-CN: "外部表"
+    zh-HK: "外部表格"
+  view:
+    en: "view"
+    zh-CN: "视图"
+    zh-HK: "檢視表"
+  materialized_view:
+    en: "materialized view"
+    zh-CN: "物化视图"
+    zh-HK: "具體化檢視表"
+  key:
+    en: "key"
+    zh-CN: "键"
+    zh-HK: "鍵"
+  function:
+    en: "function"
+    zh-CN: "函数"
+    zh-HK: "函式"
+  procedure:
+    en: "procedure"
+    zh-CN: "存储过程"
+    zh-HK: "預存程序"
+  aggregate:
+    en: "aggregate"
+    zh-CN: "聚合函数"
+    zh-HK: "彙總函式"
+  window_function:
+    en: "window function"
+    zh-CN: "窗口函数"
+    zh-HK: "視窗函式"
+  sequence:
+    en: "sequence"
+    zh-CN: "序列"
+    zh-HK: "序列"
+  index:
+    en: "index"
+    zh-CN: "索引"
+    zh-HK: "索引"
+  foreign_keys:
+    en: "References"
+    zh-CN: "引用"
+    zh-HK: "參照"
+  referenced_by:
+    en: "Referenced by"
+    zh-CN: "被引用"
+    zh-HK: "被參照"
+  returns:
+    en: "Returns"
+    zh-CN: "返回"
+    zh-HK: "傳回"
+  language:
+    en: "Language"
+    zh-CN: "语言"
+    zh-HK: "語言"
+  owned_by:
+    en: "Owned by"
+    zh-CN: "归属"
+    zh-HK: "所屬"
+search:
+  placeholder:
+    en: "Search objects and commands"
+    zh-CN: "搜索对象和命令"
+    zh-HK: "搜尋物件和命令"
+  placeholder_objects:
+    en: "Table, view, routine or sequence name"
+    zh-CN: "表、视图、例程或序列名称"
+    zh-HK: "表格、檢視表、常式或序列名稱"
+  placeholder_actions:
+    en: "Command name"
+    zh-CN: "命令名称"
+    zh-HK: "命令名稱"
+  hint:
+    en: "Type a name. Use schema.name to narrow by schema."
+    zh-CN: "输入名称。用“模式.名称”限定模式。"
+    zh-HK: "輸入名稱。用「結構描述.名稱」限定結構描述。"
+  nothing_found:
+    en: "Nothing matches."
+    zh-CN: "没有匹配项。"
+    zh-HK: "沒有相符項目。"
+  objects:
+    en: "Objects"
+    zh-CN: "对象"
+    zh-HK: "物件"
+  actions:
+    en: "Commands"
+    zh-CN: "命令"
+    zh-HK: "命令"
+inspection:
+  unknown_schema:
+    en: "Unknown schema “%{name}”"
+    zh-CN: "未知模式“%{name}”"
+    zh-HK: "未知結構描述「%{name}」"
+  unknown_relation:
+    en: "Unknown table or view “%{name}”"
+    zh-CN: "未知表或视图“%{name}”"
+    zh-HK: "未知表格或檢視表「%{name}」"
+  unknown_column_of:
+    en: "“%{relation}” has no column “%{name}”"
+    zh-CN: "“%{relation}”没有列“%{name}”"
+    zh-HK: "「%{relation}」沒有欄「%{name}」"
+  unknown_column:
+    en: "Unknown column “%{name}”"
+    zh-CN: "未知列“%{name}”"
+    zh-HK: "未知欄「%{name}」"
+  ambiguous_column:
+    en: "“%{name}” is a column of %{relations}; say which"
+    zh-CN: "“%{name}”同时属于 %{relations}，请指明"
+    zh-HK: "「%{name}」同時屬於 %{relations}，請指明"
+  delete_without_where:
+    en: "Deletes every row: there is no WHERE"
+    zh-CN: "没有 WHERE，将删除所有行"
+    zh-HK: "沒有 WHERE，將刪除所有列"
+  update_without_where:
+    en: "Updates every row: there is no WHERE"
+    zh-CN: "没有 WHERE，将更新所有行"
+    zh-HK: "沒有 WHERE，將更新所有列"
+  add_where:
+    en: "Add WHERE"
+    zh-CN: "添加 WHERE"
+    zh-HK: "加入 WHERE"
+  qualify:
+    en: "Write %{name}"
+    zh-CN: "改为 %{name}"
+    zh-HK: "改為 %{name}"
+  change_to:
+    en: "Change to %{name}"
+    zh-CN: "改为 %{name}"
+    zh-HK: "改為 %{name}"
+parameters:
+  title:
+    en: "Parameters"
+    zh-CN: "参数"
+    zh-HK: "參數"
+  run:
+    en: "Run"
+    zh-CN: "运行"
+    zh-HK: "執行"
+  description:
+    en: "Each value is SQL: quote text, as in 'Ada'. Empty means NULL."
+    zh-CN: "每个值都是 SQL：文本要加引号，如 'Ada'。留空表示 NULL。"
+    zh-HK: "每個值都是 SQL：文字要加引號，如 'Ada'。留空表示 NULL。"
+plan:
+  operation:
+    en: "Operation"
+    zh-CN: "操作"
+    zh-HK: "操作"
+  target:
+    en: "Object"
+    zh-CN: "对象"
+    zh-HK: "物件"
+  share:
+    en: "Share"
+    zh-CN: "占比"
+    zh-HK: "佔比"
+  cost:
+    en: "Cost"
+    zh-CN: "成本"
+    zh-HK: "成本"
+  estimated_rows:
+    en: "Est. rows"
+    zh-CN: "预估行数"
+    zh-HK: "預估列數"
+  actual_rows:
+    en: "Rows"
+    zh-CN: "实际行数"
+    zh-HK: "實際列數"
+  time:
+    en: "Time (ms)"
+    zh-CN: "耗时（毫秒）"
+    zh-HK: "耗時（毫秒）"
+  loops:
+    en: "Loops"
+    zh-CN: "循环"
+    zh-HK: "迴圈"
+table:
+  default:
+    en: "default"
+    zh-CN: "默认"
+    zh-HK: "預設"
+  set_null:
+    en: "Set NULL"
+    zh-CN: "设为 NULL"
+    zh-HK: "設為 NULL"
+  delete_rows:
+    en: "Delete row"
+    zh-CN: "删除行"
+    zh-HK: "刪除列"
+  revert_row:
+    en: "Revert row"
+    zh-CN: "撤销此行的修改"
+    zh-HK: "還原此列的修改"
+  reload:
+    en: "Reload"
+    zh-CN: "重新加载"
+    zh-HK: "重新載入"
+  add_row:
+    en: "Add row"
+    zh-CN: "添加行"
+    zh-HK: "新增列"
+  submit:
+    en: "Submit"
+    zh-CN: "提交"
+    zh-HK: "提交"
+  submit_count:
+    en: "Submit %{count}"
+    zh-CN: "提交 %{count} 处修改"
+    zh-HK: "提交 %{count} 項修改"
+  submit_tooltip:
+    en: "Write the changes in one transaction"
+    zh-CN: "在一个事务中写入修改"
+    zh-HK: "在一個交易中寫入修改"
+  submit_failed:
+    en: "Couldn’t write the changes: %{error}"
+    zh-CN: "无法写入修改：%{error}"
+    zh-HK: "無法寫入修改：%{error}"
+  revert:
+    en: "Revert changes"
+    zh-CN: "撤销修改"
+    zh-HK: "還原修改"
+  preview:
+    en: "Preview changes…"
+    zh-CN: "预览修改…"
+    zh-HK: "預覽修改…"
+  preview_title:
+    en: "Pending changes"
+    zh-CN: "待提交的修改"
+    zh-HK: "待提交的修改"
+  copy_sql:
+    en: "Copy SQL"
+    zh-CN: "复制 SQL"
+    zh-HK: "複製 SQL"
+  value_editor:
+    en: "Value editor"
+    zh-CN: "值编辑器"
+    zh-HK: "值編輯器"
+  apply_value:
+    en: "Apply"
+    zh-CN: "应用"
+    zh-HK: "套用"
+  count:
+    en: "Count rows"
+    zh-CN: "统计行数"
+    zh-HK: "計算列數"
+  counted:
+    en: "%{count} in total"
+    zh-CN: "共 %{count} 行"
+    zh-HK: "共 %{count} 列"
+  read_only:
+    en: "Read-only"
+    zh-CN: "只读"
+    zh-HK: "唯讀"
+  no_key:
+    en: "No primary key: rows are matched by every column"
+    zh-CN: "没有主键：按所有列匹配行"
+    zh-HK: "沒有主鍵：按所有欄比對列"
+  data:
+    en: "Data"
+    zh-CN: "数据"
+    zh-HK: "資料"
+designer:
+  loading:
+    en: "Reading the table first; try again in a moment."
+    zh-CN: "正在读取表结构，请稍后再试。"
+    zh-HK: "正在讀取表格結構，請稍後再試。"
+  modify_title:
+    en: "Modify table “%{name}”"
+    zh-CN: "修改表“%{name}”"
+    zh-HK: "修改表格「%{name}」"
+  new_title:
+    en: "New table in %{schema}"
+    zh-CN: "在 %{schema} 中新建表"
+    zh-HK: "在 %{schema} 中新增表格"
+  execute:
+    en: "Execute"
+    zh-CN: "执行"
+    zh-HK: "執行"
+  generated_name:
+    en: "Generated"
+    zh-CN: "自动命名"
+    zh-HK: "自動命名"
+  no_changes:
+    en: "No changes yet."
+    zh-CN: "尚无修改。"
+    zh-HK: "尚無修改。"
+  column:
+    en: "Column"
+    zh-CN: "列"
+    zh-HK: "欄"
+  type:
+    en: "Type"
+    zh-CN: "类型"
+    zh-HK: "類型"
+  default:
+    en: "Default"
+    zh-CN: "默认值"
+    zh-HK: "預設值"
+  comment:
+    en: "Comment"
+    zh-CN: "注释"
+    zh-HK: "註解"
+  remove_column:
+    en: "Remove column"
+    zh-CN: "移除列"
+    zh-HK: "移除欄"
+  add_column:
+    en: "Add column"
+    zh-CN: "添加列"
+    zh-HK: "新增欄"
+  name:
+    en: "Name"
+    zh-CN: "名称"
+    zh-HK: "名稱"
+  columns:
+    en: "Columns"
+    zh-CN: "列"
+    zh-HK: "欄"
+  remove_index:
+    en: "Remove index"
+    zh-CN: "移除索引"
+    zh-HK: "移除索引"
+  add_index:
+    en: "Add index"
+    zh-CN: "添加索引"
+    zh-HK: "新增索引"
+  references:
+    en: "References"
+    zh-CN: "引用表"
+    zh-HK: "參照表格"
+  referenced_columns:
+    en: "Referenced columns"
+    zh-CN: "引用列"
+    zh-HK: "參照欄"
+  remove_foreign_key:
+    en: "Remove foreign key"
+    zh-CN: "移除外键"
+    zh-HK: "移除外鍵"
+  add_foreign_key:
+    en: "Add foreign key"
+    zh-CN: "添加外键"
+    zh-HK: "新增外鍵"
+  table_name:
+    en: "Table name"
+    zh-CN: "表名"
+    zh-HK: "表格名稱"
+  columns_tab:
+    en: "Columns %{count}"
+    zh-CN: "列 %{count}"
+    zh-HK: "欄 %{count}"
+  indexes_tab:
+    en: "Indexes %{count}"
+    zh-CN: "索引 %{count}"
+    zh-HK: "索引 %{count}"
+  foreign_keys_tab:
+    en: "Foreign keys %{count}"
+    zh-CN: "外键 %{count}"
+    zh-HK: "外鍵 %{count}"
+  preview:
+    en: "Statements"
+    zh-CN: "将执行的语句"
+    zh-HK: "將執行的陳述式"
+  problem.no_name:
+    en: "Name the table."
+    zh-CN: "请填写表名。"
+    zh-HK: "請填寫表格名稱。"
+  problem.no_columns:
+    en: "A table needs at least one column."
+    zh-CN: "表至少需要一列。"
+    zh-HK: "表格至少需要一欄。"
+  problem.column_without_name:
+    en: "Column %{position} has no name."
+    zh-CN: "第 %{position} 列没有名称。"
+    zh-HK: "第 %{position} 欄沒有名稱。"
+  problem.column_without_type:
+    en: "Column “%{name}” has no type."
+    zh-CN: "列“%{name}”没有类型。"
+    zh-HK: "欄「%{name}」沒有類型。"
+  problem.duplicate_column:
+    en: "There are two columns named “%{name}”."
+    zh-CN: "有两个名为“%{name}”的列。"
+    zh-HK: "有兩個名為「%{name}」的欄。"
+  problem.index_without_columns:
+    en: "Index “%{name}” has no columns."
+    zh-CN: "索引“%{name}”没有列。"
+    zh-HK: "索引「%{name}」沒有欄。"
+  problem.foreign_key_incomplete:
+    en: "Foreign key “%{name}” needs columns, a table and its columns."
+    zh-CN: "外键“%{name}”需要列、引用表及其列。"
+    zh-HK: "外鍵「%{name}」需要欄、參照表格及其欄。"
+compare:
+  title:
+    en: "Compare schemas"
+    zh-CN: "比较模式"
+    zh-HK: "比較結構描述"
+  source:
+    en: "Source"
+    zh-CN: "源"
+    zh-HK: "來源"
+  target:
+    en: "Target"
+    zh-CN: "目标"
+    zh-HK: "目標"
+  choose:
+    en: "Choose the schema to change and the schema it should match."
+    zh-CN: "选择要修改的模式，以及它应当一致的模式。"
+    zh-HK: "選擇要修改的結構描述，以及它應當一致的結構描述。"
+  identical:
+    en: "The schemas are the same."
+    zh-CN: "两个模式相同。"
+    zh-HK: "兩個結構描述相同。"
+  copy:
+    en: "Copy script"
+    zh-CN: "复制脚本"
+    zh-HK: "複製指令碼"
+  to_console:
+    en: "Open in console"
+    zh-CN: "在控制台中打开"
+    zh-HK: "在控制台中開啟"
+  definition:
+    en: "Query"
+    zh-CN: "查询定义"
+    zh-HK: "查詢定義"
+  comment:
+    en: "Comment"
+    zh-CN: "注释"
+    zh-HK: "註解"
+diagram:
+  more_columns:
+    en: "%{count} more columns"
+    zh-CN: "还有 %{count} 列"
+    zh-HK: "還有 %{count} 欄"
+  relayout:
+    en: "Lay out again"
+    zh-CN: "重新排布"
+    zh-HK: "重新排列"
+  copy_mermaid:
+    en: "Copy as Mermaid"
+    zh-CN: "复制为 Mermaid"
+    zh-HK: "複製為 Mermaid"
+  hint:
+    en: "Drag to move · double-click a table to open it"
+    zh-CN: "拖动以移动 · 双击表打开"
+    zh-HK: "拖曳以移動 · 按兩下表格開啟"
+import:
+  title:
+    en: "Import into “%{table}”"
+    zh-CN: "导入到“%{table}”"
+    zh-HK: "匯入至「%{table}」"
+  import:
+    en: "Import"
+    zh-CN: "导入"
+    zh-HK: "匯入"
+  choose:
+    en: "Choose file…"
+    zh-CN: "选择文件…"
+    zh-HK: "選擇檔案…"
+  no_file:
+    en: "No file chosen"
+    zh-CN: "未选择文件"
+    zh-HK: "未選擇檔案"
+  has_header:
+    en: "First row names the columns"
+    zh-CN: "首行为列名"
+    zh-HK: "首列為欄名"
+  empty_is_null:
+    en: "Empty fields are NULL"
+    zh-CN: "空字段视为 NULL"
+    zh-HK: "空欄位視為 NULL"
+  summary:
+    en: "%{rows} rows · %{mapped} of %{columns} columns go into the table"
+    zh-CN: "%{rows} 行 · %{columns} 列中有 %{mapped} 列写入表"
+    zh-HK: "%{rows} 列 · %{columns} 欄中有 %{mapped} 欄寫入表格"
+  skipped:
+    en: "not imported"
+    zh-CN: "不导入"
+    zh-HK: "不匯入"
+  no_columns:
+    en: "No column of the file matches a column of the table."
+    zh-CN: "文件中没有与表列匹配的列。"
+    zh-HK: "檔案中沒有與表格欄相符的欄。"
+  done:
+    en: "Imported %{count} rows into %{table}"
+    zh-CN: "已向 %{table} 导入 %{count} 行"
+    zh-HK: "已向 %{table} 匯入 %{count} 列"
+dump:
+  title:
+    en: "Back up or restore “%{name}”"
+    zh-CN: "备份或恢复“%{name}”"
+    zh-HK: "備份或還原「%{name}」"
+  close:
+    en: "Close"
+    zh-CN: "关闭"
+    zh-HK: "關閉"
+  run:
+    en: "Run"
+    zh-CN: "运行"
+    zh-HK: "執行"
+  backup:
+    en: "Back up"
+    zh-CN: "备份"
+    zh-HK: "備份"
+  restore:
+    en: "Restore"
+    zh-CN: "恢复"
+    zh-HK: "還原"
+  tool:
+    en: "Program"
+    zh-CN: "程序"
+    zh-HK: "程式"
+  file:
+    en: "File"
+    zh-CN: "文件"
+    zh-HK: "檔案"
+  archive:
+    en: "Custom archive (pg_restore)"
+    zh-CN: "自定义归档（pg_restore）"
+    zh-HK: "自訂封存（pg_restore）"
+  schema_only:
+    en: "Structure only"
+    zh-CN: "仅结构"
+    zh-HK: "僅結構"
+  done:
+    en: "Done."
+    zh-CN: "完成。"
+    zh-HK: "完成。"
+  unsupported:
+    en: "This database has no backup tool DataKit knows."
+    zh-CN: "DataKit 不了解此数据库的备份工具。"
+    zh-HK: "DataKit 不了解此資料庫的備份工具。"
+  password_note:
+    en: "The stored password is passed to the program in its environment."
+    zh-CN: "已保存的密码通过环境变量传给程序。"
+    zh-HK: "已儲存的密碼透過環境變數傳給程式。"
+services:
+  title:
+    en: "Services"
+    zh-CN: "服务"
+    zh-HK: "服務"
+  empty:
+    en: "No consoles are open."
+    zh-CN: "没有打开的控制台。"
+    zh-HK: "沒有開啟的控制台。"
+  disconnected:
+    en: "Not connected"
+    zh-CN: "未连接"
+    zh-HK: "未連線"
+  idle:
+    en: "Idle"
+    zh-CN: "空闲"
+    zh-HK: "閒置"
+  in_transaction:
+    en: "In a transaction"
+    zh-CN: "事务进行中"
+    zh-HK: "交易進行中"
+  running:
+    en: "Running %{current} of %{total} · %{duration}"
+    zh-CN: "正在运行第 %{current}/%{total} 条 · %{duration}"
+    zh-HK: "正在執行第 %{current}/%{total} 條 · %{duration}"
+  disconnect:
+    en: "Disconnect"
+    zh-CN: "断开连接"
+    zh-HK: "中斷連線"
+settings:
+  title:
+    en: "Settings"
+    zh-CN: "设置"
+    zh-HK: "設定"
+  appearance:
+    en: "Appearance"
+    zh-CN: "外观"
+    zh-HK: "外觀"
+  appearance_system:
+    en: "Match system"
+    zh-CN: "跟随系统"
+    zh-HK: "跟隨系統"
+  appearance_light:
+    en: "Light"
+    zh-CN: "浅色"
+    zh-HK: "淺色"
+  appearance_dark:
+    en: "Dark"
+    zh-CN: "深色"
+    zh-HK: "深色"
+  language:
+    en: "Language"
+    zh-CN: "语言"
+    zh-HK: "語言"
+  language_system:
+    en: "Match system"
+    zh-CN: "跟随系统"
+    zh-HK: "跟隨系統"
+  uppercase_keywords:
+    en: "Format SQL keywords in uppercase"
+    zh-CN: "格式化时 SQL 关键字使用大写"
+    zh-HK: "格式化時 SQL 關鍵字使用大寫"
+files:
+  title:
+    en: "Files"
+    zh-CN: "文件"
+    zh-HK: "檔案"
+  empty:
+    en: "Attach a folder to open its SQL scripts in consoles."
+    zh-CN: "附加一个文件夹，即可在控制台中打开其中的 SQL 脚本。"
+    zh-HK: "附加一個資料夾，即可在控制台中開啟其中的 SQL 指令碼。"
+  attach:
+    en: "Attach folder…"
+    zh-CN: "附加文件夹…"
+    zh-HK: "附加資料夾…"
+  refresh:
+    en: "Refresh"
+    zh-CN: "刷新"
+    zh-HK: "重新整理"
+  open:
+    en: "Open in console"
+    zh-CN: "在控制台中打开"
+    zh-HK: "在控制台中開啟"
+  detach:
+    en: "Detach folder"
+    zh-CN: "移除文件夹"
+    zh-HK: "移除資料夾"
+  open_failed:
+    en: "Couldn’t open %{path}: %{error}"
+    zh-CN: "无法打开 %{path}：%{error}"
+    zh-HK: "無法開啟 %{path}：%{error}"
+rename:
+  title:
+    en: "Rename “%{name}”"
+    zh-CN: "重命名“%{name}”"
+    zh-HK: "重新命名「%{name}」"
+  label:
+    en: New name
+    zh-CN: 新名称
+    zh-HK: 新名稱
+  confirm:
+    en: Rename
+    zh-CN: 重命名
+    zh-HK: 重新命名
+  updated:
+    en: "Renamed. %{count} usages in open consoles now use the new name."
+    zh-CN: "已重命名。打开的控制台中有 %{count} 处引用已改用新名称。"
+    zh-HK: "已重新命名。開啟的控制台中有 %{count} 處引用已改用新名稱。"
+intention:
+  expand_star:
+    en: Expand column list
+    zh-CN: 展开列列表
+    zh-HK: 展開欄清單
+recent:
+  title:
+    en: Recent
+    zh-CN: 最近
+    zh-HK: 最近
+  placeholder:
+    en: Search recent files and tables
+    zh-CN: 搜索最近的文件和表
+    zh-HK: 搜尋最近的檔案和表格
+  empty:
+    en: Files and tables you open show here.
+    zh-CN: 打开过的文件和表会显示在这里。
+    zh-HK: 開啟過的檔案和表格會顯示在這裡。
+usages:
+  title:
+    en: "%{count} usages of “%{name}”"
+    zh-CN: "“%{name}”的 %{count} 处引用"
+    zh-HK: "「%{name}」的 %{count} 處引用"
+  placeholder:
+    en: Filter usages
+    zh-CN: 筛选引用
+    zh-HK: 篩選引用
+  none:
+    en: No open console names it.
+    zh-CN: 没有打开的控制台引用它。
+    zh-HK: 沒有開啟的控制台引用它。
+local_history:
+  title:
+    en: "Local history of “%{name}”"
+    zh-CN: "“%{name}”的本地历史"
+    zh-HK: "「%{name}」的本機記錄"
+  revert:
+    en: Revert to this version
+    zh-CN: 恢复到此版本
+    zh-HK: 還原至此版本
+  empty:
+    en: DataKit keeps a version whenever the text runs, and every few minutes while you type.
+    zh-CN: 每次执行时，以及编辑过程中每隔几分钟，DataKit 都会保存一个版本。
+    zh-HK: 每次執行時，以及編輯期間每隔數分鐘，DataKit 都會保存一個版本。
+data_compare:
+  title:
+    en: Data comparison
+    zh-CN: 数据比较
+    zh-HK: 數據比較
+  choose:
+    en: Choose the table to compare and the table to make like it.
+    zh-CN: 选择要比较的表，以及要改成与它一致的表。
+    zh-HK: 選擇要比較的表格，以及要改成與它一致的表格。
+  compare:
+    en: Compare
+    zh-CN: 比较
+    zh-HK: 比較
+  reading:
+    en: Reading both tables…
+    zh-CN: 正在读取两张表…
+    zh-HK: 正在讀取兩張表格…
+  no_columns:
+    en: DataKit doesn’t know the source table’s columns yet; open its schema in the explorer.
+    zh-CN: DataKit 还不知道源表有哪些列，请先在资源管理器里展开它的 schema。
+    zh-HK: DataKit 還不知道來源表格有哪些欄，請先在資源管理器裡展開它的 schema。
+  identical:
+    en: "The tables hold the same %{rows} rows."
+    zh-CN: "两张表的 %{rows} 行完全相同。"
+    zh-HK: "兩張表格的 %{rows} 列完全相同。"
+  summary:
+    en: "%{only_source} rows only in the source, %{only_target} only in the target, %{changed} differ, %{identical} the same."
+    zh-CN: "仅在源表 %{only_source} 行，仅在目标表 %{only_target} 行，不同 %{changed} 行，相同 %{identical} 行。"
+    zh-HK: "僅在來源表格 %{only_source} 列，僅在目標表格 %{only_target} 列，不同 %{changed} 列，相同 %{identical} 列。"
+  truncated:
+    en: "Only the first %{limit} rows of each table were compared."
+    zh-CN: "每张表只比较了前 %{limit} 行。"
+    zh-HK: "每張表格只比較了前 %{limit} 列。"

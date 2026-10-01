@@ -1,0 +1,32 @@
+{
+  "$schema": "./launcher.schema.json",
+  "icon": "container",
+  "description": "Start, stop, inspect and remove Docker containers and images.",
+  "author": "GPUI Kit",
+  "categories": ["Developer Tools", "System"],
+  "commands": [
+    {
+      "name": "search-containers",
+      "title": "Search Docker Containers",
+      "subtitle": "Running and stopped",
+      "icon": "container",
+      "keywords": ["docker", "ps", "logs", "compose"],
+      "module": "commands/search-containers.js"
+    },
+    {
+      "name": "search-images",
+      "title": "Search Docker Images",
+      "icon": "layers",
+      "keywords": ["docker", "image", "rmi", "run"],
+      "module": "commands/search-images.js"
+    }
+  ],
+  "preferences": [
+    {
+      "name": "host",
+      "title": "Docker Host",
+      "description": "Optional. The engine to talk to, passed as --host, such as unix:///var/run/docker.sock or npipe:////./pipe/dockerDesktopLinuxEngine. Leave empty for docker's default.",
+      "type": "text"
+    }
+  ]
+}

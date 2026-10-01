@@ -1,0 +1,26 @@
+{
+  "$schema": "./launcher.schema.json",
+  "icon": "folder-clock",
+  "description": "Reopen folders and workspaces from VS Code, Cursor, VSCodium, Windsurf and JetBrains IDEs.",
+  "author": "GPUI Kit",
+  "categories": ["Developer Tools", "Productivity"],
+  "commands": [
+    {
+      "name": "search-recent-projects",
+      "title": "Search Recent Projects",
+      "subtitle": "VS Code, Cursor, JetBrains and more",
+      "keywords": ["vscode", "code", "cursor", "windsurf", "vscodium", "jetbrains", "intellij", "pycharm", "workspace", "folder"],
+      "module": "commands/search-recent-projects.js"
+    }
+  ],
+  "preferences": [
+    {
+      "name": "show_files",
+      "title": "Recent Files",
+      "label": "Also list files recently opened in VS Code-based editors",
+      "description": "VS Code, Cursor, VSCodium and Windsurf remember single files as well as folders.",
+      "type": "checkbox",
+      "default": false
+    }
+  ]
+}

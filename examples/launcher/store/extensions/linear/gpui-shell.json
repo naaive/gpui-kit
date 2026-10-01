@@ -1,0 +1,11 @@
+{
+  "id": "com.gpui-kit.linear",
+  "name": "Linear",
+  "version": "1.0.0",
+  "entry": "commands/my-issues.js",
+  "capabilities": {
+    "network": {
+      "http": [{ "host": "api.linear.app", "methods": ["POST"], "paths": ["/graphql"] }]
+    }
+  }
+}

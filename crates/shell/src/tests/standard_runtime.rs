@@ -63,8 +63,10 @@ fn llrt_pure_modules_execute_inside_the_shell_runtime(cx: &mut TestAppContext) {
         "7368656c6c|{joined_path}|example.com|shell|\
          ce635c4eabff5e4f56dba8fb1e39ca235530aa2b6b18533eef1af3862016c577"
     );
+    // The tree quotes text the way `Debug` does, which doubles a Windows
+    // separator.
     assert!(
-        rendered.contains(&expected),
+        rendered.contains(&format!("{expected:?}")),
         "unexpected Standard Runtime result: {rendered}"
     );
 }

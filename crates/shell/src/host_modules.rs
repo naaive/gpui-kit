@@ -422,6 +422,8 @@ pub struct HostModule {
     /// The module's TypeScript face, if the host wrote one. See
     /// [`HostModule::declarations`].
     declarations: Option<String>,
+    /// The JavaScript body of a module built with [`HostModule::source`].
+    source: Option<Rc<str>>,
 }
 
 impl HostModule {
@@ -438,7 +440,39 @@ impl HostModule {
             async_functions: BTreeMap::new(),
             components: BTreeMap::new(),
             declarations: None,
+            source: None,
         }
+    }
+
+    /// A module whose body is JavaScript the host ships, rather than Rust
+    /// functions.
+    ///
+    /// For what a Rust function cannot express: a class, a closure over
+    /// script state, a helper built on `cx.notify()`. The source is an ES
+    /// module, linked like any other — `import { Query } from "launcher/utils"`
+    /// reaches exactly what it exports.
+    ///
+    /// It carries no authority of its own. It is evaluated in the importing
+    /// application's sandbox and every call into it runs under the caller's
+    /// policy, so it can do nothing the importing script could not. Its own
+    /// imports are resolved under that same policy: bare specifiers only —
+    /// the runtime's modules and the HostModules the policy grants, never a
+    /// file, because a host-supplied module has no directory to be relative to.
+    ///
+    /// A source module exports only what its source exports, so adding a
+    /// function or component to one is refused by [`Self::validate`]. Its
+    /// [`Self::declarations`], if given, are published as written; without
+    /// them the module is declared untyped.
+    pub fn source(name: impl Into<String>, source: impl Into<String>) -> Self {
+        Self {
+            source: Some(Rc::from(source.into())),
+            ..Self::new(name)
+        }
+    }
+
+    /// The JavaScript body, for a module built with [`Self::source`].
+    pub(crate) fn script_source(&self) -> Option<&str> {
+        self.source.as_deref()
     }
 
     /// Exports one Rust-built element constructor from this module.
@@ -655,6 +689,22 @@ impl HostModule {
                 self.name,
                 list(RESERVED_SPECIFIERS)
             )));
+        }
+        if self.source.is_some() {
+            if !self.functions.is_empty()
+                || !self.async_functions.is_empty()
+                || !self.components.is_empty()
+            {
+                return Err(HostError::new(format!(
+                    "HostModule `{}` is a source module and exports only what its source \
+                     exports; register its Rust functions and components on a module of \
+                     their own and import that from the source",
+                    self.name
+                )));
+            }
+            // What a source module exports is what its JavaScript says, and
+            // reading that is the engine's job at link time, not this check's.
+            return Ok(());
         }
         self.check_declarations()
     }

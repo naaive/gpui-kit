@@ -1,0 +1,21 @@
+[package]
+name = "datakit-tunnel"
+description = "SSH tunnels to databases behind a bastion host, for DataKit."
+version = "0.6.5"
+publish = false
+edition.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+datakit-catalog = { path = "../catalog" }
+datakit-driver = { path = "../driver" }
+futures = "0.3"
+russh = { version = "0.63", default-features = false, features = ["ring", "rsa"] }
+tokio = { version = "1", features = ["rt", "net", "io-util", "sync"] }
+tracing.workspace = true
+
+[dev-dependencies]
+datakit-runtime = { path = "../runtime" }
+
+[lints]
+workspace = true

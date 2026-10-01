@@ -1,0 +1,20 @@
+{
+  "id": "com.gpui-kit.network-tools",
+  "name": "Network Tools",
+  "version": "1.0.0",
+  "entry": "commands/my-ip.js",
+  "capabilities": {
+    "fs": {
+      "execute": ["ipconfig", "ifconfig", "ip", "netstat", "tasklist", "taskkill", "lsof", "kill"]
+    },
+    "network": {
+      "http": [
+        { "scheme": "https", "host": "api.ipify.org", "methods": ["GET"], "paths": ["/"] },
+        { "scheme": "https", "host": "api6.ipify.org", "methods": ["GET"], "paths": ["/"] },
+        { "scheme": "https", "host": "ipinfo.io", "methods": ["GET"], "paths": ["/json"] },
+        { "scheme": "https", "host": "cloudflare-dns.com", "methods": ["GET"], "paths": ["/dns-query"] },
+        { "scheme": "https", "host": "dns.google", "methods": ["GET"], "paths": ["/resolve"] }
+      ]
+    }
+  }
+}

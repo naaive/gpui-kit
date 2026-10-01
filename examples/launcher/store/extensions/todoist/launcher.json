@@ -1,0 +1,45 @@
+{
+  "$schema": "./launcher.schema.json",
+  "icon": "list-todo",
+  "description": "See, complete, reschedule and create Todoist tasks, with today's count in the tray.",
+  "author": "GPUI Kit",
+  "categories": ["Productivity"],
+  "commands": [
+    {
+      "name": "search-tasks",
+      "title": "Search Todoist Tasks",
+      "subtitle": "Todoist",
+      "icon": "list-todo",
+      "keywords": ["todoist", "todo", "today", "tasks", "overdue"],
+      "module": "commands/search-tasks.js"
+    },
+    {
+      "name": "create-task",
+      "title": "Create Todoist Task",
+      "subtitle": "Todoist",
+      "icon": "square-plus",
+      "keywords": ["todoist", "todo", "add", "new", "quick add"],
+      "module": "commands/create-task.js",
+      "arguments": [{ "name": "content", "placeholder": "Task" }]
+    },
+    {
+      "name": "today-tray",
+      "title": "Todoist Today in Tray",
+      "subtitle": "Todoist",
+      "icon": "list-todo",
+      "keywords": ["todoist", "menu bar", "tray", "today"],
+      "module": "commands/today-tray.js",
+      "mode": "menu-bar",
+      "interval": "10m"
+    }
+  ],
+  "preferences": [
+    {
+      "name": "token",
+      "title": "API Token",
+      "description": "Your personal API token, from Todoist Settings → Integrations → Developer.",
+      "type": "password",
+      "required": true
+    }
+  ]
+}

@@ -24,7 +24,10 @@
 
 use std::rc::Rc;
 
-use gpui::{Context, EntityId, IntoElement, ParentElement as _, Render, Styled as _, Window, div};
+use gpui::{
+    AnyElement, Context, EntityId, IntoElement, ParentElement as _, Render, Styled as _, Window,
+    div,
+};
 
 use crate::{
     engine::{ShellRuntime, ViewObject},
@@ -85,6 +88,15 @@ enum ViewOwnership {
     Root,
     /// A nested view owns only work keyed to its exact GPUI entity identity.
     Nested(EntityId),
+    /// A view the embedding host holds by handle, built from a script callback
+    /// ([`crate::ComponentCallback::invoke_view`]).
+    ///
+    /// Like `Nested` it owns only work keyed to its own entity — never the
+    /// application, whose other views are still running. Unlike `Nested` no
+    /// store record keeps it alive, so the host dropping its last handle is
+    /// the release, and dropping has to take the view's retained records with
+    /// it as well as its tasks.
+    Hosted(EntityId),
 }
 
 impl ScriptView {
@@ -109,6 +121,15 @@ impl ScriptView {
         entity_id: EntityId,
     ) -> Self {
         Self::with_ownership(runtime, object, policy, ViewOwnership::Nested(entity_id))
+    }
+
+    pub(crate) fn hosted(
+        runtime: Rc<ShellRuntime>,
+        object: ViewObject,
+        policy: Rc<Policy>,
+        entity_id: EntityId,
+    ) -> Self {
+        Self::with_ownership(runtime, object, policy, ViewOwnership::Hosted(entity_id))
     }
 
     fn with_ownership(
@@ -280,6 +301,47 @@ impl Drop for ScriptView {
                 // back into that RefCell here would re-enter its mutable borrow.
                 crate::engine::quickjs::cancel_view_tasks(&self.runtime, entity_id);
             }
+            ViewOwnership::Hosted(entity_id) => {
+                // No store record holds this view, so nothing else will remove
+                // what its init, events and tasks retained. The entity is
+                // dropped by GPUI's deferred release, outside any store borrow.
+                self.runtime.release_hosted_view_without_context(entity_id);
+            }
+        }
+    }
+}
+
+impl ScriptView {
+    /// Builds the script's description, if it is stale, and materializes it,
+    /// without any surface of its own: a failed build is answered with its
+    /// message rather than drawn.
+    ///
+    /// For a host that takes what the script produced apart instead of
+    /// mounting the view. `render` draws a failure as an interface, which
+    /// keeps state in the window and so works only inside a frame; this draws
+    /// nothing itself, so a host may call it from an event handler too.
+    pub fn render_description(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Result<AnyElement, String> {
+        self.prepare(window, cx);
+        match (self.error.as_deref(), self.current.as_ref()) {
+            (Some(message), _) => Err(message.to_owned()),
+            (None, Some(snapshot)) => Ok(materialize(&self.runtime, snapshot, window, cx)),
+            (None, None) => Ok(div().into_any_element()),
+        }
+    }
+
+    /// Rebuilds the description when the script or the theme changed.
+    fn prepare(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let theme = crate::theme_tokens::sync(cx);
+        if self.theme.as_ref() != Some(&theme) {
+            self.theme = Some(theme);
+            self.dirty = true;
+        }
+        if self.is_dirty() {
+            self.rebuild(window, cx);
         }
     }
 }
@@ -289,14 +351,7 @@ impl Render for ScriptView {
         if self.retired {
             return div().into_any_element();
         }
-        let theme = crate::theme_tokens::sync(cx);
-        if self.theme.as_ref() != Some(&theme) {
-            self.theme = Some(theme);
-            self.dirty = true;
-        }
-        if self.is_dirty() {
-            self.rebuild(window, cx);
-        }
+        self.prepare(window, cx);
 
         match (self.error.as_deref(), self.current.as_ref()) {
             (None, Some(snapshot)) => materialize(&self.runtime, snapshot, window, cx),

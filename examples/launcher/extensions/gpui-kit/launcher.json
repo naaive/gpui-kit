@@ -1,0 +1,56 @@
+{
+  "$schema": "./launcher.schema.json",
+  "icon": "book-open",
+  "commands": [
+    {
+      "name": "links",
+      "title": "Browse GPUI Kit Links",
+      "subtitle": "Documentation and community",
+      "keywords": ["docs", "documentation", "github"],
+      "module": "commands/links.js"
+    },
+    {
+      "name": "checklist",
+      "title": "Getting Started Checklist",
+      "icon": "circle-check",
+      "keywords": ["todo", "tasks"],
+      "module": "commands/checklist.js"
+    },
+    {
+      "name": "search-docs",
+      "title": "Search GPUI Kit Docs",
+      "icon": "book-search",
+      "keywords": ["docs", "documentation", "find"],
+      "module": "commands/search-docs.js",
+      "mode": "no-view",
+      "fallback": true,
+      "arguments": [{ "name": "query", "placeholder": "Search terms" }]
+    },
+    {
+      "name": "copy-date",
+      "title": "Copy Today's Date",
+      "icon": "calendar",
+      "keywords": ["iso", "today", "clipboard"],
+      "module": "commands/copy-date.js",
+      "mode": "no-view"
+    },
+    {
+      "name": "tray-links",
+      "title": "GPUI Kit Links in Tray",
+      "icon": "book-open",
+      "keywords": ["menu bar", "tray"],
+      "module": "commands/tray-links.js",
+      "mode": "menu-bar",
+      "interval": "1h"
+    },
+    {
+      "name": "weekend",
+      "title": "Days Until the Weekend",
+      "icon": "calendar-clock",
+      "keywords": ["countdown", "saturday"],
+      "module": "commands/weekend.js",
+      "mode": "no-view",
+      "interval": "1h"
+    }
+  ]
+}

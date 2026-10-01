@@ -262,6 +262,9 @@ pub struct TableState<D: TableDelegate> {
     right_clicked_cell: Option<(usize, usize)>,
     selected_col: Option<usize>,
     selected_cell: Option<(usize, usize)>,
+    /// Where a block of cells extended with Shift started; the block runs
+    /// from here to `selected_cell`.
+    cell_anchor: Option<(usize, usize)>,
 
     /// The column index that is being resized.
     resizing_col: Option<usize>,
@@ -298,6 +301,7 @@ where
             right_clicked_cell: None,
             selected_col: None,
             selected_cell: None,
+            cell_anchor: None,
             resizing_col: None,
             col_drag_gap: None,
             bounds: Bounds::default(),
@@ -590,6 +594,7 @@ where
     pub fn set_selected_cell(&mut self, row_ix: usize, col_ix: usize, cx: &mut Context<Self>) {
         self.selection_mode = SelectionMode::Cell;
         self.selected_cell = Some((row_ix, col_ix));
+        self.cell_anchor = None;
 
         // Scroll to the cell
         self.vertical_scroll_handle
@@ -613,12 +618,96 @@ where
         }
     }
 
+    /// The block of cells selected in cell mode, as row and column ranges:
+    /// from where Shift-selection started to the selected cell, or just the
+    /// selected cell. `None` when no cell is selected.
+    ///
+    /// Shift with an arrow key or a click extends the block; any other
+    /// selection change starts over from one cell.
+    pub fn selected_cell_range(&self) -> Option<(Range<usize>, Range<usize>)> {
+        let (row_ix, col_ix) = self.selected_cell()?;
+        let (anchor_row, anchor_col) = self.cell_anchor.unwrap_or((row_ix, col_ix));
+        Some((
+            row_ix.min(anchor_row)..row_ix.max(anchor_row) + 1,
+            col_ix.min(anchor_col)..col_ix.max(anchor_col) + 1,
+        ))
+    }
+
+    fn is_cell_in_selection(&self, row_ix: usize, col_ix: usize) -> bool {
+        self.selected_cell_range()
+            .is_some_and(|(rows, cols)| rows.contains(&row_ix) && cols.contains(&col_ix))
+    }
+
+    /// Run `step`, which moves the selected cell, keeping the block's
+    /// starting corner where it was.
+    fn extend_cell_selection(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+        step: impl FnOnce(&mut Self, &mut Window, &mut Context<Self>),
+    ) {
+        if !self.cell_selectable {
+            return;
+        }
+        let anchor = self.cell_anchor.or(self.selected_cell());
+        step(self, window, cx);
+        if self.selection_mode.is_cell() {
+            self.cell_anchor = anchor;
+            cx.notify();
+        }
+    }
+
+    pub(super) fn action_extend_up(
+        &mut self,
+        _: &ExtendSelectionUp,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.extend_cell_selection(window, cx, |this, window, cx| {
+            this.action_select_prev(&SelectUp, window, cx)
+        });
+    }
+
+    pub(super) fn action_extend_down(
+        &mut self,
+        _: &ExtendSelectionDown,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.extend_cell_selection(window, cx, |this, window, cx| {
+            this.action_select_next(&SelectDown, window, cx)
+        });
+    }
+
+    pub(super) fn action_extend_left(
+        &mut self,
+        _: &ExtendSelectionLeft,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.extend_cell_selection(window, cx, |this, window, cx| {
+            this.action_select_prev_col(&SelectPrevColumn, window, cx)
+        });
+    }
+
+    pub(super) fn action_extend_right(
+        &mut self,
+        _: &ExtendSelectionRight,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.extend_cell_selection(window, cx, |this, window, cx| {
+            this.action_select_next_col(&SelectNextColumn, window, cx)
+        });
+    }
+
     /// Clear the selection of the table.
     pub fn clear_selection(&mut self, cx: &mut Context<Self>) {
         self.selection_mode = SelectionMode::Row;
         self.selected_row = None;
         self.selected_col = None;
         self.selected_cell = None;
+        self.cell_anchor = None;
         cx.emit(TableEvent::ClearSelection);
         cx.notify();
     }
@@ -848,6 +937,14 @@ where
         }
 
         cx.stop_propagation();
+
+        // Shift-click extends the block of cells from where it started.
+        if e.modifiers().shift && self.selected_cell().is_some() {
+            let anchor = self.cell_anchor.or(self.selected_cell());
+            self.set_selected_cell(row_ix, col_ix, cx);
+            self.cell_anchor = anchor;
+            return;
+        }
 
         let is_double_click = e.click_count() == 2;
 
@@ -2053,7 +2150,7 @@ where
 
                                 (0..left_columns_count).for_each(|col_ix| {
                                     let is_cell_selected =
-                                        self.selected_cell() == Some((row_ix, col_ix));
+                                        self.is_cell_in_selection(row_ix, col_ix);
                                     let is_cell_right_clicked =
                                         self.right_clicked_cell == Some((row_ix, col_ix));
 
@@ -2158,7 +2255,7 @@ where
                                         visible_range.for_each(|col_ix| {
                                             let col_ix = col_ix + left_columns_count;
                                             let is_cell_selected =
-                                                table.selected_cell() == Some((row_ix, col_ix));
+                                                table.is_cell_in_selection(row_ix, col_ix);
                                             let is_cell_right_clicked =
                                                 table.right_clicked_cell == Some((row_ix, col_ix));
 

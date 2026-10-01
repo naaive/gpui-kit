@@ -1,0 +1,11 @@
+{
+  "id": "com.gpui-kit.docker",
+  "name": "Docker",
+  "version": "1.0.0",
+  "entry": "commands/search-containers.js",
+  "capabilities": {
+    "fs": {
+      "execute": ["docker"]
+    }
+  }
+}

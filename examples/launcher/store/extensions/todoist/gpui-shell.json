@@ -1,0 +1,27 @@
+{
+  "id": "com.gpui-kit.todoist",
+  "name": "Todoist",
+  "version": "1.0.0",
+  "entry": "commands/search-tasks.js",
+  "capabilities": {
+    "network": {
+      "http": [
+        {
+          "host": "api.todoist.com",
+          "methods": ["GET"],
+          "paths": ["/api/v1/tasks", "/api/v1/tasks/filter", "/api/v1/projects"]
+        },
+        {
+          "host": "api.todoist.com",
+          "methods": ["POST"],
+          "path_prefixes": ["/api/v1/tasks"]
+        },
+        {
+          "host": "api.todoist.com",
+          "methods": ["DELETE"],
+          "path_prefixes": ["/api/v1/tasks/"]
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,83 @@
+[package]
+name = "snip"
+description = "A Snipaste-style screenshot tool: freeze the screen, select, annotate, copy, save or pin. Built on GPUI Kit."
+version = "0.6.5"
+publish = false
+edition.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+arboard = { version = "3.6", default-features = false, features = ["image-data", "wayland-data-control"] }
+chrono = "0.4.38"
+cosmic-text = "0.19"
+dirs = "6"
+global-hotkey = "0.8"
+gpui-kit.workspace = true
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+interprocess = "2"
+rqrr = "0.11"
+serde.workspace = true
+serde_json.workspace = true
+smallvec.workspace = true
+smol.workspace = true
+tiny-skia = "0.11"
+tracing.workspace = true
+tracing-subscriber = { version = "0.3.22", features = ["env-filter", "fmt", "registry"], default-features = false }
+
+[features]
+# `snip --render-preview <directory>`: captures the screen, scripts a session
+# on hidden windows and writes what each window shows as PNG files, for
+# reviewing the interface without it appearing on screen.
+preview = ["gpui-kit/test-support"]
+
+[target.'cfg(target_os = "windows")'.dependencies]
+raw-window-handle.workspace = true
+tray-icon = { version = "0.24", default-features = false }
+windows = { workspace = true, features = [
+    "Foundation",
+    "Foundation_Collections",
+    "Globalization",
+    "System_UserProfile",
+    "Graphics_Imaging",
+    "Media_Ocr",
+    "Storage_Streams",
+    "Win32_Devices_Display",
+    "Win32_Foundation",
+    "Win32_Graphics_Direct3D",
+    "Win32_Graphics_Direct3D11",
+    "Win32_Graphics_Dwm",
+    "Win32_Graphics_Dxgi",
+    "Win32_Graphics_Dxgi_Common",
+    "Win32_Graphics_Gdi",
+    "Win32_System_Com",
+    "Win32_System_WinRT",
+    "Win32_UI_Accessibility",
+    "Win32_UI_HiDpi",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+block2 = "0.6"
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSResponder", "NSRunningApplication"] }
+objc2-core-foundation = { version = "0.3", default-features = false, features = ["std", "CFArray", "CFData", "CFDictionary", "CFNumber", "CFString", "CFCGTypes"] }
+objc2-core-graphics = { version = "0.3", default-features = false, features = ["std", "CGDirectDisplay", "CGError", "CGEvent", "CGEventTypes", "CGImage", "CGWindow", "CGDataProvider", "CGColorSpace", "CGGeometry"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSArray", "NSDictionary", "NSEnumerator", "NSError", "NSString"] }
+objc2-screen-capture-kit = { version = "0.3", default-features = false, features = ["std", "block2", "objc2-core-foundation", "objc2-core-graphics", "SCShareableContent", "SCScreenshotManager", "SCStream"] }
+objc2-vision = { version = "0.3", default-features = false, features = ["std", "objc2-core-graphics", "VNObservation", "VNRecognizeTextRequest", "VNRequest", "VNRequestHandler", "VNTypes"] }
+tray-icon = { version = "0.24", default-features = false }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+ashpd = { version = "0.13", default-features = false, features = ["async-io", "screenshot"] }
+ksni = { version = "0.3", default-features = false, features = ["async-io", "blocking"] }
+x11rb = "0.13"
+
+[dev-dependencies]
+gpui = { workspace = true, features = ["test-support"] }
+gpui-kit = { workspace = true, features = ["test-support"] }
+qrcode = { version = "0.14", default-features = false }
+tempfile = "3"
+
+[lints]
+workspace = true

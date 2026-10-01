@@ -891,6 +891,15 @@ mod component_callback_value_tests {
 pub struct LoadedApplication {
     runtime: Weak<ShellRuntime>,
     view_type: ViewType,
+    /// The policy the entry was linked under, when the host named one.
+    ///
+    /// Remembered rather than asked for again at mount, because the two have
+    /// to agree: a HostModule import is resolved against the policy in force
+    /// while the module graph links, and a view mounted under a different one
+    /// would dispatch those imports into a registry they were not linked
+    /// against. `None` keeps [`ShellRuntime::load_application`]'s behavior of
+    /// mounting under the default policy.
+    policy: Option<Rc<Policy>>,
     mounted: Cell<bool>,
 }
 
@@ -1531,11 +1540,51 @@ impl ShellRuntime {
         Ok(LoadedApplication {
             runtime: Rc::downgrade(self),
             view_type: self.load_app(directory, entry)?,
+            policy: None,
+            mounted: Cell::new(false),
+        })
+    }
+
+    /// Loads an application's JavaScript entry under an explicit [`Policy`].
+    ///
+    /// For a host running several applications on one runtime, each with its
+    /// own grant, storage, application name and HostModules. The module graph
+    /// links inside a call frame carrying `policy`, so a bare import such as
+    /// `import { launch } from "launcher"` resolves against the modules
+    /// registered on `policy` with [`Policy::with_host_module`] — not against
+    /// the default policy, and not against another application's. Top-level
+    /// module code runs under the same authority.
+    ///
+    /// The returned handle remembers `policy`, and
+    /// [`Self::mount_application`] mounts the view under it. Linking needs a
+    /// call frame, and a frame needs the window and `App`, which is why this
+    /// takes them where [`Self::load_application`] does not.
+    pub fn load_application_with_policy(
+        self: &Rc<Self>,
+        directory: &Path,
+        entry: &str,
+        policy: Rc<Policy>,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> Result<LoadedApplication> {
+        let view_type = {
+            let (_scope, _) =
+                scope::enter_with_runtime(self, window, cx, ScopePhase::Task, None, policy.clone());
+            self.load_app(directory, entry)?
+        };
+        Ok(LoadedApplication {
+            runtime: Rc::downgrade(self),
+            view_type,
+            policy: Some(policy),
             mounted: Cell::new(false),
         })
     }
 
     /// Creates, initializes and mounts a loaded application as a [`ScriptView`].
+    ///
+    /// The view runs under the policy the application was loaded with
+    /// ([`Self::load_application_with_policy`]), or under the default policy
+    /// for [`Self::load_application`].
     ///
     /// The owner consumes the handle before construction. This makes a failed
     /// attempt terminal too, matching the application-generation cleanup that
@@ -1557,12 +1606,11 @@ impl ShellRuntime {
             !application.mounted.replace(true),
             "loaded application has already been mounted"
         );
-        self.instantiate_view_with_policy(
-            &application.view_type,
-            crate::policy::default(),
-            window,
-            cx,
-        )
+        let policy = application
+            .policy
+            .clone()
+            .unwrap_or_else(crate::policy::default);
+        self.instantiate_view_with_policy(&application.view_type, policy, window, cx)
     }
 
     /// Creates the application's default runtime and makes it available to
@@ -2083,6 +2131,29 @@ impl ShellRuntime {
         self.purge_released_view_aliases(&release);
         release.retire(cx);
         true
+    }
+
+    /// Releases what a hosted view owned, from its `Drop`.
+    ///
+    /// Tasks and callbacks keyed to the entity are cancelled unconditionally.
+    /// Its retained records are removed too unless the store is borrowed at
+    /// that moment, which GPUI's deferred entity release does not do; if it
+    /// ever were, the records would still go with their application.
+    pub(crate) fn release_hosted_view_without_context(self: &Rc<Self>, entity_id: gpui::EntityId) {
+        self.retire_view_callbacks(entity_id);
+        cancel_view_tasks(self, entity_id);
+        let release = match self.entities.try_borrow_mut() {
+            Ok(mut store) => store.release_owned_by(entity_id),
+            Err(_) => {
+                tracing::debug!(
+                    "a hosted view dropped while the entity store was borrowed; its retained \
+                     records are released with its application"
+                );
+                return;
+            }
+        };
+        self.purge_released_view_aliases(&release);
+        release.retire_without_context();
     }
 
     pub(crate) fn release_application_generation(
@@ -4663,6 +4734,132 @@ impl ShellRuntime {
         result
     }
 
+    /// Builds a host-owned view from a callback that returns `new Page(props)`.
+    ///
+    /// The callback runs as an event of the view that registered it, under that
+    /// view's policy and application, exactly as a component event runs. The
+    /// View it returns has its `init` deferred by the prelude and run here
+    /// instead, under the new entity: tasks, timers and retained state that
+    /// `init` starts are owned by the pushed view rather than by the view whose
+    /// callback built it, so `cx.notify()` from them refreshes the pushed view
+    /// and dropping the entity cancels them.
+    ///
+    /// The entity is `ViewOwnership::Hosted`: a store record would keep it alive
+    /// until its owner or application released it, which is the wrong lifetime
+    /// for a view the host pushes and pops; and root ownership would retire the
+    /// whole application when it dropped.
+    ///
+    /// The whole operation is one transaction. A failure in the callback, in the
+    /// returned value, or in `init` rolls back the retained records and tasks it
+    /// created and returns the error; nothing is left behind.
+    pub(crate) fn dispatch_component_view_callback(
+        self: &Rc<Self>,
+        id: CallbackId,
+        arguments: &[ComponentCallbackArgument],
+        window: &mut Window,
+        cx: &mut App,
+    ) -> Result<Entity<ScriptView>> {
+        let entry = self
+            .callbacks
+            .borrow()
+            .get(id)
+            .ok_or_else(|| anyhow!("component callback {id} belongs to a superseded render"))?;
+        if entry
+            .application
+            .as_ref()
+            .is_some_and(|application| !application.is_active())
+        {
+            return Err(anyhow!(
+                "component callback {id} belongs to a retired application"
+            ));
+        }
+        let owner = entry
+            .live_view()
+            .ok_or_else(|| anyhow!("component callback {id} owner has been released"))?;
+        let (policy, module_lease) = match owner.as_ref() {
+            Some(owner) => {
+                let owner = owner.read(cx);
+                (owner.policy(), owner.object().module_lease.clone())
+            }
+            None => (crate::policy::default(), None),
+        };
+        let application = entry.application.clone();
+
+        let (build_scope, generation) = scope::enter_with_application(
+            self,
+            window,
+            cx,
+            ScopePhase::Event,
+            owner,
+            policy.clone(),
+            application.clone(),
+        );
+        // An empty queue before anything is checkpointed, so a rollback can
+        // only ever remove work this call started.
+        scheduler::drain_jobs_transactionally(self, window, cx)?;
+        let entity_checkpoint = { self.entities().checkpoint() };
+        let task_checkpoint = scheduler::checkpoint_runtime_tasks(self);
+        let built = self.with_js(|ctx| {
+            let handler = entry.value.clone().restore(ctx)?;
+            let js_arguments = Array::new(ctx.clone())?;
+            for (index, argument) in arguments.iter().enumerate() {
+                js_arguments.set(index, callback_argument_to_js(ctx, argument)?)?;
+            }
+            js_arguments.set(
+                arguments.len(),
+                context_object(ctx, ContextBinding::Call(generation))?,
+            )?;
+            let build: Function = ctx.globals().get("__build_view")?;
+            let built: Array = build.call((handler, js_arguments))?;
+            let instance: Object = built.get(0)?;
+            let props: Value = built.get(1)?;
+            Ok((
+                ViewObject {
+                    value: Persistent::save(ctx, instance),
+                    module_lease,
+                    application: application.clone(),
+                    jit_warm: Rc::new(Cell::new(false)),
+                },
+                Persistent::save(ctx, props),
+            ))
+        });
+        let nested = self.flush_pending_nested_views(window, cx);
+        let build_jobs = scheduler::drain_jobs_transactionally(self, window, cx);
+        drop(build_scope);
+        let (object, props) = match build_jobs.and(nested).and(built) {
+            Ok(built) => built,
+            Err(error) => {
+                self.rollback_retained_since(entity_checkpoint, task_checkpoint, cx);
+                return Err(anyhow!("the view callback failed: {error:#}"));
+            }
+        };
+
+        let view =
+            cx.new(|cx| ScriptView::hosted(self.clone(), object, policy.clone(), cx.entity_id()));
+        let object = view.read(cx).object().clone();
+        let (initialize_scope, _) = scope::enter_with_application(
+            self,
+            window,
+            cx,
+            ScopePhase::Event,
+            Some(view.clone()),
+            policy,
+            application,
+        );
+        let initialized = self.initialize(&object, Some(props));
+        let nested = self.flush_pending_nested_views(window, cx);
+        let init_jobs = scheduler::drain_jobs_transactionally(self, window, cx);
+        drop(initialize_scope);
+        if let Err(error) = initialized.and(nested).and(init_jobs) {
+            self.rollback_retained_since(entity_checkpoint, task_checkpoint, cx);
+            view.update(cx, |view, _| view.retire());
+            return Err(anyhow!(
+                "initializing the view the callback returned failed: {error:#}"
+            ));
+        }
+        Ok(view)
+    }
+
     pub(crate) fn dispatch_component_data_callback(
         self: &Rc<Self>,
         id: CallbackId,
@@ -6457,14 +6654,72 @@ globalThis.__gpui = (() => {
     };
   };
 
+  // Views constructed while a host builds a view out of a callback
+  // (`ComponentCallback::invoke_view`). Their `init` waits until the callback
+  // has returned: the view it returned is initialized under the entity the
+  // host creates for it, so work started in `init` belongs to that entity
+  // rather than to the view whose callback built it.
+  let collecting = null;
+
   class View {
     constructor(props) {
+      if (deferInit) return;
+      if (collecting !== null) {
+        collecting.push([this, props]);
+        return;
+      }
       // `new MyView(props)` from script reaches `init` without the host's
       // generation, so the context here is the async flavor — it resolves
       // whichever call is running, and says so if there is none.
-      if (!deferInit && typeof this.init === "function") this.init(props, __async_cx());
+      if (typeof this.init === "function") this.init(props, __async_cx());
     }
   }
+
+  const describeReturned = (value) => {
+    if (value === null) return "null";
+    if (typeof value === "function") return "a function (return an instance, not the class)";
+    if (typeof value === "object") return "an object that is not a View";
+    return typeof value;
+  };
+
+  // Runs `build(...args)` and answers `[view, props]` for the View instance it
+  // returned. Every other view the callback constructed is initialized here,
+  // in construction order, under the calling view; the returned one is left
+  // for the host to initialize under its own entity.
+  globalThis.__build_view = (build, args) => {
+    const previous = collecting;
+    const constructed = [];
+    collecting = constructed;
+    let view;
+    try {
+      view = build(...args);
+    } finally {
+      collecting = previous;
+    }
+    let props;
+    let found = false;
+    for (const [instance, instanceProps] of constructed) {
+      if (!found && instance === view) {
+        found = true;
+        props = instanceProps;
+        continue;
+      }
+      if (typeof instance.init === "function") instance.init(instanceProps, __async_cx());
+    }
+    if (!(view instanceof View)) {
+      throw new TypeError(
+        "a view callback must return a new View instance (`() => new Page(props)`), got " +
+          describeReturned(view),
+      );
+    }
+    if (!found) {
+      throw new TypeError(
+        "a view callback must return a View it constructed (`() => new Page(props)`); " +
+          "this instance already existed, so it cannot be given a new entity",
+      );
+    }
+    return [view, props];
+  };
 
   // A dialog and a sheet are views whose `render` is the author's function.
   // That is the whole of the wrapping: a script view is an object with a
@@ -10342,7 +10597,7 @@ export default class Panel extends View { render() { return div(); } }
         let generation = lease.generation();
         let view_type = runtime
             .load_source_with_lease(
-                &format!("{}/main.js?v={generation}", application.display()),
+                &format!("{}?v={generation}", application.join("main.js").display()),
                 "import { label } from 'omarchy-ui'; import { tone } from 'omarchy-ui/theme.js'; export default class Panel { static label() { return `${label}:${tone}`; } }",
                 Some(lease),
                 None,
@@ -10396,7 +10651,7 @@ export default class Panel extends View { render() { return div(); } }
         let generation = lease.generation();
         let error = runtime
             .load_source_with_lease(
-                &format!("{}/main.js?v={generation}", application.display()),
+                &format!("{}?v={generation}", application.join("main.js").display()),
                 "import 'third-party'; export default class Panel {}",
                 Some(lease),
                 None,
@@ -10456,7 +10711,7 @@ export default class Panel extends View { render() { return div(); } }
                     "entry": "main.js",
                     "dependencies": {{ "omarchy-ui": {} }}
                 }}"#,
-                serde_json::to_string(&format!("file://{}#main", remote.display()))
+                serde_json::to_string(&format!("{}#main", crate::dependencies::file_url(&remote)))
                     .expect("remote URL")
             ),
         )

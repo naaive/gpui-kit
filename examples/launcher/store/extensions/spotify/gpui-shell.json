@@ -1,0 +1,24 @@
+{
+  "id": "com.gpui-kit.spotify",
+  "name": "Spotify",
+  "version": "1.0.0",
+  "entry": "commands/search.js",
+  "capabilities": {
+    "network": {
+      "http": [
+        { "host": "accounts.spotify.com", "methods": ["POST"], "paths": ["/api/token"] },
+        { "host": "api.spotify.com", "methods": ["GET"], "paths": ["/v1/search"] },
+        {
+          "host": "api.spotify.com",
+          "methods": ["GET", "PUT", "POST"],
+          "path_prefixes": ["/v1/me/player"]
+        },
+        {
+          "host": "api.spotify.com",
+          "methods": ["GET", "PUT", "DELETE"],
+          "path_prefixes": ["/v1/me/library", "/v1/me/tracks"]
+        }
+      ]
+    }
+  }
+}

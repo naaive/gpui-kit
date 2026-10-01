@@ -26,6 +26,10 @@ crates/base/examples/wasm/www/src/wasm/*.ts
 # only ever be the stale one. The hand-written jsconfig.json and the per-app
 # native-module declarations beside it are sources and stay tracked.
 gpui-kit.d.ts
+# The launcher's own declarations and launcher.json schema, written beside an
+# extension for its author's editor on the same terms.
+examples/launcher/extensions/*/launcher*.d.ts
+examples/launcher/extensions/*/launcher.schema.json
 
 # Frontend build artifacts
 crates/story-web/www/dist/

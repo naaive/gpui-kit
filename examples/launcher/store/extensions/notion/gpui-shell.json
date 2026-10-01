@@ -1,0 +1,14 @@
+{
+  "id": "com.gpui-kit.notion",
+  "name": "Notion",
+  "version": "1.0.0",
+  "entry": "commands/search.js",
+  "capabilities": {
+    "network": {
+      "http": [
+        { "host": "api.notion.com", "methods": ["POST"], "paths": ["/v1/search", "/v1/pages"] },
+        { "host": "api.notion.com", "methods": ["GET", "PATCH"], "path_prefixes": ["/v1/blocks/"] }
+      ]
+    }
+  }
+}

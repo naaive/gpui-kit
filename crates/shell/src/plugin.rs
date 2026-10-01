@@ -693,7 +693,11 @@ struct CapabilitiesFile {
 #[serde(deny_unknown_fields)]
 struct FsGrantFile {
     /// Directories that may be read. `${pluginDir}` and `${dataDir}` expand to
-    /// the plugin's own directory and its storage directory.
+    /// the plugin's own directory and its storage directory; `${homeDir}` and
+    /// `${configDir}` to the user's home directory and the platform's
+    /// per-user configuration directory (`%APPDATA%`, `~/Library/Application
+    /// Support`, `$XDG_CONFIG_HOME`), where other applications keep their
+    /// state.
     #[serde(default)]
     read: Vec<String>,
     /// Directories that may be written.
@@ -765,6 +769,35 @@ struct ProcessGrantFile {
 
 const PLUGIN_DIR_PLACEHOLDER: &str = "${pluginDir}";
 const DATA_DIR_PLACEHOLDER: &str = "${dataDir}";
+const HOME_DIR_PLACEHOLDER: &str = "${homeDir}";
+const CONFIG_DIR_PLACEHOLDER: &str = "${configDir}";
+
+/// The user's home directory, as `HOME` or `USERPROFILE` name it.
+pub fn home_dir() -> Option<PathBuf> {
+    ["HOME", "USERPROFILE"]
+        .into_iter()
+        .filter_map(std::env::var_os)
+        .map(PathBuf::from)
+        .find(|path| path.is_absolute())
+}
+
+/// The platform's per-user configuration directory: `%APPDATA%` on Windows,
+/// `~/Library/Application Support` on macOS, `$XDG_CONFIG_HOME` or
+/// `~/.config` elsewhere.
+pub fn config_dir() -> Option<PathBuf> {
+    if cfg!(target_os = "windows") {
+        std::env::var_os("APPDATA")
+            .map(PathBuf::from)
+            .filter(|path| path.is_absolute())
+    } else if cfg!(target_os = "macos") {
+        home_dir().map(|home| home.join("Library").join("Application Support"))
+    } else {
+        std::env::var_os("XDG_CONFIG_HOME")
+            .map(PathBuf::from)
+            .filter(|path| path.is_absolute())
+            .or_else(|| home_dir().map(|home| home.join(".config")))
+    }
+}
 
 fn granted() -> bool {
     true
@@ -873,7 +906,12 @@ impl CapabilitiesFile {
                 )));
             }
             for method in &rule.methods {
-                if !matches!(method.as_str(), "GET" | "POST") {
+                // The methods a REST API is used with; each is still granted
+                // per host and path, and shown in the approval prompt.
+                if !matches!(
+                    method.as_str(),
+                    "GET" | "HEAD" | "POST" | "PUT" | "PATCH" | "DELETE"
+                ) {
                     return Err(ManifestProblem::Capabilities(format!(
                         "network.http[{index}].methods contains invalid HTTP method `{method}`"
                     )));
@@ -902,7 +940,14 @@ fn unknown_placeholder(value: &str) -> Option<String> {
         let tail = &rest[start..];
         let end = tail.find('}')? + 1;
         let placeholder = &tail[..end];
-        if placeholder != PLUGIN_DIR_PLACEHOLDER && placeholder != DATA_DIR_PLACEHOLDER {
+        if ![
+            PLUGIN_DIR_PLACEHOLDER,
+            DATA_DIR_PLACEHOLDER,
+            HOME_DIR_PLACEHOLDER,
+            CONFIG_DIR_PLACEHOLDER,
+        ]
+        .contains(&placeholder)
+        {
             return Some(placeholder.to_owned());
         }
         rest = &tail[end..];
@@ -910,27 +955,39 @@ fn unknown_placeholder(value: &str) -> Option<String> {
     None
 }
 
+/// A path naming a directory the system does not have (no home directory
+/// in the environment) grants nothing rather than something else.
 fn expand_all(paths: &[String], plugin_dir: &Path, data_dir: &Path) -> Vec<PathBuf> {
     paths
         .iter()
-        .map(|path| expand(path, plugin_dir, data_dir))
+        .filter_map(|path| expand(path, plugin_dir, data_dir))
         .collect()
 }
 
-fn expand(raw: &str, plugin_dir: &Path, data_dir: &Path) -> PathBuf {
-    let expanded = raw
+/// Expands the placeholders of a granted path; `None` when one names a
+/// directory this system does not have.
+pub fn expand(raw: &str, plugin_dir: &Path, data_dir: &Path) -> Option<PathBuf> {
+    let mut expanded = raw
         .replace(
             PLUGIN_DIR_PLACEHOLDER,
             plugin_dir.to_string_lossy().as_ref(),
         )
         .replace(DATA_DIR_PLACEHOLDER, data_dir.to_string_lossy().as_ref());
+    for (placeholder, directory) in [
+        (HOME_DIR_PLACEHOLDER, home_dir as fn() -> Option<PathBuf>),
+        (CONFIG_DIR_PLACEHOLDER, config_dir),
+    ] {
+        if expanded.contains(placeholder) {
+            expanded = expanded.replace(placeholder, directory()?.to_string_lossy().as_ref());
+        }
+    }
 
     let path = PathBuf::from(expanded);
-    if path.is_absolute() {
+    Some(if path.is_absolute() {
         path
     } else {
         plugin_dir.join(path)
-    }
+    })
 }
 
 // -----------------------------------------------------------------------------
@@ -2752,14 +2809,37 @@ mod tests {
 
     #[test]
     fn an_unexpanded_placeholder_is_caught_before_it_becomes_a_directory() {
-        let source = VALID.replacen("${dataDir}", "${homeDir}", 1);
-        let error = PluginManifest::parse(&source).expect_err("`${homeDir}` does not exist");
+        let source = VALID.replacen("${dataDir}", "${desktopDir}", 1);
+        let error = PluginManifest::parse(&source).expect_err("`${desktopDir}` does not exist");
         assert_eq!(
             error.problem(),
             &ManifestProblem::UnknownPlaceholder {
                 field: "capabilities.fs.read".to_owned(),
-                placeholder: "${homeDir}".to_owned(),
+                placeholder: "${desktopDir}".to_owned(),
             }
+        );
+    }
+
+    #[test]
+    fn home_and_config_placeholders_expand_to_the_user_directories() {
+        let source = VALID.replacen("${dataDir}", "${homeDir}/.config/tool", 1);
+        PluginManifest::parse(&source).expect("`${homeDir}` is a placeholder");
+        let home = home_dir().expect("the test environment has a home directory");
+        assert_eq!(
+            expand(
+                "${homeDir}/notes",
+                Path::new("/plugins/a"),
+                Path::new("/data/a")
+            ),
+            Some(PathBuf::from(format!("{}/notes", home.display())))
+        );
+        assert!(
+            expand(
+                "${configDir}",
+                Path::new("/plugins/a"),
+                Path::new("/data/a")
+            )
+            .is_some_and(|path| path.is_absolute())
         );
     }
 

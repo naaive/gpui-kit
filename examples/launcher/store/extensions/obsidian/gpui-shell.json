@@ -1,0 +1,12 @@
+{
+  "id": "com.gpui-kit.obsidian",
+  "name": "Obsidian",
+  "version": "1.0.0",
+  "entry": "commands/search-notes.js",
+  "capabilities": {
+    "fs": {
+      "read": ["${configDir}/obsidian", "${homeDir}"],
+      "write": ["${homeDir}"]
+    }
+  }
+}

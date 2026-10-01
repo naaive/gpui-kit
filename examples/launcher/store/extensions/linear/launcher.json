@@ -1,0 +1,44 @@
+{
+  "$schema": "./launcher.schema.json",
+  "icon": "square-kanban",
+  "description": "See, search, create and update your Linear issues.",
+  "author": "GPUI Kit",
+  "categories": ["Productivity", "Developer Tools"],
+  "commands": [
+    {
+      "name": "my-issues",
+      "title": "My Issues",
+      "subtitle": "Linear",
+      "icon": "circle-dot",
+      "keywords": ["linear", "assigned", "tasks", "tickets"],
+      "module": "commands/my-issues.js"
+    },
+    {
+      "name": "search-issues",
+      "title": "Search Issues",
+      "subtitle": "Linear",
+      "icon": "search",
+      "keywords": ["linear", "find", "tickets"],
+      "module": "commands/search-issues.js",
+      "arguments": [{ "name": "query", "placeholder": "Words or issue ID" }]
+    },
+    {
+      "name": "create-issue",
+      "title": "Create Issue",
+      "subtitle": "Linear",
+      "icon": "plus",
+      "keywords": ["linear", "new", "ticket", "bug"],
+      "module": "commands/create-issue.js",
+      "arguments": [{ "name": "title", "placeholder": "Title" }]
+    }
+  ],
+  "preferences": [
+    {
+      "name": "api_key",
+      "title": "Personal API Key",
+      "description": "Create one in Linear under Settings → Security & access → Personal API keys.",
+      "type": "password",
+      "required": true
+    }
+  ]
+}

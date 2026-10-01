@@ -581,7 +581,22 @@ fn relative_error_paths(message: &str) -> String {
         return message.to_owned();
     };
     let root = current_dir.to_string_lossy();
-    message.replace(&format!("{root}/"), "")
+    // A module path joins its tail with `/` even where the native separator
+    // is `\`, and a canonical Windows path carries a `\\?\` prefix the working
+    // directory does not. The prefixed spelling goes first so the plain one
+    // never strips a path down to a dangling prefix.
+    let mut roots = Vec::new();
+    if cfg!(windows) {
+        roots.push(format!(r"\\?\{root}"));
+    }
+    roots.push(root.into_owned());
+    let mut message = message.to_owned();
+    for root in &roots {
+        for separator in ['/', std::path::MAIN_SEPARATOR] {
+            message = message.replace(&format!("{root}{separator}"), "");
+        }
+    }
+    message
 }
 
 fn system_monospace_font() -> &'static str {
@@ -1002,6 +1017,26 @@ mod identity_tests {
             relative_error_paths(&message),
             "src/main.js:12: unexpected token"
         );
+
+        // A path joined natively keeps its own separators after the root.
+        let native = root.join("src").join("main.js");
+        let message = format!("{}:12: unexpected token", native.display());
+        assert_eq!(
+            relative_error_paths(&message),
+            format!(
+                "src{}main.js:12: unexpected token",
+                std::path::MAIN_SEPARATOR
+            )
+        );
+
+        // Windows canonicalizes a module path into its verbatim spelling.
+        if cfg!(windows) {
+            let message = format!(r"\\?\{}:12: unexpected token", native.display());
+            assert_eq!(
+                relative_error_paths(&message),
+                r"src\main.js:12: unexpected token"
+            );
+        }
 
         let external = "/opt/runtime/internal.js:3: host error";
         assert_eq!(relative_error_paths(external), external);

@@ -1,0 +1,14 @@
+[package]
+name = "datakit-runtime"
+description = "The one place DataKit runs Tokio: database IO behind runtime-agnostic handles."
+version = "0.6.5"
+publish = false
+edition.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+futures = "0.3"
+tokio = { version = "1", features = ["rt-multi-thread", "time"] }
+
+[lints]
+workspace = true
