@@ -250,7 +250,6 @@ impl CompletionMenu {
             return false;
         }
 
-        cx.propagate();
         if input::Enter::is_primary(&*action) {
             self.on_action_enter(window, cx);
         } else if action.partial_eq(&input::Escape) {

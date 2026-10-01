@@ -11,7 +11,7 @@ use crate::ThemeStyled as _;
 use crate::{
     ActiveTheme, Disableable, ElementExt as _, Icon, IconName, IndexPath, Sizable, Size,
     StyleSized, StyledExt,
-    actions::Cancel,
+    actions::{Cancel, Confirm},
     h_flex,
     input::{clear_button, input_style},
     list::List,
@@ -837,25 +837,37 @@ where
         let content_focus_handle = self.state.read(cx).state.list.focus_handle(cx);
         let open_state = self.state.clone();
 
-        BaseSelect::new(self.id)
-            .open(is_open)
-            .disabled(disabled)
-            .when_some(accessibility_label, |this, label| {
-                this.accessibility_label(label)
-            })
-            .focus_handle(&focus_handle)
-            .content_focus_handle(&content_focus_handle)
-            .accessibility_value(accessibility_value)
-            .on_open_change(move |open, window, cx| {
-                open_state.update(cx, |state, cx| {
-                    if !open {
-                        state.clear_query_and_restore_cursor(window, cx);
-                    }
-                    state.set_open(open, cx);
-                });
-            })
+        // Base hands Enter on, as it does Up and Down, after opening or
+        // confirming; in a dialog it would confirm the dialog too. A select
+        // that can act on Enter keeps it.
+        div()
             .size_full()
-            .child(self.state)
+            .on_action(move |_: &Confirm, _, cx| {
+                if disabled {
+                    cx.propagate();
+                }
+            })
+            .child(
+                BaseSelect::new(self.id)
+                    .open(is_open)
+                    .disabled(disabled)
+                    .when_some(accessibility_label, |this, label| {
+                        this.accessibility_label(label)
+                    })
+                    .focus_handle(&focus_handle)
+                    .content_focus_handle(&content_focus_handle)
+                    .accessibility_value(accessibility_value)
+                    .on_open_change(move |open, window, cx| {
+                        open_state.update(cx, |state, cx| {
+                            if !open {
+                                state.clear_query_and_restore_cursor(window, cx);
+                            }
+                            state.set_open(open, cx);
+                        });
+                    })
+                    .size_full()
+                    .child(self.state),
+            )
     }
 }
 

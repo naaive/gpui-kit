@@ -4,7 +4,10 @@ use crate::{
         Cancel, SelectDown, SelectFirst, SelectLast, SelectNextColumn, SelectPageDown,
         SelectPageUp, SelectPrevColumn, SelectUp,
     },
-    table::{TableDelegate, TableState},
+    table::{
+        ExtendSelectionDown, ExtendSelectionLeft, ExtendSelectionRight, ExtendSelectionUp,
+        TableDelegate, TableState,
+    },
 };
 use gpui::{
     App, Edges, Entity, Focusable, InteractiveElement, IntoElement, KeyBinding, ParentElement,
@@ -26,6 +29,10 @@ pub(super) fn init(cx: &mut App) {
         KeyBinding::new("pagedown", SelectPageDown, Some(CONTEXT)),
         KeyBinding::new("tab", SelectNextColumn, Some(CONTEXT)),
         KeyBinding::new("shift-tab", SelectPrevColumn, Some(CONTEXT)),
+        KeyBinding::new("shift-up", ExtendSelectionUp, Some(CONTEXT)),
+        KeyBinding::new("shift-down", ExtendSelectionDown, Some(CONTEXT)),
+        KeyBinding::new("shift-left", ExtendSelectionLeft, Some(CONTEXT)),
+        KeyBinding::new("shift-right", ExtendSelectionRight, Some(CONTEXT)),
     ]);
 }
 
@@ -160,6 +167,10 @@ where
             .on_action(window.listener_for(&self.state, TableState::action_select_prev))
             .on_action(window.listener_for(&self.state, TableState::action_select_next_col))
             .on_action(window.listener_for(&self.state, TableState::action_select_prev_col))
+            .on_action(window.listener_for(&self.state, TableState::action_extend_up))
+            .on_action(window.listener_for(&self.state, TableState::action_extend_down))
+            .on_action(window.listener_for(&self.state, TableState::action_extend_left))
+            .on_action(window.listener_for(&self.state, TableState::action_extend_right))
             .on_action(window.listener_for(&self.state, TableState::action_select_first_column))
             .on_action(window.listener_for(&self.state, TableState::action_select_last_column))
             .on_action(window.listener_for(&self.state, TableState::action_select_page_up))

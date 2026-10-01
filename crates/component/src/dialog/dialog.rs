@@ -925,4 +925,54 @@ pub(crate) mod tests {
         assert!(second.bottom() <= viewport.height - px(16.), "{second:?}");
         assert!(second.size.height < first.size.height);
     }
+
+    /// Enter opens a select in a dialog and picks from it; it must not also
+    /// confirm the dialog.
+    #[gpui::test]
+    fn enter_in_a_dialog_belongs_to_the_select(cx: &mut TestAppContext) {
+        use gpui::{AppContext as _, Focusable as _, ParentElement as _};
+
+        use crate::{
+            IndexPath, WindowExt as _,
+            searchable_list::SearchableVec,
+            select::{Select, SelectState},
+        };
+
+        let cx = window(cx, size(px(800.), px(600.)));
+        let state = cx.update(|window, cx| {
+            let items = SearchableVec::new(vec!["Rust", "Go", "C++"]);
+            cx.new(|cx| SelectState::new(items, Some(IndexPath::new(0)), window, cx))
+        });
+        let confirmed = std::rc::Rc::new(std::cell::Cell::new(false));
+        cx.update(|window, cx| {
+            let state = state.clone();
+            let confirmed = confirmed.clone();
+            window.open_dialog(cx, move |dialog, _, _| {
+                let confirmed = confirmed.clone();
+                dialog.child(Select::new(&state)).on_ok(move |_, _, _| {
+                    confirmed.set(true);
+                    true
+                })
+            });
+        });
+        cx.run_until_parked();
+        cx.update(|window, cx| {
+            let focus = state.read(cx).focus_handle(cx);
+            window.focus(&focus, cx);
+        });
+        cx.run_until_parked();
+
+        cx.simulate_keystrokes("enter");
+        cx.run_until_parked();
+        assert!(cx.update(|window, cx| window.has_active_dialog(cx)));
+        cx.simulate_keystrokes("down enter");
+        cx.run_until_parked();
+
+        assert_eq!(
+            cx.update(|_, cx| state.read(cx).selected_value().copied()),
+            Some("Go")
+        );
+        assert!(!confirmed.get(), "the dialog was confirmed");
+        assert!(cx.update(|window, cx| window.has_active_dialog(cx)));
+    }
 }
