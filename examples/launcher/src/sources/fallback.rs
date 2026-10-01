@@ -11,7 +11,7 @@ use crate::{
 
 /// Everything except RFC 3986's unreserved characters is escaped, so a query
 /// such as `a&b=c #1` cannot add parameters or a fragment to the URL.
-const QUERY_COMPONENT: &AsciiSet = &NON_ALPHANUMERIC
+pub const QUERY_COMPONENT: &AsciiSet = &NON_ALPHANUMERIC
     .remove(b'-')
     .remove(b'_')
     .remove(b'.')

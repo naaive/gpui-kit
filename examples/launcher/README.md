@@ -23,12 +23,36 @@ The architecture is described in [`docs/LAUNCHER-DESIGN.md`](../../docs/LAUNCHER
 | `Tab`, `Shift-Tab`           | Moves between form fields, and to a list's filter beside the search    |
 | `Esc`                        | Closes the action panel, clears the search, goes back, then hides      |
 
-The root search lists applications, extension commands and the launcher's own
-commands (appearance, settings, Manage Extensions, system commands such as lock
-and sleep where the platform has them). It ranks what you pick more often
-higher, remembers what you picked for a query, matches Chinese names by pinyin
-and initials (`wx` finds 微信), answers arithmetic (`2^10`), and ends with
-"Use “…” with…" for a web search and every fallback command.
+The root search lists applications, extension commands, quicklinks, snippets,
+script commands and the launcher's own commands (appearance, settings, Manage
+Extensions, system commands such as lock and sleep where the platform has them).
+It ranks what you pick more often higher, remembers what you picked for a
+query, matches Chinese names by pinyin and initials (`wx` finds 微信), answers
+arithmetic (`2^10`), units (`5 km to mi`, `100 f in c`, `1.5 GB in MiB`),
+percentages (`20% of 150`, `80 - 15%`), number bases (`255 in hex`), currencies
+(`100 usd to twd`, `€25 in yen`; daily rates from open.er-api.com, cached for a
+day), time zones (`time in tokyo`, `5pm pst to taipei`) and dates (`days until
+christmas`, `today + 30 days`), and ends with "Use “…” with…" for a web search,
+every fallback command and every quicklink that takes one argument.
+
+Every root item can be customized from its actions (`Cmd/Ctrl-K`): **Add to
+Favorites** (favorites lead the empty search), **Set Alias…** (typing the alias
+puts the item first), **Set Hotkey…** (a system-wide shortcut that opens it) and
+**Copy Deeplink**.
+
+### Built-in commands
+
+| Command                                     | Does                                                                                                                                          |
+| ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| Clipboard History                           | Text, links, colors, images and files you copied, by day, with a preview; paste or copy again, pin, delete. Private copies are never recorded |
+| Search Files                                | Files and folders in your home folder by name, recent files with nothing typed, a preview of text and images                                  |
+| Create Quicklink, Search Quicklinks         | Saved links and paths, opened from the search; `{argument}`, `{clipboard}`, `{date}` and `{time}` are filled in when one opens                |
+| Create Snippet, Search Snippets             | Saved text to paste, with the same placeholders; a keyword puts it first, and can expand as you type anywhere (Windows, opt-in in Settings)   |
+| Create Script Command                       | Scripts in the script commands folder become commands; Raycast's `@raycast.title`, `mode`, `icon` and `argument1…3` comments are understood   |
+| Search Processes                            | Running programs with CPU and memory, to quit or force quit                                                                                   |
+| Search Bookmarks                            | Bookmarks of Chrome, Edge, Brave, Vivaldi and Chromium                                                                                        |
+| Left Half, Maximize, Center, Next Display…  | Window Management for the window that was in front (Windows)                                                                                  |
+| Display Settings, Sound Settings…           | Pages of the system settings (Windows)                                                                                                        |
 
 ### From the command line
 
@@ -36,7 +60,8 @@ and initials (`wx` finds 微信), answers arithmetic (`2^10`), and ends with
 launcher                 start, or show the launcher already running
 launcher toggle          show, or hide it if it is in front
 launcher show | hide
-launcher open <url>      open a deep link: launcher://extensions/<id>/<command>?arguments=<JSON>
+launcher open <url>      open a deep link: launcher://extensions/<id>/<command>?arguments=<JSON>;
+                         built-in commands are launcher://extensions/launcher/<name>
 launcher dev <dir>       load an extension directory ahead of the installed ones
 launcher types <dir>     write TypeScript declarations and the launcher.json schema
 ```
@@ -51,7 +76,10 @@ applications: bind `launcher toggle` in your desktop's keyboard settings.
 Under the platform data directory (for example
 `~/.local/share/gpui-kit-launcher` on Linux, `~/Library/Application
 Support/gpui-kit-launcher` on macOS): `settings.json`, `usage.json` (ranking),
-`permissions.json`, `preferences.json`, and `extensions/` for extensions
+`permissions.json`, `preferences.json`, `quicklinks.json`, `snippets.json`,
+`customizations.json` (aliases, favorites, hotkeys), `currency-rates.json`,
+`clipboard/` (the clipboard
+history and copied images), `script-commands/`, and `extensions/` for extensions
 installed from Git. Password preferences go to the system keychain; where none
 is available they fall back to an owner-only `secrets.json`, which is not
 encrypted.

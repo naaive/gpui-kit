@@ -121,6 +121,8 @@ pub struct SummonHotkey {
     manager: Option<GlobalHotKeyManager>,
     registered: Option<HotKey>,
     status: HotkeyStatus,
+    /// Hotkeys that open a root search item, by item id.
+    commands: Vec<(String, HotKey)>,
 }
 
 impl SummonHotkey {
@@ -135,6 +137,7 @@ impl SummonHotkey {
                 manager: None,
                 registered: None,
                 status: HotkeyStatus::Unavailable,
+                commands: Vec::new(),
             };
         }
         GlobalHotKeyEvent::set_event_handler(Some(move |event: GlobalHotKeyEvent| {
@@ -147,6 +150,7 @@ impl SummonHotkey {
                 manager: Some(manager),
                 registered: None,
                 status: HotkeyStatus::Failed("no shortcut is set".into()),
+                commands: Vec::new(),
             },
             Err(error) => {
                 tracing::error!("cannot listen for global shortcuts: {error}");
@@ -154,6 +158,7 @@ impl SummonHotkey {
                     manager: None,
                     registered: None,
                     status: HotkeyStatus::Failed(error.to_string().into()),
+                    commands: Vec::new(),
                 }
             }
         }
@@ -192,6 +197,63 @@ impl SummonHotkey {
 
     pub fn status(&self) -> &HotkeyStatus {
         &self.status
+    }
+
+    /// Registers `shortcut` to open the root search item `item`, replacing
+    /// the item's earlier hotkey.
+    pub fn register_command(&mut self, item: &str, shortcut: &str) -> Result<()> {
+        if self.manager.is_none() {
+            bail!("{}", self.status);
+        }
+        let hotkey = parse_shortcut(shortcut)?;
+        if self.registered == Some(hotkey) {
+            bail!("This is the shortcut that shows the launcher.");
+        }
+        if self
+            .commands
+            .iter()
+            .any(|(other, known)| *known == hotkey && other != item)
+        {
+            bail!("Another command already uses this shortcut.");
+        }
+        let previous = self
+            .commands
+            .iter()
+            .find(|(known, _)| known == item)
+            .map(|(_, hotkey)| *hotkey);
+        if previous == Some(hotkey) {
+            return Ok(());
+        }
+        // The new shortcut first: if another application holds it, the
+        // item keeps the hotkey it had.
+        if let Some(manager) = &self.manager {
+            manager
+                .register(hotkey)
+                .map_err(|error| anyhow!("Couldn’t register the shortcut: {error}"))?;
+        }
+        self.unregister_command(item);
+        self.commands.push((item.to_owned(), hotkey));
+        Ok(())
+    }
+
+    pub fn unregister_command(&mut self, item: &str) {
+        let Some(manager) = &self.manager else {
+            return;
+        };
+        self.commands.retain(|(known, hotkey)| {
+            if known == item {
+                manager.unregister(*hotkey).ok();
+            }
+            known != item
+        });
+    }
+
+    /// The root search item whose hotkey has `id`.
+    pub fn command(&self, id: u32) -> Option<&str> {
+        self.commands
+            .iter()
+            .find(|(_, hotkey)| hotkey.id() == id)
+            .map(|(item, _)| item.as_str())
     }
 }
 

@@ -33,6 +33,7 @@ use super::{
 };
 use crate::{
     extensions::{Catalog, CommandId, ExtensionHost, LaunchRequest},
+    model::Effect,
     ui::LauncherWindow,
 };
 
@@ -211,8 +212,11 @@ pub fn start(startup: Startup, cx: &mut App) {
         cx.spawn(async move |cx: &mut AsyncApp| {
             while let Ok(id) = pressed.recv().await {
                 cx.update(|cx| {
-                    if cx.global::<Launcher>().hotkey.is_summon(id) {
+                    let hotkey = &cx.global::<Launcher>().hotkey;
+                    if hotkey.is_summon(id) {
                         toggle(cx);
+                    } else if let Some(item) = hotkey.command(id).map(str::to_owned) {
+                        open_item(item, cx);
                     }
                 });
             }
@@ -261,6 +265,14 @@ pub fn start(startup: Startup, cx: &mut App) {
         .set_development_directories(launcher.development_roots());
     apply_appearance(appearance, None, cx);
 
+    crate::clipboard::start(cx);
+    crate::sources::currency::start();
+    crate::quicklinks::start(cx);
+    crate::snippets::start(cx);
+    crate::customizations::start(cx);
+    register_command_hotkeys(cx);
+    let expands = cx.global::<Launcher>().settings.expands_snippets();
+    crate::snippets::set_expansion(expands, cx);
     super::platform::hide_dock_icon();
     show(cx);
 }
@@ -384,6 +396,9 @@ pub fn update_settings(settings: Settings, window: &mut Window, cx: &mut App) ->
     if previous.appearance() != settings.appearance() {
         apply_appearance(settings.appearance(), Some(window), cx);
     }
+    if previous.expands_snippets() != settings.expands_snippets() {
+        crate::snippets::set_expansion(settings.expands_snippets(), cx);
+    }
     Ok(())
 }
 
@@ -396,6 +411,71 @@ fn apply_appearance(appearance: Appearance, window: Option<&mut Window>, cx: &mu
 }
 
 /// Runs `update` with the launcher window and its view, if one is open.
+/// Registers the hotkeys saved for root search items.
+fn register_command_hotkeys(cx: &mut App) {
+    let Some(store) = crate::customizations::store(cx) else {
+        return;
+    };
+    let saved: Vec<(String, String)> = store
+        .read(cx)
+        .hotkeys()
+        .map(|(item, shortcut)| (item.to_owned(), shortcut.to_owned()))
+        .collect();
+    let hotkey = &mut cx.global_mut::<Launcher>().hotkey;
+    for (item, shortcut) in saved {
+        if let Err(error) = hotkey.register_command(&item, &shortcut) {
+            tracing::warn!("cannot register the hotkey `{shortcut}` of {item}: {error:#}");
+        }
+    }
+}
+
+/// Sets the global hotkey that opens the root search item `item`, or
+/// removes it when `shortcut` is empty, and saves the choice.
+pub fn set_command_hotkey(item: &str, shortcut: &str, cx: &mut App) -> Result<()> {
+    let shortcut = shortcut.trim();
+    {
+        let hotkey = &mut cx.global_mut::<Launcher>().hotkey;
+        match shortcut.is_empty() {
+            true => hotkey.unregister_command(item),
+            false => hotkey.register_command(item, shortcut)?,
+        }
+    }
+    if let Some(store) = crate::customizations::store(cx) {
+        store.update(cx, |store, cx| store.set_hotkey(item, shortcut, cx));
+    }
+    Ok(())
+}
+
+/// Shows the launcher and opens the root search item `item`, as its hotkey
+/// asks.
+pub fn open_item(item: String, cx: &mut App) {
+    cx.defer(move |cx| {
+        show_now(cx);
+        with_window(cx, |window, view, cx| {
+            let found = view.update(cx, |view, cx| view.run_root_item(&item, window, cx));
+            if !found {
+                window.push_notification(
+                    Notification::new()
+                        .title("This command no longer exists")
+                        .message("Remove its hotkey from the command’s actions.")
+                        .with_type(NotificationType::Warning),
+                    cx,
+                );
+            }
+        });
+    });
+}
+
+/// Performs `effect` in the launcher window once the current update is over,
+/// for built-in pages whose callbacks run inside the window's own update.
+pub fn perform(effect: Effect, cx: &mut App) {
+    cx.defer(move |cx| {
+        with_window(cx, |window, view, cx| {
+            view.update(cx, |view, cx| view.perform_effect(effect, window, cx))
+        })
+    });
+}
+
 fn with_window(cx: &mut App, update: impl FnOnce(&mut Window, &Entity<LauncherWindow>, &mut App)) {
     let Some((handle, view)) = cx
         .try_global::<Launcher>()
@@ -413,6 +493,9 @@ fn show_now(cx: &mut App) {
     if !cx.has_global::<Launcher>() {
         return;
     }
+    // Before the launcher's window opens and takes the front. The launcher's
+    // own windows are ignored, so showing it again keeps the earlier one.
+    crate::window_layout::remember_frontmost();
     let launcher = cx.global_mut::<Launcher>();
     if launcher.catalog_is_stale {
         launcher.catalog = Rc::new(Catalog::discover(&launcher.roots()));

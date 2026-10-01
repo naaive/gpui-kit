@@ -46,6 +46,24 @@ impl PageModel {
     }
 }
 
+impl From<ListModel> for PageModel {
+    fn from(list: ListModel) -> Self {
+        Self::List(list)
+    }
+}
+
+impl From<DetailModel> for PageModel {
+    fn from(detail: DetailModel) -> Self {
+        Self::Detail(detail)
+    }
+}
+
+impl From<FormModel> for PageModel {
+    fn from(form: FormModel) -> Self {
+        Self::Form(form)
+    }
+}
+
 /// Identifies an item across renders.
 ///
 /// Selection is kept by id rather than by position, so a page that reloads its
@@ -237,7 +255,7 @@ impl ListModel {
         self.on_load_more.as_ref()
     }
 
-    #[cfg(test)]
+    /// Every item, in order, across sections.
     pub fn items(&self) -> impl Iterator<Item = &Item> {
         self.sections
             .iter()
@@ -443,6 +461,12 @@ impl Item {
 
     pub fn with_accessory(mut self, accessory: Accessory) -> Self {
         self.accessories.push(accessory);
+        self
+    }
+
+    /// Puts an accessory before the others, such as a user's alias.
+    pub fn with_leading_accessory(mut self, accessory: Accessory) -> Self {
+        self.accessories.insert(0, accessory);
         self
     }
 

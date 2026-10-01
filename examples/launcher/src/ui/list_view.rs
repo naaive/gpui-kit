@@ -132,7 +132,8 @@ impl LauncherWindow {
             .size_full()
             .child(div().flex_none().w_2_5().h_full().child(lines))
             .child(
-                div()
+                // A column, so the detail's scroll area fills the pane's height.
+                v_flex()
                     .flex_1()
                     .min_w_0()
                     .h_full()
@@ -206,6 +207,7 @@ impl LauncherWindow {
                 Line::Items(range) => match frame.rows().columns() {
                     None => self.item_row(range.start, &frame, cx),
                     Some(columns) => h_flex()
+                        .w_full()
                         .items_start()
                         .h(frame.geometry.cell())
                         .gap(frame.geometry.inset)
@@ -237,6 +239,7 @@ impl LauncherWindow {
             .role(Role::ListBoxOption)
             .aria_selected(selected)
             .aria_label(item.title().clone())
+            .w_full()
             .h(frame.geometry.item)
             .flex()
             .items_center()
@@ -368,6 +371,7 @@ fn section_header(
     cx: &Context<LauncherWindow>,
 ) -> AnyElement {
     h_flex()
+        .w_full()
         .h(height)
         .items_end()
         .gap_2()

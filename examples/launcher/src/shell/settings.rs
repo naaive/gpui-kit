@@ -80,7 +80,23 @@ pub struct Settings {
     appearance: Appearance,
     /// Loaded ahead of the bundled extensions.
     extension_directory: Option<PathBuf>,
+    /// Whether what is copied is recorded in Clipboard History.
+    clipboard_history: bool,
+    /// How many days copied entries are kept; 0 keeps them until deleted.
+    clipboard_retention_days: u32,
+    /// Whether typing a snippet's keyword in any application expands it.
+    snippet_expansion: bool,
 }
+
+/// The choices for how long clipboard history is kept, in days.
+pub const RETENTION_DAYS: [(u32, &str); 6] = [
+    (1, "1 day"),
+    (7, "7 days"),
+    (30, "30 days"),
+    (90, "3 months"),
+    (365, "1 year"),
+    (0, "Until deleted"),
+];
 
 impl Default for Settings {
     fn default() -> Self {
@@ -88,6 +104,9 @@ impl Default for Settings {
             summon_shortcut: DEFAULT_SHORTCUT.into(),
             appearance: Appearance::default(),
             extension_directory: None,
+            clipboard_history: true,
+            clipboard_retention_days: 90,
+            snippet_expansion: false,
         }
     }
 }
@@ -123,6 +142,19 @@ impl Settings {
         self.extension_directory.as_deref()
     }
 
+    pub fn is_recording_clipboard(&self) -> bool {
+        self.clipboard_history
+    }
+
+    pub fn expands_snippets(&self) -> bool {
+        self.snippet_expansion
+    }
+
+    /// Days clipboard entries are kept; `None` keeps them until deleted.
+    pub fn clipboard_retention_days(&self) -> Option<u32> {
+        (self.clipboard_retention_days > 0).then_some(self.clipboard_retention_days)
+    }
+
     /// Reads settings; a missing file yields the defaults.
     pub fn load(path: &Path) -> Result<Self> {
         match std::fs::read_to_string(path) {
@@ -155,6 +187,9 @@ pub(crate) mod field {
     pub const SUMMON_SHORTCUT: &str = "summon_shortcut";
     pub const APPEARANCE: &str = "appearance";
     pub const EXTENSION_DIRECTORY: &str = "extension_directory";
+    pub const CLIPBOARD_HISTORY: &str = "clipboard_history";
+    pub const CLIPBOARD_RETENTION: &str = "clipboard_retention_days";
+    pub const SNIPPET_EXPANSION: &str = "snippet_expansion";
 }
 
 /// Validation messages by field id.
@@ -208,6 +243,28 @@ pub fn from_form(values: &FormValues, current: &Settings) -> Result<Settings, Fi
         None => current.extension_directory.clone(),
     };
 
+    let clipboard_history = match values.get(field::CLIPBOARD_HISTORY) {
+        Some(FormValue::Bool(record)) => *record,
+        _ => current.clipboard_history,
+    };
+    let snippet_expansion = match values.get(field::SNIPPET_EXPANSION) {
+        Some(FormValue::Bool(expand)) => *expand,
+        _ => current.snippet_expansion,
+    };
+    let clipboard_retention_days = match text(field::CLIPBOARD_RETENTION) {
+        Some(days) => match days.parse::<u32>() {
+            Ok(days) if RETENTION_DAYS.iter().any(|(known, _)| *known == days) => days,
+            _ => {
+                errors.insert(
+                    field::CLIPBOARD_RETENTION,
+                    "Choose how long to keep entries.".into(),
+                );
+                current.clipboard_retention_days
+            }
+        },
+        None => current.clipboard_retention_days,
+    };
+
     if !errors.is_empty() {
         return Err(errors);
     }
@@ -215,6 +272,9 @@ pub fn from_form(values: &FormValues, current: &Settings) -> Result<Settings, Fi
         summon_shortcut,
         appearance,
         extension_directory,
+        clipboard_history,
+        clipboard_retention_days,
+        snippet_expansion,
     })
 }
 

@@ -1,12 +1,13 @@
 //! One object in full: its Markdown body beside labelled metadata.
 
 use gpui_kit::{
-    AnyElement, App, ElementId, FontWeight, InteractiveElement as _, IntoElement,
+    AnyElement, App, ElementId, FontWeight, InteractiveElement as _, IntoElement, ObjectFit,
     ParentElement as _, RenderOnce, ScrollHandle, StatefulInteractiveElement as _, Styled as _,
-    WeakEntity, Window,
+    StyledImage as _, WeakEntity, Window,
     component::{ActiveTheme as _, h_flex, link::Link, scroll::Scrollbar, text::TextView, v_flex},
-    div,
+    div, img,
     prelude::FluentBuilder as _,
+    rems,
 };
 
 use super::{LauncherWindow, picture::tag};
@@ -50,13 +51,42 @@ impl DetailView {
 
 impl RenderOnce for DetailView {
     fn render(self, _: &mut Window, cx: &mut App) -> impl IntoElement {
-        let has_body = !self.detail.markdown().trim().is_empty();
+        let has_text = !self.detail.markdown().trim().is_empty();
+        let has_body = has_text || self.detail.image().is_some();
         let has_metadata = !self.detail.metadata().is_empty();
-        let metadata = has_metadata
-            .then(|| metadata_column(self.detail.metadata(), self.launcher.clone(), cx));
+        let metadata = has_metadata.then(|| {
+            metadata_column(
+                self.detail.metadata(),
+                self.compact,
+                self.launcher.clone(),
+                cx,
+            )
+        });
         let body = has_body.then(|| {
-            TextView::markdown(self.id.clone(), self.detail.markdown().clone())
-                .selectable(true)
+            v_flex()
+                .gap_4()
+                .when_some(self.detail.image().cloned(), |this, image| {
+                    this.child(
+                        div()
+                            .flex()
+                            .justify_center()
+                            .p_2()
+                            .rounded(cx.theme().radius)
+                            .bg(cx.theme().muted)
+                            .child(
+                                img(image)
+                                    .max_w_full()
+                                    .max_h(rems(16.))
+                                    .object_fit(ObjectFit::Contain),
+                            ),
+                    )
+                })
+                .when(has_text, |this| {
+                    this.child(
+                        TextView::markdown(self.id.clone(), self.detail.markdown().clone())
+                            .selectable(true),
+                    )
+                })
                 .into_any_element()
         });
 
@@ -80,10 +110,13 @@ impl RenderOnce for DetailView {
         };
 
         match self.compact {
+            // The side pane is narrow; smaller text keeps a line of code or
+            // prose on one line.
             true => scroll_area(
                 v_flex()
                     .p_4()
                     .gap_4()
+                    .text_sm()
                     .children(body)
                     .when_some(metadata, |this, metadata| {
                         this.when(has_body, |this| {
@@ -118,8 +151,12 @@ impl RenderOnce for DetailView {
     }
 }
 
+/// The metadata as label-over-value stacks, or, in the compact side pane,
+/// as one row per entry with the label on the left and the value on the
+/// right.
 fn metadata_column(
     metadata: &[Metadata],
+    compact: bool,
     launcher: WeakEntity<LauncherWindow>,
     cx: &App,
 ) -> AnyElement {
@@ -127,54 +164,52 @@ fn metadata_column(
         .gap_3()
         .text_sm()
         .children(metadata.iter().enumerate().map(|(ix, entry)| {
-            let label = || {
-                div()
-                    .text_xs()
-                    .font_weight(FontWeight::MEDIUM)
-                    .text_color(cx.theme().muted_foreground)
-                    .child(entry.label().clone())
+            let label = div()
+                .flex_none()
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(cx.theme().muted_foreground)
+                .when(!compact, |this| this.text_xs())
+                .child(entry.label().clone());
+            let row = |value: AnyElement| match compact {
+                true => h_flex()
+                    .justify_between()
+                    .gap_4()
+                    .child(label)
+                    .child(div().min_w_0().truncate().child(value))
+                    .into_any_element(),
+                false => v_flex()
+                    .gap_1()
+                    .child(label)
+                    .child(value)
+                    .into_any_element(),
             };
             match entry.value() {
                 MetadataValue::Separator => div().h_px().bg(cx.theme().border).into_any_element(),
-                MetadataValue::Text(text) => v_flex()
-                    .gap_1()
-                    .child(label())
-                    .child(div().child(text.clone()))
-                    .into_any_element(),
+                MetadataValue::Text(text) => row(div().child(text.clone()).into_any_element()),
                 MetadataValue::Link { text, url } => {
                     let url = url.clone();
                     let launcher = launcher.clone();
-                    v_flex()
-                        .gap_1()
-                        .child(label())
-                        .child(
-                            Link::new(("metadata-link", ix))
-                                .child(text.clone())
-                                .on_click(move |_, window, cx| {
-                                    let url = url.clone();
-                                    launcher
-                                        .update(cx, |launcher, cx| {
-                                            launcher.perform_effect(
-                                                Effect::OpenUrl(url),
-                                                window,
-                                                cx,
-                                            )
-                                        })
-                                        .ok();
-                                }),
-                        )
-                        .into_any_element()
+                    row(Link::new(("metadata-link", ix))
+                        .child(text.clone())
+                        .on_click(move |_, window, cx| {
+                            let url = url.clone();
+                            launcher
+                                .update(cx, |launcher, cx| {
+                                    launcher.perform_effect(Effect::OpenUrl(url), window, cx)
+                                })
+                                .ok();
+                        })
+                        .into_any_element())
                 }
-                MetadataValue::Tags(tags) => v_flex()
+                MetadataValue::Tags(tags) => row(h_flex()
+                    .flex_wrap()
+                    .when(compact, |this| this.justify_end())
                     .gap_1()
-                    .child(label())
-                    .child(
-                        h_flex().flex_wrap().gap_1().children(
-                            tags.iter()
-                                .map(|value| tag(value.text().clone(), value.tone())),
-                        ),
+                    .children(
+                        tags.iter()
+                            .map(|value| tag(value.text().clone(), value.tone())),
                     )
-                    .into_any_element(),
+                    .into_any_element()),
             }
         }))
         .into_any_element()

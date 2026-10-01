@@ -251,6 +251,10 @@ pub enum Effect {
     /// Pastes text into the application that was frontmost before the
     /// launcher, then hides the launcher.
     Paste(SharedString),
+    /// Puts anything on the clipboard: an image, files, or text.
+    CopyItem(gpui_kit::ClipboardItem),
+    /// Pastes anything into the previous application, as [`Effect::Paste`].
+    PasteItem(gpui_kit::ClipboardItem),
     ShowToast(Toast),
     /// A short message shown after the launcher window hides.
     ShowHud(SharedString),

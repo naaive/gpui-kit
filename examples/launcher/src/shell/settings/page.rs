@@ -6,7 +6,7 @@ use gpui_kit::{
     },
 };
 
-use super::{Appearance, FieldErrors, field, from_form};
+use super::{Appearance, FieldErrors, RETENTION_DAYS, field, from_form};
 use crate::{
     model::{
         Action, ActionPanel, Choice, Control, Effect, Field, FormHandler, FormModel, FormValue,
@@ -154,6 +154,73 @@ impl Page for SettingsPage {
                              A change takes effect the next time the launcher opens.",
                         ),
                     ),
+                )
+                .with_field(
+                    Field::new(
+                        field::CLIPBOARD_HISTORY,
+                        "Clipboard history",
+                        Control::Checkbox {
+                            label: "Record what is copied".into(),
+                            value: match self
+                                .draft
+                                .as_ref()
+                                .and_then(|d| d.get(field::CLIPBOARD_HISTORY))
+                            {
+                                Some(FormValue::Bool(record)) => *record,
+                                _ => settings.is_recording_clipboard(),
+                            },
+                        },
+                    )
+                    .with_info("Content a password manager marks as private is never recorded."),
+                )
+                .with_field(
+                    self.with_error(Field::new(
+                        field::CLIPBOARD_RETENTION,
+                        "Keep clipboard history for",
+                        Control::Dropdown {
+                            choices: RETENTION_DAYS
+                                .iter()
+                                .map(|(days, title)| Choice::new(days.to_string(), *title))
+                                .collect(),
+                            value: Some(
+                                match self
+                                    .draft
+                                    .as_ref()
+                                    .and_then(|d| d.get(field::CLIPBOARD_RETENTION))
+                                {
+                                    Some(FormValue::Text(days)) => days.clone(),
+                                    _ => settings
+                                        .clipboard_retention_days()
+                                        .unwrap_or(0)
+                                        .to_string()
+                                        .into(),
+                                },
+                            ),
+                        },
+                    )),
+                )
+                .with_field(
+                    Field::new(
+                        field::SNIPPET_EXPANSION,
+                        "Snippets",
+                        Control::Checkbox {
+                            label: "Expand keywords as I type in any application".into(),
+                            value: match self
+                                .draft
+                                .as_ref()
+                                .and_then(|d| d.get(field::SNIPPET_EXPANSION))
+                            {
+                                Some(FormValue::Bool(expand)) => *expand,
+                                _ => settings.expands_snippets(),
+                            },
+                        },
+                    )
+                    .with_info(if cfg!(target_os = "windows") {
+                        "Typing a snippet's keyword replaces it with the snippet. Snippets that \
+                         ask for arguments are not expanded."
+                    } else {
+                        "Available on Windows."
+                    }),
                 )
                 .with_actions(
                     ActionPanel::new().with_action(Action::new("Save", Effect::SubmitForm(submit))),

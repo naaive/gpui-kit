@@ -4,13 +4,20 @@ use std::{
     time::{Duration, Instant},
 };
 
-use gpui_kit::{AppContext as _, Context, SharedString, Task, Window};
+use gpui_kit::{AppContext as _, Context, SharedString, Subscription, Task, Window};
 
 use super::Page;
 use crate::{
+    customizations,
     extensions::Catalog,
-    model::{Item, ItemId, ListModel, PageModel, Section},
+    model::{
+        Accessory, Action, ActionEntry, ActionSection, Effect, Image, Item, ItemId, ListModel,
+        PageModel, PushHandler, RunHandler, Section, Tone,
+    },
+    quicklinks::{self, Quicklink},
+    script_commands,
     search::{Score, UsageStore, now, score_item, write_snapshot},
+    snippets,
     sources::{
         CommandSource, ExtensionCommands,
         applications::{self, Application, Applications},
@@ -34,12 +41,16 @@ const RESCAN_DELAY: Duration = Duration::from_millis(750);
 /// next time the launcher is summoned.
 const STALE_SCAN: Duration = Duration::from_secs(60);
 
+/// The applications found by the latest scan, shared by every root page.
+static LAST_SCAN: std::sync::Mutex<Vec<Application>> = std::sync::Mutex::new(Vec::new());
+
 /// Where the root search reads the user's applications and usage from.
 #[derive(Clone, Debug, Default)]
 pub struct RootSearchOptions {
     usage_path: Option<PathBuf>,
     application_directories: Vec<PathBuf>,
     platform_commands: bool,
+    script_directory: Option<PathBuf>,
 }
 
 impl RootSearchOptions {
@@ -54,6 +65,10 @@ impl RootSearchOptions {
         let options = Self::isolated()
             .with_application_directories(applications::default_directories())
             .with_platform_commands(true);
+        let options = Self {
+            script_directory: script_commands::directory(),
+            ..options
+        };
         match UsageStore::default_path() {
             Some(path) => options.with_usage_path(path),
             None => options,
@@ -97,7 +112,18 @@ pub struct RootSearchPage {
     options: RootSearchOptions,
     applications: Collection,
     extensions: Collection,
+    quicklinks: Collection,
+    /// The saved quicklinks, for the ones offered with the query.
+    quicklink_data: Vec<Quicklink>,
+    snippets: Collection,
+    scripts: Collection,
     system: Collection,
+    window_layouts: Collection,
+    settings_pages: Collection,
+    /// What the user customized, copied from the store when it changes.
+    aliases: HashMap<String, String>,
+    favorites: Vec<String>,
+    hotkeys: HashMap<String, String>,
     fallbacks: Vec<FallbackCommand>,
     /// The subtitles extension commands had before `update_command_metadata`
     /// replaced them, by command id.
@@ -116,6 +142,7 @@ pub struct RootSearchPage {
     /// The latest usage write; the next write waits for it, so writes land in
     /// order.
     save_task: Option<Task<()>>,
+    store_subscriptions: Vec<Subscription>,
 }
 
 impl RootSearchPage {
@@ -126,10 +153,51 @@ impl RootSearchPage {
     /// Nothing is read from disk here: usage and applications load when the
     /// page is first shown, so creating the window stays fast.
     pub fn with_options(catalog: &Catalog, options: RootSearchOptions) -> Self {
+        // One source, three sections: the launcher's and the system's
+        // commands, the window layouts, and the system settings' pages.
+        let mut system = Collection::new(&SystemCommands::new(options.platform_commands));
+        let mut take = |prefix: &str, title: &str| Collection {
+            title: title.to_owned().into(),
+            items: system
+                .items
+                .extract_if(.., |item| item.id().as_str().starts_with(prefix))
+                .collect(),
+        };
+        let window_layouts = take("window/", "Window Management");
+        let settings_pages = take("settings/", "System Settings");
         Self {
-            applications: Collection::new(&Applications::new(&[])),
+            // The last scan, so a root page opened again (the window is
+            // recreated each time off macOS) lists applications at once.
+            applications: Collection::new(&Applications::new(
+                match options.application_directories.is_empty() {
+                    true => Vec::new(),
+                    false => LAST_SCAN
+                        .lock()
+                        .map(|scan| scan.clone())
+                        .unwrap_or_default(),
+                }
+                .as_slice(),
+            )),
             extensions: Collection::new(&ExtensionCommands::new(catalog)),
-            system: Collection::new(&SystemCommands::new(options.platform_commands)),
+            quicklinks: Collection {
+                title: "Quicklinks".into(),
+                items: Vec::new(),
+            },
+            quicklink_data: Vec::new(),
+            snippets: Collection {
+                title: "Snippets".into(),
+                items: Vec::new(),
+            },
+            scripts: Collection {
+                title: "Script Commands".into(),
+                items: Vec::new(),
+            },
+            aliases: HashMap::new(),
+            favorites: Vec::new(),
+            hotkeys: HashMap::new(),
+            system,
+            window_layouts,
+            settings_pages,
             fallbacks: FallbackCommand::from_catalog(catalog),
             manifest_subtitles: HashMap::new(),
             usage: UsageStore::in_memory(),
@@ -142,6 +210,7 @@ impl RootSearchPage {
             watch_task: None,
             watcher: None,
             save_task: None,
+            store_subscriptions: Vec::new(),
             options,
         }
     }
@@ -161,6 +230,185 @@ impl RootSearchPage {
             self.rescan(cx);
             self.watch(cx);
         }
+        if let Some(store) = quicklinks::store(cx) {
+            let saved = store.read(cx).quicklinks().to_vec();
+            self.set_quicklinks(saved, cx);
+            self.store_subscriptions
+                .push(cx.observe(&store, |page, store, cx| {
+                    let saved = store.read(cx).quicklinks().to_vec();
+                    page.set_quicklinks(saved, cx);
+                }));
+        }
+        self.rescan_scripts();
+        if let Some(store) = customizations::store(cx) {
+            self.read_customizations(&store, cx);
+            self.store_subscriptions
+                .push(cx.observe(&store, |page, store, cx| {
+                    page.read_customizations(&store, cx);
+                    page.invalidate(cx);
+                }));
+        }
+        if let Some(store) = snippets::store(cx) {
+            self.snippets.items = snippets::snippet_items(store.read(cx).snippets());
+            self.store_subscriptions
+                .push(cx.observe(&store, |page, store, cx| {
+                    page.snippets.items = snippets::snippet_items(store.read(cx).snippets());
+                    page.invalidate(cx);
+                }));
+        }
+    }
+
+    /// Reads the script commands folder again; a few small files.
+    fn rescan_scripts(&mut self) {
+        if let Some(directory) = &self.options.script_directory {
+            self.scripts.items =
+                script_commands::script_items(&script_commands::discover(directory));
+        }
+    }
+
+    fn read_customizations(
+        &mut self,
+        store: &gpui_kit::Entity<customizations::Customizations>,
+        cx: &mut Context<Self>,
+    ) {
+        let store = store.read(cx);
+        self.aliases = store
+            .aliases()
+            .map(|(item, alias)| (item.to_owned(), alias.to_owned()))
+            .collect();
+        self.hotkeys = store
+            .hotkeys()
+            .map(|(item, shortcut)| (item.to_owned(), shortcut.to_owned()))
+            .collect();
+        self.favorites = store.favorites().to_vec();
+    }
+
+    /// An item as the root search shows it: with its alias and hotkey, and
+    /// the actions that customize it.
+    fn present(&self, item: &Item) -> Item {
+        let id = item.id().as_str().to_owned();
+        let title = item.title().clone();
+        let favorite = self.favorites.contains(&id);
+        let item = match self.hotkeys.get(&id) {
+            Some(hotkey) => item
+                .clone()
+                .with_leading_accessory(Accessory::text(hotkey.clone()).with_tooltip("Hotkey")),
+            None => item.clone(),
+        };
+        let item = match self.aliases.get(&id) {
+            Some(alias) => item.with_leading_accessory(
+                Accessory::tag(alias.clone(), Tone::Neutral).with_tooltip("Alias"),
+            ),
+            None => item,
+        };
+        let toggle = {
+            let id = id.clone();
+            Action::new(
+                match favorite {
+                    true => "Remove from Favorites",
+                    false => "Add to Favorites",
+                },
+                Effect::Run(RunHandler::new(move |(), _, cx| {
+                    if let Some(store) = customizations::store(cx) {
+                        store.update(cx, |store, cx| store.set_favorite(&id, !favorite, cx));
+                    }
+                })),
+            )
+            .with_image(Image::Icon(
+                match favorite {
+                    true => "star-off",
+                    false => "star",
+                }
+                .into(),
+            ))
+        };
+        let section = ActionSection::new()
+            .with_title("Customize")
+            .with_entry(ActionEntry::Action(toggle));
+        let moves = [
+            ("Move Up in Favorites", -1, "arrow-up"),
+            ("Move Down in Favorites", 1, "arrow-down"),
+        ];
+        let section = match favorite {
+            true => moves
+                .into_iter()
+                .fold(section, |section, (title, step, icon)| {
+                    let id = id.clone();
+                    section.with_entry(ActionEntry::Action(
+                        Action::new(
+                            title,
+                            Effect::Run(RunHandler::new(move |(), _, cx| {
+                                if let Some(store) = customizations::store(cx) {
+                                    store
+                                        .update(cx, |store, cx| store.move_favorite(&id, step, cx));
+                                }
+                            })),
+                        )
+                        .with_image(Image::Icon(icon.into())),
+                    ))
+                }),
+            false => section,
+        };
+        let alias = {
+            let (id, title) = (id.clone(), title.clone());
+            Action::new(
+                "Set Alias…",
+                Effect::Push(PushHandler::new(move |_, cx| {
+                    customizations::alias_page(id.clone(), title.clone(), cx)
+                })),
+            )
+            .with_image(Image::Icon("at-sign".into()))
+        };
+        let hotkey = Action::new(
+            "Set Hotkey…",
+            Effect::Push(PushHandler::new(move |_, cx| {
+                customizations::hotkey_page(id.clone(), title.clone(), cx)
+            })),
+        )
+        .with_image(Image::Icon("keyboard".into()));
+        let section = section
+            .with_entry(ActionEntry::Action(alias))
+            .with_entry(ActionEntry::Action(hotkey));
+        let section = match self.deeplink(&item) {
+            Some(link) => section.with_entry(ActionEntry::Action(
+                Action::new("Copy Deeplink", Effect::Copy(link.into()))
+                    .with_image(Image::Icon("link-2".into())),
+            )),
+            None => section,
+        };
+        let actions = item.actions().clone().with_section(section);
+        item.with_actions(actions)
+    }
+
+    /// The `launcher://` link that opens `item`, for the items that have one.
+    fn deeplink(&self, item: &Item) -> Option<String> {
+        let id = item.id().as_str();
+        if self
+            .extensions
+            .items
+            .iter()
+            .any(|known| known.id() == item.id())
+        {
+            return Some(format!("launcher://extensions/{id}"));
+        }
+        let (kind, name) = id.split_once('/')?;
+        let extension = crate::sources::system::BUILT_IN_EXTENSION;
+        match kind {
+            // The launcher's own commands read best by their short name.
+            "system" => Some(format!("launcher://extensions/{extension}/{name}")),
+            // Others by their full id, its `/` escaped into one segment.
+            "window" | "script" | "settings" | "quicklink" | "snippet" => Some(format!(
+                "launcher://extensions/{extension}/{}",
+                percent_encoding::utf8_percent_encode(id, percent_encoding::NON_ALPHANUMERIC)
+            )),
+            _ => None,
+        }
+    }
+
+    fn set_quicklinks(&mut self, saved: Vec<Quicklink>, cx: &mut Context<Self>) {
+        self.quicklinks.items = quicklinks::quicklink_items(&saved);
+        self.quicklink_data = saved;
+        self.invalidate(cx);
     }
 
     /// Scans applications in the background. A scan still running is
@@ -178,6 +426,9 @@ impl RootSearchPage {
     }
 
     fn set_applications(&mut self, applications: &[Application], cx: &mut Context<Self>) {
+        if let Ok(mut scan) = LAST_SCAN.lock() {
+            *scan = applications.to_vec();
+        }
         self.applications = Collection::new(&Applications::new(applications));
         self.scanning = false;
         self.scanned_at = Some(Instant::now());
@@ -265,8 +516,17 @@ impl RootSearchPage {
 
     /// The query-independent collections, in the order the empty query lists
     /// them and ties in a search keep.
-    fn collections(&self) -> [&Collection; 3] {
-        [&self.applications, &self.extensions, &self.system]
+    fn collections(&self) -> [&Collection; 8] {
+        [
+            &self.applications,
+            &self.extensions,
+            &self.quicklinks,
+            &self.snippets,
+            &self.scripts,
+            &self.system,
+            &self.window_layouts,
+            &self.settings_pages,
+        ]
     }
 
     fn items(&self) -> impl Iterator<Item = &Item> {
@@ -299,22 +559,32 @@ impl RootSearchPage {
             .items()
             .map(|item| (item.id().as_str(), item))
             .collect();
+        let favorites: Vec<&Item> = self
+            .favorites
+            .iter()
+            .filter_map(|id| by_id.get(id.as_str()).copied())
+            .collect();
+        let favorite_ids: HashSet<&ItemId> = favorites.iter().map(|item| item.id()).collect();
         let recent: Vec<&Item> = self
             .usage
             .most_frecent(now)
             .into_iter()
             .filter_map(|(id, _)| by_id.get(id).copied())
+            .filter(|item| !favorite_ids.contains(item.id()))
             .take(RECENT_ITEMS)
             .collect();
-        let recent_ids: HashSet<&ItemId> = recent.iter().map(|item| item.id()).collect();
-        let list = match recent.is_empty() {
-            true => list,
-            false => list.with_section(
-                Section::new()
-                    .with_title("Recent")
-                    .with_items(recent.into_iter().cloned()),
-            ),
-        };
+        let mut shown: HashSet<&ItemId> = recent.iter().map(|item| item.id()).collect();
+        shown.extend(favorite_ids);
+        let list = [("Favorites", favorites), ("Recent", recent)]
+            .into_iter()
+            .filter(|(_, items)| !items.is_empty())
+            .fold(list, |list, (title, items)| {
+                list.with_section(
+                    Section::new()
+                        .with_title(title)
+                        .with_items(items.into_iter().map(|item| self.present(item))),
+                )
+            });
         self.collections()
             .into_iter()
             .filter(|collection| !collection.items.is_empty())
@@ -326,8 +596,8 @@ impl RootSearchPage {
                             collection
                                 .items
                                 .iter()
-                                .filter(|item| !recent_ids.contains(item.id()))
-                                .cloned(),
+                                .filter(|item| !shown.contains(item.id()))
+                                .map(|item| self.present(item)),
                         ),
                 )
             })
@@ -342,10 +612,30 @@ impl RootSearchPage {
         let mut matches: Vec<(f64, &Item)> = self
             .items()
             .filter_map(|item| {
-                let score = score_item(query, item)?;
-                let rank = match remembered == Some(item.id().as_str()) {
-                    true => f64::INFINITY,
-                    false => rank(score, self.usage.frecency(item.id().as_str(), now)),
+                let id = item.id().as_str();
+                // An alias typed exactly wins, whether or not the title
+                // matches; then the item picked last time for this query;
+                // then a keyword typed exactly, such as a snippet's.
+                let is_alias = self
+                    .aliases
+                    .get(id)
+                    .is_some_and(|alias| alias.eq_ignore_ascii_case(query));
+                let score = match is_alias {
+                    true => 0,
+                    false => score_item(query, item)?,
+                };
+                let rank = if is_alias {
+                    f64::INFINITY
+                } else if remembered == Some(id) {
+                    f64::MAX
+                } else if item
+                    .keywords()
+                    .iter()
+                    .any(|keyword| keyword.eq_ignore_ascii_case(query))
+                {
+                    f64::MAX / 2.
+                } else {
+                    rank(score, self.usage.frecency(id, now))
                 };
                 Some((rank, item))
             })
@@ -364,11 +654,13 @@ impl RootSearchPage {
             false => list.with_section(
                 Section::new()
                     .with_title("Results")
-                    .with_items(matches.into_iter().map(|(_, item)| item.clone())),
+                    .with_items(matches.into_iter().map(|(_, item)| self.present(item))),
             ),
         };
         match fallback::section(query, &self.fallbacks) {
-            Some(section) => list.with_section(section),
+            Some(section) => list.with_section(
+                section.with_items(quicklinks::fallback_items(&self.quicklink_data, query)),
+            ),
             None => list,
         }
     }
@@ -396,6 +688,12 @@ fn rank(score: Score, frecency: f64) -> f64 {
 }
 
 impl Page for RootSearchPage {
+    /// A page above may have created a script, quicklink or snippet.
+    fn did_reappear(&mut self, cx: &mut Context<Self>) {
+        self.rescan_scripts();
+        self.invalidate(cx);
+    }
+
     fn title(&self) -> SharedString {
         "Launcher".into()
     }
@@ -412,8 +710,11 @@ impl Page for RootSearchPage {
 
     fn set_query(&mut self, query: &str, _: &mut Window, cx: &mut Context<Self>) {
         self.start(cx);
-        if query.trim().is_empty() && self.is_stale() {
-            self.rescan(cx);
+        if query.trim().is_empty() {
+            self.rescan_scripts();
+            if self.is_stale() {
+                self.rescan(cx);
+            }
         }
         self.query = query.to_owned();
         self.invalidate(cx);
@@ -492,6 +793,16 @@ mod tests {
                 "com.gpui-kit.notes/search-notes",
                 "com.gpui-kit.notes/create-note",
                 "# System",
+                "system/search-files",
+                "system/create-quicklink",
+                "system/search-quicklinks",
+                "system/create-snippet",
+                "system/search-snippets",
+                "system/search-processes",
+                "system/create-script-command",
+                "system/script-commands-folder",
+                "system/search-bookmarks",
+                "system/clipboard-history",
                 "system/toggle-appearance",
                 "system/settings",
                 "system/extensions",
@@ -569,6 +880,59 @@ mod tests {
             panic!("the web search opens a URL");
         };
         assert_eq!(url.as_ref(), "https://www.google.com/search?q=gpui%20kit");
+    }
+
+    #[test]
+    fn test_aliases_keywords_and_favorites() {
+        let mut page = page(&["Terminal", "Settings Sync"]);
+        page.aliases.insert("system/quit".into(), "q".into());
+        page.aliases
+            .insert("app:/apps/Terminal".into(), "zz".into());
+        assert_eq!(
+            rows(&page, "zz", NOW)[1],
+            "app:/apps/Terminal",
+            "an alias matches even when the title does not"
+        );
+        page.usage.record("app:/apps/Terminal", "q", NOW);
+        assert_eq!(
+            rows(&page, "Q", NOW)[1],
+            "system/quit",
+            "an exact alias beats the remembered pick"
+        );
+        assert_eq!(
+            rows(&page, "exit", NOW)[1],
+            "system/quit",
+            "an exact keyword comes first"
+        );
+
+        page.favorites = vec!["system/settings".into(), "app:/apps/Terminal".into()];
+        let browse = rows(&page, "", NOW);
+        assert_eq!(
+            browse[..3],
+            ["# Favorites", "system/settings", "app:/apps/Terminal"]
+        );
+        assert_eq!(
+            browse
+                .iter()
+                .filter(|row| *row == "system/settings")
+                .count(),
+            1,
+            "a favorite is not listed again"
+        );
+        let list = page.build_list("", NOW);
+        let quit = list
+            .items()
+            .find(|item| item.id().as_str() == "system/quit")
+            .unwrap();
+        assert!(
+            quit.accessories()[0].tone().is_some(),
+            "the alias leads as a tag"
+        );
+        assert!(
+            quit.actions()
+                .all_actions()
+                .any(|action| action.title() == "Set Hotkey…")
+        );
     }
 
     #[test]

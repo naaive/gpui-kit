@@ -8,8 +8,11 @@
 
 pub mod applications;
 pub mod calculator;
+mod conversion;
+pub mod currency;
+mod dates;
 pub mod fallback;
-mod process;
+pub mod process;
 pub mod system;
 
 use gpui_kit::SharedString;

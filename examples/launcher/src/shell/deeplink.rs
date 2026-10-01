@@ -76,6 +76,10 @@ mod tests {
         assert_eq!(request.command().extension().as_ref(), "com.gpui-kit.links");
         assert_eq!(request.command().command().as_ref(), "checklist");
         assert!(request.arguments().is_empty());
+
+        // A built-in item's full id travels as one escaped segment.
+        let request = parse("launcher://extensions/launcher/settings%2Fdisplay").unwrap();
+        assert_eq!(request.command().command().as_ref(), "settings/display");
     }
 
     #[test]

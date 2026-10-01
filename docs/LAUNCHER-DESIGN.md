@@ -425,6 +425,7 @@ M0 实现了一条最窄的端到端路径：窗口 + 宿主搜索框 + 内置�
 | M1   | 根搜索：应用发现（macOS、Linux、Windows）、拼音、frecency、系统命令、计算器；全局快捷键、单实例与窗口行为；ActionPanel（`Cmd-K`） | **已完成**；macOS、Windows 分支未在真机验证            |
 | M2   | SDK v1：Detail、Form、`no-view`、`Action.push`、偏好与钥匙串、权限单、`launcher/utils`、`launcher dev` 与 `launcher types` | **已完成**，热重载除外（见 §12）                      |
 | M3   | 从 Git 安装、更新与卸载，扩展管理页，深度链接，Grid，fallback 命令                                      | **已完成**                                            |
+| M4   | 对标 Raycast 的内置命令：剪贴板历史、文件搜索、快捷链接、片段（可选的输入时展开）、窗口管理、脚本命令（兼容 `@raycast.` 注释）、进程、书签、系统设置页；计算器的单位、百分比、进制、货币、时区与日期；根搜索的别名、收藏、全局快捷键与深度链接 | **已完成**；在 Windows 真机验证，窗口管理与片段展开仅 Windows |
 | —    | 菜单栏命令、后台定时刷新                                                                                | **未实现**：GPUI 没有状态栏（tray）接口，也没有调度后台运行的宿主 |
 
 ## 11. 测试

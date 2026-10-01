@@ -79,6 +79,10 @@ impl Application {
     }
 
     /// Adds a keyword unless it repeats the name or another keyword.
+    #[cfg_attr(
+        target_os = "windows",
+        allow(dead_code, reason = "Start Menu shortcuts have no keywords")
+    )]
     pub fn with_keyword(mut self, keyword: impl Into<SharedString>) -> Self {
         let keyword = keyword.into();
         if !keyword.trim().is_empty() && keyword != self.name && !self.keywords.contains(&keyword) {
@@ -119,6 +123,25 @@ impl Application {
                 )
                 .with_shortcut("secondary-shift-c"),
             );
+        // Windows asks for consent (UAC) before the shortcut's program
+        // starts elevated.
+        #[cfg(target_os = "windows")]
+        let item = item.with_action(
+            Action::new(
+                "Run as Administrator",
+                CommandLine::new("powershell.exe")
+                    .with_argument("-NoProfile")
+                    .with_argument("-NonInteractive")
+                    .with_argument("-Command")
+                    .with_argument(format!(
+                        "Start-Process -Verb RunAs -FilePath '{}'",
+                        self.location.display().to_string().replace('\'', "''")
+                    ))
+                    .effect(format!("Couldn’t open “{}” as administrator", self.name)),
+            )
+            .with_image(Image::Icon("shield".into()))
+            .with_shortcut("secondary-shift-enter"),
+        );
         let item = match &self.subtitle {
             Some(subtitle) => item.with_subtitle(subtitle.clone()),
             None => item,
@@ -130,11 +153,11 @@ impl Application {
 }
 
 #[cfg(target_os = "macos")]
-const REVEAL_TITLE: &str = "Show in Finder";
+pub const REVEAL_TITLE: &str = "Show in Finder";
 #[cfg(target_os = "windows")]
-const REVEAL_TITLE: &str = "Show in File Explorer";
+pub const REVEAL_TITLE: &str = "Show in File Explorer";
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-const REVEAL_TITLE: &str = "Show in File Manager";
+pub const REVEAL_TITLE: &str = "Show in File Manager";
 
 /// The applications found by the last scan.
 pub struct Applications {
@@ -198,7 +221,12 @@ pub fn scan(directories: &[PathBuf]) -> Vec<Application> {
         &desktop_entry::IconLookup::current(),
     );
     #[cfg(target_os = "windows")]
-    let mut applications = start_menu::scan(directories);
+    let mut applications = start_menu::scan(
+        directories,
+        dirs::cache_dir()
+            .map(|dir| dir.join("gpui-kit-launcher").join("icons"))
+            .as_deref(),
+    );
     #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
     let mut applications: Vec<Application> = {
         let _ = directories;
@@ -212,6 +240,26 @@ pub fn scan(directories: &[PathBuf]) -> Vec<Application> {
         crate::search::pinyin::spellings(&application.name);
     }
     applications
+}
+
+/// Where extracted icons are cached as PNG files.
+fn icon_cache() -> Option<PathBuf> {
+    dirs::cache_dir().map(|dir| dir.join("gpui-kit-launcher").join("icons"))
+}
+
+/// The icon the system shows for the program or file at `path`, as a cached
+/// PNG; `None` where the platform has no such lookup. Blocking.
+pub fn file_icon(path: &std::path::Path) -> Option<PathBuf> {
+    #[cfg(target_os = "windows")]
+    {
+        let cache = icon_cache()?;
+        start_menu::with_com(|| start_menu::cached_icon(path, &cache))
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = (path, icon_cache);
+        None
+    }
 }
 
 /// Calls `on_change` from a background thread whenever something changes in

@@ -4,14 +4,25 @@
 //! page is a `PageModel`, produced in Rust by built-in pages or in JavaScript
 //! by extensions, and drawn by the one renderer in `ui`.
 
+mod bookmarks;
+mod clipboard;
+mod customizations;
 mod extensions;
+mod file_search;
+mod format;
 mod model;
 mod pages;
+mod placeholders;
+mod processes;
+mod quicklinks;
+mod script_commands;
 mod search;
 mod session;
 mod shell;
+mod snippets;
 mod sources;
 mod ui;
+mod window_layout;
 
 use std::{path::PathBuf, process::ExitCode, rc::Rc};
 

@@ -475,6 +475,27 @@ impl LauncherWindow {
         }
     }
 
+    /// Performs the primary action of the root search item `id`, as its
+    /// hotkey asks. Returns whether the item exists.
+    pub(crate) fn run_root_item(
+        &mut self,
+        id: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        self.reset(window, cx);
+        let PageModel::List(list) = self.model(window, cx) else {
+            return false;
+        };
+        let Some(item) = list.items().find(|item| item.id().as_str() == id).cloned() else {
+            return false;
+        };
+        if let Some(action) = item.primary_action().cloned() {
+            self.perform_item_action(item.id().clone(), action, window, cx);
+        }
+        true
+    }
+
     /// What the footer's primary hint does when clicked.
     pub(super) fn perform_primary(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let on_form = matches!(self.model(window, cx), PageModel::Form(_));
@@ -723,6 +744,19 @@ impl LauncherWindow {
                 self.close(window, cx);
                 crate::shell::platform::paste_into_previous_application(cx);
             }
+            Effect::CopyItem(item) => {
+                cx.write_to_clipboard(item);
+                show_toast(
+                    &Toast::new(ToastStyle::Success, "Copied to clipboard"),
+                    window,
+                    cx,
+                );
+            }
+            Effect::PasteItem(item) => {
+                cx.write_to_clipboard(item);
+                self.close(window, cx);
+                crate::shell::platform::paste_into_previous_application(cx);
+            }
             Effect::ShowToast(toast) => show_toast(&toast, window, cx),
             Effect::ShowHud(text) => {
                 self.close(window, cx);
@@ -827,6 +861,32 @@ impl LauncherWindow {
 
     fn launch(&mut self, request: &LaunchRequest, window: &mut Window, cx: &mut Context<Self>) {
         let id = request.command();
+        if id.extension().as_ref() == crate::sources::system::BUILT_IN_EXTENSION {
+            let name = id.command().to_string();
+            let root_item = |this: &mut Self, window: &mut Window, cx: &mut Context<Self>| {
+                // Any other root item by its full id, such as
+                // `script/hello.sh`.
+                let PageModel::List(list) = this.model(window, cx) else {
+                    return None;
+                };
+                list.items()
+                    .find(|item| item.id().as_str() == name)
+                    .map(|item| item.id().as_str().to_owned())
+            };
+            match crate::sources::system::built_in_command(id.command()) {
+                Some(effect) => self.perform_effect(effect, window, cx),
+                None if let Some(item) = root_item(self, window, cx) => {
+                    self.run_root_item(&item, window, cx);
+                }
+                None => show_toast(
+                    &Toast::new(ToastStyle::Failure, "Couldn’t find the command")
+                        .with_message(id.to_string()),
+                    window,
+                    cx,
+                ),
+            }
+            return;
+        }
         let Some((extension, command)) = self.catalog.command(id) else {
             show_toast(
                 &Toast::new(ToastStyle::Failure, "Couldn’t find the command")
@@ -1058,11 +1118,12 @@ impl LauncherWindow {
                     ),
             })
             .when_some(dropdown, |this, (select, tooltip)| {
+                // Select fills its parent, so the box gives it its width.
                 this.child(
-                    Select::new(&select)
-                        .small()
+                    div()
+                        .flex_none()
                         .w_48()
-                        .accessibility_label(tooltip),
+                        .child(Select::new(&select).small().accessibility_label(tooltip)),
                 )
             })
             .when(show_loading, |this| {
@@ -1429,6 +1490,16 @@ mod tests {
                 "com.gpui-kit.notes/search-notes:Command",
                 "com.gpui-kit.notes/create-note:Command",
                 "# System",
+                "system/search-files:Command",
+                "system/create-quicklink:Command",
+                "system/search-quicklinks:Command",
+                "system/create-snippet:Command",
+                "system/search-snippets:Command",
+                "system/search-processes:Command",
+                "system/create-script-command:Command",
+                "system/script-commands-folder:Command",
+                "system/search-bookmarks:Command",
+                "system/clipboard-history:Command",
                 "system/toggle-appearance:Command",
                 "system/settings:Command",
                 "system/extensions:Command",

@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use gpui_kit::SharedString;
 
 use super::{ActionPanel, Tone};
@@ -8,6 +10,8 @@ use super::{ActionPanel, Tone};
 #[derive(Clone, Debug, Default)]
 pub struct DetailModel {
     markdown: SharedString,
+    /// A picture shown above the body, such as a copied image.
+    image: Option<PathBuf>,
     metadata: Vec<Metadata>,
     actions: ActionPanel,
     loading: bool,
@@ -19,6 +23,11 @@ impl DetailModel {
             markdown: markdown.into(),
             ..Self::default()
         }
+    }
+
+    pub fn with_image(mut self, image: PathBuf) -> Self {
+        self.image = Some(image);
+        self
     }
 
     pub fn with_metadata(mut self, metadata: Metadata) -> Self {
@@ -38,6 +47,10 @@ impl DetailModel {
 
     pub fn markdown(&self) -> &SharedString {
         &self.markdown
+    }
+
+    pub fn image(&self) -> Option<&PathBuf> {
+        self.image.as_ref()
     }
 
     pub fn metadata(&self) -> &[Metadata] {

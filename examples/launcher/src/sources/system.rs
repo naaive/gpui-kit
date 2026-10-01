@@ -46,12 +46,115 @@ impl CommandSource for SystemCommands {
             .iter()
             .map(SystemCommand::item)
             .chain(launcher_commands())
+            .chain(match self.platform.is_empty() {
+                true => Vec::new(),
+                false => crate::window_layout::commands(),
+            })
+            .chain(match self.platform.is_empty() {
+                true => Vec::new(),
+                false => settings_pages(),
+            })
             .collect()
     }
 }
 
-fn launcher_commands() -> [Item; 4] {
+fn launcher_commands() -> [Item; 14] {
     [
+        command_item("system/search-files", "Search Files", "file-search")
+            .with_keyword("find")
+            .with_keyword("documents")
+            .with_action(Action::new(
+                "Search Files",
+                Effect::Push(PushHandler::new(crate::file_search::search_files_page)),
+            )),
+        command_item("system/create-quicklink", "Create Quicklink", "link")
+            .with_keyword("bookmark")
+            .with_keyword("url")
+            .with_action(Action::new(
+                "Create Quicklink",
+                Effect::Push(PushHandler::new(crate::quicklinks::create_quicklink_page)),
+            )),
+        command_item("system/search-quicklinks", "Search Quicklinks", "bookmark")
+            .with_keyword("bookmark")
+            .with_action(Action::new(
+                "Search Quicklinks",
+                Effect::Push(PushHandler::new(crate::quicklinks::search_quicklinks_page)),
+            )),
+        command_item(
+            "system/create-snippet",
+            "Create Snippet",
+            "text-cursor-input",
+        )
+        .with_keyword("text expansion")
+        .with_action(Action::new(
+            "Create Snippet",
+            Effect::Push(PushHandler::new(crate::snippets::create_snippet_page)),
+        )),
+        command_item(
+            "system/search-snippets",
+            "Search Snippets",
+            "text-cursor-input",
+        )
+        .with_keyword("text expansion")
+        .with_action(Action::new(
+            "Search Snippets",
+            Effect::Push(PushHandler::new(crate::snippets::search_snippets_page)),
+        )),
+        command_item("system/search-processes", "Search Processes", "cpu")
+            .with_keyword("kill")
+            .with_keyword("quit application")
+            .with_keyword("task manager")
+            .with_action(Action::new(
+                "Search Processes",
+                Effect::Push(PushHandler::new(crate::processes::search_processes_page)),
+            )),
+        command_item(
+            "system/create-script-command",
+            "Create Script Command",
+            "square-terminal",
+        )
+        .with_keyword("script")
+        .with_action(Action::new(
+            "Create Script Command",
+            Effect::Push(PushHandler::new(
+                crate::script_commands::create_script_command,
+            )),
+        )),
+        command_item(
+            "system/script-commands-folder",
+            "Open Script Commands Folder",
+            "folder-open",
+        )
+        .with_keyword("script")
+        .with_action(Action::new(
+            "Open Folder",
+            Effect::Run(RunHandler::new(|(), _, cx| {
+                if let Some(directory) = crate::script_commands::directory() {
+                    std::fs::create_dir_all(&directory).ok();
+                    crate::shell::launcher::perform(Effect::OpenPath(directory), cx);
+                }
+            })),
+        )),
+        command_item("system/search-bookmarks", "Search Bookmarks", "bookmark")
+            .with_keyword("browser")
+            .with_keyword("chrome")
+            .with_keyword("edge")
+            .with_action(Action::new(
+                "Search Bookmarks",
+                Effect::Push(PushHandler::new(crate::bookmarks::search_bookmarks_page)),
+            )),
+        command_item(
+            "system/clipboard-history",
+            "Clipboard History",
+            "clipboard-list",
+        )
+        .with_keyword("paste")
+        .with_keyword("copy")
+        .with_keyword("pasteboard")
+        .with_action(Action::new(
+            "Open Clipboard History",
+            Effect::Push(PushHandler::new(crate::clipboard::clipboard_history_page)),
+        )),
         command_item("system/toggle-appearance", "Toggle Appearance", "sun-moon")
             .with_keyword("dark mode")
             .with_keyword("light mode")
@@ -86,6 +189,133 @@ fn launcher_commands() -> [Item; 4] {
                 Effect::Run(RunHandler::new(|(), _, cx| cx.quit())),
             )),
     ]
+}
+
+/// The extension id deep links use for the launcher's own commands:
+/// `launcher://extensions/launcher/clipboard-history` opens
+/// the `system/clipboard-history` command.
+pub const BUILT_IN_EXTENSION: &str = "launcher";
+
+/// What opening the built-in command `name` does, for a deep link. `name`
+/// is a full id (`settings/display`, the deep link spells it
+/// `settings%2Fdisplay`) or, for the launcher's own and window commands, the
+/// part after `system/` or `window/`.
+pub fn built_in_command(name: &str) -> Option<Effect> {
+    let commands = SystemCommands::new(true).commands();
+    let ids = match name.contains('/') {
+        true => vec![name.to_owned()],
+        false => vec![format!("system/{name}"), format!("window/{name}")],
+    };
+    ids.iter()
+        .find_map(|id| commands.iter().find(|item| item.id().as_str() == id))
+        .and_then(|item| item.primary_action().map(|action| action.effect().clone()))
+}
+
+/// The system settings' own pages, opened directly.
+fn settings_pages() -> Vec<Item> {
+    #[cfg(target_os = "windows")]
+    const PAGES: &[(&str, &str, &str, &[&str])] = &[
+        (
+            "settings",
+            "System Settings",
+            "settings",
+            &["control panel", "preferences"],
+        ),
+        (
+            "display",
+            "Display Settings",
+            "monitor",
+            &["resolution", "brightness", "scale"],
+        ),
+        (
+            "sound",
+            "Sound Settings",
+            "volume-2",
+            &["audio", "speaker", "microphone"],
+        ),
+        ("bluetooth", "Bluetooth Settings", "bluetooth", &["devices"]),
+        (
+            "network-wifi",
+            "Wi-Fi Settings",
+            "wifi",
+            &["wireless", "network"],
+        ),
+        (
+            "network",
+            "Network Settings",
+            "network",
+            &["internet", "ethernet", "vpn"],
+        ),
+        (
+            "appsfeatures",
+            "Installed Apps",
+            "layout-grid",
+            &["uninstall", "programs"],
+        ),
+        ("defaultapps", "Default Apps", "app-window", &["open with"]),
+        (
+            "windowsupdate",
+            "Windows Update",
+            "refresh-cw",
+            &["updates"],
+        ),
+        (
+            "storagesense",
+            "Storage Settings",
+            "hard-drive",
+            &["disk", "space"],
+        ),
+        (
+            "powersleep",
+            "Power Settings",
+            "battery",
+            &["battery", "sleep"],
+        ),
+        (
+            "personalization",
+            "Personalization",
+            "palette",
+            &["wallpaper", "background", "theme"],
+        ),
+        (
+            "dateandtime",
+            "Date & Time Settings",
+            "clock",
+            &["time zone", "clock"],
+        ),
+        (
+            "keyboard",
+            "Keyboard Settings",
+            "keyboard",
+            &["input", "language"],
+        ),
+        (
+            "notifications",
+            "Notification Settings",
+            "bell",
+            &["focus", "do not disturb"],
+        ),
+        ("privacy", "Privacy Settings", "shield", &["permissions"]),
+    ];
+    #[cfg(not(target_os = "windows"))]
+    const PAGES: &[(&str, &str, &str, &[&str])] = &[];
+    PAGES
+        .iter()
+        .map(|(page, title, icon, keywords)| {
+            let url = match *page {
+                "settings" => "ms-settings:".to_owned(),
+                page => format!("ms-settings:{page}"),
+            };
+            keywords.iter().fold(
+                Item::new(ItemId::new(format!("settings/{page}")), *title)
+                    .with_icon(*icon)
+                    .with_accessory(Accessory::text("Settings"))
+                    .with_keyword("settings")
+                    .with_action(Action::new("Open Settings", Effect::OpenUrl(url.into()))),
+                |item, keyword| item.with_keyword(*keyword),
+            )
+        })
+        .collect()
 }
 
 fn command_item(id: &'static str, title: &'static str, icon: &'static str) -> Item {
@@ -327,7 +557,68 @@ fn linux_commands(
 /// Tools in `System32`, present on every Windows installation.
 #[cfg(target_os = "windows")]
 fn windows_commands() -> Vec<SystemCommand> {
+    fn powershell(script: &str) -> CommandLine {
+        CommandLine::new("powershell.exe")
+            .with_argument("-NoProfile")
+            .with_argument("-NonInteractive")
+            .with_argument("-Command")
+            .with_argument(script)
+    }
+    /// Presses a media key, which the shell handles like the keyboard's.
+    fn media_key(code: u8) -> CommandLine {
+        powershell(&format!(
+            "(New-Object -ComObject WScript.Shell).SendKeys([char]{code})"
+        ))
+    }
     vec![
+        SystemCommand::new(
+            "system/toggle-system-appearance",
+            "Toggle System Appearance",
+            "sun-moon",
+            powershell(concat!(
+                r"$key = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize'; ",
+                "$next = [int](-not (Get-ItemProperty $key).AppsUseLightTheme); ",
+                "Set-ItemProperty $key AppsUseLightTheme $next; ",
+                "Set-ItemProperty $key SystemUsesLightTheme $next",
+            )),
+        )
+        .with_keywords(&["dark mode", "light mode"]),
+        SystemCommand::new(
+            "system/show-desktop",
+            "Show Desktop",
+            "monitor",
+            powershell("(New-Object -ComObject Shell.Application).ToggleDesktop()"),
+        )
+        .with_keywords(&["hide windows"]),
+        SystemCommand::new(
+            "system/turn-off-display",
+            "Turn Off Display",
+            "monitor-off",
+            powershell(concat!(
+                r#"$display = Add-Type -Name Display -PassThru -MemberDefinition '"#,
+                r#"[DllImport("user32.dll")] public static extern int "#,
+                r#"SendMessage(int h, int m, int w, int l);'; "#,
+                // HWND_BROADCAST, WM_SYSCOMMAND, SC_MONITORPOWER, off.
+                "$display::SendMessage(0xffff, 0x0112, 0xF170, 2)",
+            )),
+        )
+        .with_keywords(&["sleep displays", "screen off"]),
+        SystemCommand::new(
+            "system/toggle-mute",
+            "Toggle Mute",
+            "volume-x",
+            media_key(173),
+        )
+        .with_keywords(&["volume", "sound", "mute"]),
+        SystemCommand::new(
+            "system/volume-down",
+            "Volume Down",
+            "volume-1",
+            media_key(174),
+        )
+        .with_keywords(&["sound", "quieter"]),
+        SystemCommand::new("system/volume-up", "Volume Up", "volume-2", media_key(175))
+            .with_keywords(&["sound", "louder"]),
         SystemCommand::new(
             "system/lock",
             "Lock Screen",
@@ -351,6 +642,13 @@ fn windows_commands() -> Vec<SystemCommand> {
         )
         .with_keywords(&["trash"])
         .with_confirmation("Empty the Recycle Bin?", "Empty Recycle Bin"),
+        SystemCommand::new(
+            "system/hibernate",
+            "Hibernate",
+            "moon-star",
+            CommandLine::new("shutdown.exe").with_argument("/h"),
+        )
+        .with_confirmation("Hibernate now?", "Hibernate"),
         SystemCommand::new(
             "system/log-out",
             "Sign Out",
@@ -431,6 +729,16 @@ mod tests {
     }
 
     #[test]
+    fn test_built_in_commands_by_short_name_or_full_id() {
+        assert!(
+            matches!(built_in_command("settings"), Some(Effect::Push(_))),
+            "the short name is the launcher's own Settings"
+        );
+        assert!(built_in_command("system/quit").is_some());
+        assert!(built_in_command("nothing/here").is_none());
+    }
+
+    #[test]
     fn test_launcher_commands_are_always_offered() {
         let titles: Vec<String> = SystemCommands::new(false)
             .commands()
@@ -440,6 +748,16 @@ mod tests {
         assert_eq!(
             titles,
             [
+                "Search Files",
+                "Create Quicklink",
+                "Search Quicklinks",
+                "Create Snippet",
+                "Search Snippets",
+                "Search Processes",
+                "Create Script Command",
+                "Open Script Commands Folder",
+                "Search Bookmarks",
+                "Clipboard History",
                 "Toggle Appearance",
                 "Launcher Settings",
                 "Manage Extensions",

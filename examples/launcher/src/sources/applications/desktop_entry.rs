@@ -16,6 +16,10 @@ use crate::sources::process::{CommandLine, is_installed};
 
 /// `$XDG_DATA_HOME/applications`, then each `$XDG_DATA_DIRS/applications`,
 /// with the specification's defaults when a variable is unset or empty.
+#[cfg_attr(
+    not(target_os = "linux"),
+    allow(dead_code, reason = "used by the Linux scan")
+)]
 pub fn default_directories() -> Vec<PathBuf> {
     data_directories()
         .into_iter()
@@ -23,6 +27,10 @@ pub fn default_directories() -> Vec<PathBuf> {
         .collect()
 }
 
+#[cfg_attr(
+    not(target_os = "linux"),
+    allow(dead_code, reason = "used by the Linux scan")
+)]
 fn data_directories() -> Vec<PathBuf> {
     let home = dirs::home_dir().unwrap_or_default();
     let data_home = std::env::var_os("XDG_DATA_HOME")
@@ -56,6 +64,10 @@ pub struct Environment {
 }
 
 impl Environment {
+    #[cfg_attr(
+        not(target_os = "linux"),
+        allow(dead_code, reason = "used by the Linux scan")
+    )]
     pub fn current() -> Self {
         let locale = ["LC_ALL", "LC_MESSAGES", "LANG"]
             .iter()
@@ -132,6 +144,10 @@ const ICON_SIZES: &[&str] = &[
 ];
 
 impl IconLookup {
+    #[cfg_attr(
+        not(target_os = "linux"),
+        allow(dead_code, reason = "used by the Linux scan")
+    )]
     pub fn current() -> Self {
         let data = data_directories();
         let home_icons = dirs::home_dir().map(|home| home.join(".icons"));

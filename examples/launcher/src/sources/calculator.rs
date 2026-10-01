@@ -1,4 +1,5 @@
-//! Arithmetic typed straight into the search field.
+//! Arithmetic typed straight into the search field, and the conversions of
+//! [`super::conversion`].
 //!
 //! The query is only treated as arithmetic when it contains an operation, so
 //! typing `2024` or `pi` still searches for commands; `2024/12` or `sqrt(2)`
@@ -14,10 +15,20 @@ pub const RESULT_ID: &str = "calculator/result";
 
 /// The answer to `query` as an item, or `None` when it is not arithmetic.
 pub fn item(query: &str) -> Option<Item> {
-    let value = evaluate(query)?;
-    let answer: SharedString = format(value).into();
+    let (answer, display): (SharedString, String) = match evaluate(query) {
+        Some(value) => {
+            let answer = format(value);
+            (answer.clone().into(), answer)
+        }
+        None => {
+            let conversion = super::conversion::convert(query)
+                .or_else(|| super::currency::convert(query))
+                .or_else(|| super::dates::answer(query))?;
+            (conversion.value.into(), conversion.display)
+        }
+    };
     Some(
-        Item::new(ItemId::new(RESULT_ID), format!("= {answer}"))
+        Item::new(ItemId::new(RESULT_ID), format!("= {display}"))
             .with_subtitle(query.trim().to_owned())
             .with_icon("calculator")
             .with_accessory(Accessory::text("Calculator"))
@@ -40,6 +51,18 @@ pub fn evaluate(expression: &str) -> Option<f64> {
     let value = parser.expression()?;
     parser.skip_whitespace();
     (parser.chars.peek().is_none() && parser.operations > 0 && value.is_finite()).then_some(value)
+}
+
+/// Evaluates `expression` like [`evaluate`], but a plain number is an answer
+/// too: the `5` of `5 km to mi`.
+pub fn evaluate_value(expression: &str) -> Option<f64> {
+    let mut parser = Parser {
+        chars: expression.chars().peekable(),
+        operations: 0,
+    };
+    let value = parser.expression()?;
+    parser.skip_whitespace();
+    (parser.chars.peek().is_none() && value.is_finite()).then_some(value)
 }
 
 /// The answer as a person would write it: no trailing zeros, no floating-point
