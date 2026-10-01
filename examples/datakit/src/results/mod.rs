@@ -1,6 +1,7 @@
 //! The rows a statement returned: a virtualized grid that fetches more as it
 //! scrolls, sorts what it has, and copies or exports it.
 
+mod aggregate;
 mod export;
 mod plan_view;
 mod result_grid;
@@ -10,10 +11,10 @@ use datakit_driver::RowStream;
 use futures::StreamExt as _;
 use gpui_kit::{App, KeyBinding, actions};
 
-pub use export::{ExportContext, ExportFormat, export, plain_text};
+pub use export::{ExportContext, ExportFormat, export, export_xlsx, plain_text};
 pub use plan_view::PlanView;
 pub use result_grid::{FetchState, PAGE_SIZE, Page, ResultGrid, RowPages};
-pub use result_view::ResultView;
+pub use result_view::{ResultView, ResultViewEvent};
 
 use crate::services::Services;
 

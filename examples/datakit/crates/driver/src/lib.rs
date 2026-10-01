@@ -9,6 +9,7 @@
 //! Every future here is `Send + 'static` so it can run on the runtime the
 //! driver needs (Tokio, for PostgreSQL) without the caller knowing which.
 
+mod compare;
 mod connection;
 pub mod ddl;
 mod dialect;
@@ -18,6 +19,7 @@ mod plan;
 mod profile;
 mod value;
 
+pub use compare::RowsDiff;
 pub use connection::{
     BoxFuture, CommandSummary, Connection, Driver, DriverRegistry, Row, RowStream, StatementOutcome,
 };

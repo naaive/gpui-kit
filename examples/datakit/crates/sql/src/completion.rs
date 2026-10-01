@@ -367,11 +367,26 @@ impl<'a> Engine<'a> {
 
     fn resolve(&mut self, reference: &Reference) -> Option<&'a Relation> {
         let catalog = self.catalog;
-        if let Some(schema) = &reference.schema
-            && let Some(found) = catalog.schema(schema)
-            && found.relations().is_none()
-        {
-            self.missing_schemas.push(found.name());
+        match &reference.schema {
+            Some(schema) => {
+                if let Some(found) = catalog.schema(schema)
+                    && found.relations().is_none()
+                {
+                    self.missing_schemas.push(found.name());
+                }
+            }
+            // An unqualified name is looked up along the search path, so
+            // its schemas are needed to find it.
+            None => {
+                for schema_name in catalog.search_path() {
+                    if let Some(found) = catalog.schema(schema_name)
+                        && found.relations().is_none()
+                        && !self.missing_schemas.contains(&found.name())
+                    {
+                        self.missing_schemas.push(found.name());
+                    }
+                }
+            }
         }
         catalog.resolve_relation(reference.schema.as_deref(), &reference.relation)
     }
@@ -683,6 +698,17 @@ mod tests {
         let completions = complete(&CompletionRequest::new(&text, offset, &catalog, &Postgres));
         assert!(completions.candidates().is_empty());
         assert_eq!(completions.missing_schemas(), &["audit".into()]);
+    }
+
+    #[test]
+    fn an_unqualified_name_asks_to_load_the_search_path() {
+        // Only the schema list is known, as right after connecting.
+        let catalog = Catalog::new("shop")
+            .with_schemas([Schema::new("public"), Schema::new("audit")])
+            .with_search_path(["public".into()]);
+        let (text, offset) = caret("select * from orders o join customers c on o|");
+        let completions = complete(&CompletionRequest::new(&text, offset, &catalog, &Postgres));
+        assert_eq!(completions.missing_schemas(), &["public".into()]);
     }
 
     #[test]

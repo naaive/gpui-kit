@@ -4,8 +4,8 @@ use std::{
     task::{Context, Poll},
 };
 
-use datakit_catalog::Schema;
-use futures::{Stream, stream::BoxStream};
+use datakit_catalog::{Role, Schema};
+use futures::{FutureExt as _, Stream, stream::BoxStream};
 
 use crate::{ColumnInfo, ConnectionProfile, Dialect, Value};
 
@@ -83,6 +83,12 @@ pub trait Connection: Send + Sync {
 
     /// The schemas an unqualified name is looked up in for this session.
     fn search_path(&self) -> BoxFuture<Vec<Arc<str>>>;
+
+    /// The server's users and roles. A server without them, or a session
+    /// not allowed to see them, has none.
+    fn introspect_roles(&self) -> BoxFuture<Vec<Role>> {
+        futures::future::ready(Ok(Vec::new())).boxed()
+    }
 }
 
 /// What running a statement produced.

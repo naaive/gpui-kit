@@ -5,7 +5,7 @@ use std::{
 };
 
 use anyhow::Result;
-use datakit_catalog::Schema;
+use datakit_catalog::{Role, Schema};
 use datakit_driver::{
     BoxFuture, ColumnInfo, CommandSummary, Connection, Row, RowStream, StatementOutcome,
     TypeCategory, Value,
@@ -148,6 +148,10 @@ impl Connection for PostgresConnection {
 
     fn search_path(&self) -> BoxFuture<Vec<Arc<str>>> {
         introspect::search_path(self.client.clone()).boxed()
+    }
+
+    fn introspect_roles(&self) -> BoxFuture<Vec<Role>> {
+        introspect::roles(self.client.clone()).boxed()
     }
 }
 

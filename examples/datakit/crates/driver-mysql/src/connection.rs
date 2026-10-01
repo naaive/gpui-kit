@@ -9,7 +9,7 @@ use std::{
 };
 
 use anyhow::{Context as _, Result, anyhow};
-use datakit_catalog::Schema;
+use datakit_catalog::{Role, Schema};
 use datakit_driver::{
     BoxFuture, ColumnInfo, CommandSummary, Connection, Row, RowStream, SslMode, StatementOutcome,
     TypeCategory,
@@ -166,6 +166,10 @@ impl Connection for MySqlConnection {
 
     fn introspect_schema(&self, schema: Arc<str>) -> BoxFuture<Schema> {
         introspect::schema(self.metadata.clone(), schema, self.is_mariadb).boxed()
+    }
+
+    fn introspect_roles(&self) -> BoxFuture<Vec<Role>> {
+        introspect::roles(self.metadata.clone()).boxed()
     }
 
     fn search_path(&self) -> BoxFuture<Vec<Arc<str>>> {

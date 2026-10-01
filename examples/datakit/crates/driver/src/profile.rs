@@ -70,7 +70,8 @@ pub struct ConnectionProfile {
     #[serde(default)]
     ssl_mode: SslMode,
     /// Settings only some drivers read, by name: a database file, an SSH
-    /// tunnel. Never a secret.
+    /// tunnel; and settings the application keeps with the data source.
+    /// Never a secret.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     options: BTreeMap<Arc<str>, Arc<str>>,
 }

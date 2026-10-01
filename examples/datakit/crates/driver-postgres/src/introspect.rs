@@ -10,8 +10,9 @@ use std::{collections::HashMap, sync::Arc};
 use anyhow::{Context as _, Result};
 use datakit_catalog::{
     Column, Constraint, ConstraintRule, ForeignKey, Index, ReferentialAction, Relation,
-    RelationType, Routine, RoutineType, Schema, Sequence, Trigger,
+    RelationType, Role, Routine, RoutineType, Schema, Sequence, Trigger,
 };
+use datakit_driver::Dialect as _;
 use tokio_postgres::{Client, types::ToSql};
 
 const SCHEMAS: &str = "
@@ -357,6 +358,90 @@ pub(crate) async fn schema(client: Arc<Client>, name: Arc<str>) -> Result<Schema
         .with_relations(relations.collect::<Vec<_>>())
         .with_routines(routines.collect::<Vec<_>>())
         .with_sequences(sequences.collect::<Vec<_>>()))
+}
+
+const ROLES: &str = "
+    SELECT r.rolname::text,
+           r.rolcanlogin,
+           r.rolsuper,
+           r.rolinherit,
+           r.rolcreaterole,
+           r.rolcreatedb,
+           r.rolreplication,
+           r.rolbypassrls,
+           r.rolconnlimit,
+           r.rolvaliduntil::text,
+           ARRAY(SELECT b.rolname::text
+                 FROM pg_auth_members m
+                 JOIN pg_roles b ON b.oid = m.roleid
+                 WHERE m.member = r.oid
+                 ORDER BY 1)
+    FROM pg_roles r
+    WHERE r.rolname !~ '^pg_'
+    ORDER BY 1";
+
+/// The server's roles, but not its predefined `pg_*` ones.
+pub(crate) async fn roles(client: Arc<Client>) -> Result<Vec<Role>> {
+    let rows = client
+        .query(ROLES, &[])
+        .await
+        .context("Couldn’t read the roles")?;
+    Ok(rows
+        .iter()
+        .map(|row| {
+            let name: String = row.get(0);
+            let can_login: bool = row.get(1);
+            // Each flag, what CREATE ROLE assumes, and its two spellings.
+            let flags = [
+                (row.get::<_, bool>(2), false, "SUPERUSER", "NOSUPERUSER"),
+                (row.get::<_, bool>(3), true, "INHERIT", "NOINHERIT"),
+                (row.get::<_, bool>(4), false, "CREATEROLE", "NOCREATEROLE"),
+                (row.get::<_, bool>(5), false, "CREATEDB", "NOCREATEDB"),
+                (row.get::<_, bool>(6), false, "REPLICATION", "NOREPLICATION"),
+                (row.get::<_, bool>(7), false, "BYPASSRLS", "NOBYPASSRLS"),
+            ];
+            let connection_limit: i32 = row.get(8);
+            let valid_until: Option<String> = row.get(9);
+            let member_of: Vec<String> = row.get(10);
+            // Only what differs from CREATE ROLE's defaults is worth saying.
+            let mut attributes: Vec<Arc<str>> = flags
+                .iter()
+                .filter(|(set, default, _, _)| set != default)
+                .map(|(set, _, on, off)| Arc::from(if *set { *on } else { *off }))
+                .collect();
+            if connection_limit >= 0 {
+                attributes.push(format!("CONNECTION LIMIT {connection_limit}").into());
+            }
+            if let Some(valid_until) = valid_until {
+                attributes.push(format!("VALID UNTIL '{valid_until}'").into());
+            }
+            let quoted = quote(&name);
+            let mut definition = format!(
+                "CREATE ROLE {quoted} WITH {}",
+                std::iter::once(if can_login { "LOGIN" } else { "NOLOGIN" })
+                    .chain(attributes.iter().map(|attribute| &**attribute))
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            );
+            definition.push(';');
+            for parent in &member_of {
+                definition.push_str(&format!(
+                    "
+GRANT {} TO {quoted};",
+                    quote(parent)
+                ));
+            }
+            Role::new(name, can_login)
+                .with_attributes(attributes)
+                .with_member_of(member_of.into_iter().map(Arc::from))
+                .with_definition(definition)
+        })
+        .collect())
+}
+
+/// `name` as a PostgreSQL identifier.
+fn quote(name: &str) -> String {
+    crate::PostgresDialect.quote_identifier(name)
 }
 
 pub(crate) async fn search_path(client: Arc<Client>) -> Result<Vec<Arc<str>>> {

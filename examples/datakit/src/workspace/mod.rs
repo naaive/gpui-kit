@@ -2,6 +2,8 @@
 //! title bar with its menus, and the status bar.
 
 mod start_panel;
+#[cfg(test)]
+mod tests;
 
 use std::{cell::RefCell, collections::HashMap, path::PathBuf, rc::Rc, time::Duration};
 
@@ -24,8 +26,8 @@ use gpui_kit::component::{
 };
 use gpui_kit::{
     App, AppContext as _, Bounds, Context, Entity, Focusable as _, InteractiveElement as _,
-    IntoElement, KeyBinding, Menu, MenuItem, ParentElement as _, Render, SharedString, Styled as _,
-    Subscription, Task, WeakEntity, Window, WindowBounds, WindowOptions, actions, div,
+    IntoElement, KeyBinding, Menu, MenuItem, MouseButton, ParentElement as _, Render, SharedString,
+    Styled as _, Subscription, Task, WeakEntity, Window, WindowBounds, WindowOptions, actions, div,
     prelude::FluentBuilder as _, px, rems, size,
 };
 use rust_i18n::t;
@@ -34,8 +36,9 @@ use crate::{
     compare::ComparePanel,
     console::{
         CancelExecution, Commit, ConsolePanel, ExecuteStatement, ExplainAnalyze, ExplainPlan,
-        FormatSql, Rollback, SaveConsoleAs, Sessions,
+        FormatSql, Rollback, SaveConsoleAs, Sessions, ShowLocalHistory,
     },
+    data_compare::DataComparePanel,
     datasource::{DataSource, DataSourceForm, DataSources},
     designer::TableDesigner,
     diagram::DiagramPanel,
@@ -46,6 +49,7 @@ use crate::{
     import::ImportDialog,
     navigation::{Navigation, NavigationEvent},
     objects::{ObjectPath, ObjectRef},
+    recent::{Recent, RecentEntry, RecentEvent, RecentFiles as RecentFilesList},
     search::{SearchEvent, SearchEverywhere as SearchDialog, SearchScope, SearchableAction},
     services::Services,
     services_panel::ServicesPanel,
@@ -82,6 +86,8 @@ actions!(
         AttachFolder,
         /// Show or hide the Files window.
         ToggleFiles,
+        /// Choose among the SQL files and tables opened lately.
+        RecentFiles,
         Quit
     ]
 );
@@ -99,6 +105,7 @@ pub fn init(cx: &mut App) {
         KeyBinding::new("secondary-w", ClosePanel, None),
         KeyBinding::new("secondary-k", SearchEverywhere, None),
         KeyBinding::new("secondary-n", GoToObject, None),
+        KeyBinding::new("secondary-e", RecentFiles, None),
         KeyBinding::new("secondary-shift-a", FindAction, None),
         KeyBinding::new("secondary-,", OpenSettings, None),
         KeyBinding::new("secondary-o", OpenSqlFile, None),
@@ -127,6 +134,7 @@ fn menus() -> Vec<Menu> {
         MenuItem::action(t!("menu.open_sql_file").to_string(), OpenSqlFile),
         MenuItem::action(t!("menu.attach_folder").to_string(), AttachFolder),
         MenuItem::action(t!("console.save_as").to_string(), SaveConsoleAs),
+        MenuItem::action(t!("menu.local_history").to_string(), ShowLocalHistory),
         MenuItem::Separator,
         MenuItem::action(t!("menu.close_tab").to_string(), ClosePanel),
     ];
@@ -186,6 +194,7 @@ fn menus() -> Vec<Menu> {
                 MenuItem::action(t!("menu.search_everywhere").to_string(), SearchEverywhere),
                 MenuItem::action(t!("menu.go_to_object").to_string(), GoToObject),
                 MenuItem::action(t!("menu.find_action").to_string(), FindAction),
+                MenuItem::action(t!("menu.recent_files").to_string(), RecentFiles),
             ],
             disabled: false,
         },
@@ -239,6 +248,8 @@ pub struct Workspace {
     last_layout: Option<DockAreaState>,
     save_layout_task: Option<Task<()>>,
     search: Option<Entity<SearchDialog>>,
+    /// The Recent Files list while it is open; its events need it alive.
+    recent: Option<Entity<RecentFilesList>>,
     search_subscription: Option<Subscription>,
     _subscriptions: Vec<Subscription>,
 }
@@ -286,6 +297,9 @@ impl Workspace {
         });
         register_panel(cx, ComparePanel::NAME, |_, window, cx| {
             panel_handle(cx.new(|cx| ComparePanel::new(None, window, cx)))
+        });
+        register_panel(cx, DataComparePanel::NAME, |_, window, cx| {
+            panel_handle(cx.new(|cx| DataComparePanel::new(None, window, cx)))
         });
         register_panel(cx, DiagramPanel::NAME, {
             let start = start.clone();
@@ -353,6 +367,12 @@ impl Workspace {
                 |this, _, event: &NavigationEvent, window, cx| match event {
                     NavigationEvent::Reveal(object) => this.reveal(object, window, cx),
                     NavigationEvent::Open(object) => this.open_object(object, window, cx),
+                    NavigationEvent::ShowConsole { console, range } => {
+                        let id = panel_handle(console.clone()).panel_id(cx);
+                        this.dock_area
+                            .update(cx, |area, cx| area.select_panel(id, window, cx));
+                        console.update(cx, |console, cx| console.select(range.clone(), window, cx));
+                    }
                     NavigationEvent::OpenConsole { object, sql } => this.open_console(
                         object.data_source().clone(),
                         Some(sql.clone()),
@@ -391,6 +411,7 @@ impl Workspace {
             last_layout: None,
             save_layout_task: None,
             search: None,
+            recent: None,
             search_subscription: None,
             _subscriptions: subscriptions,
         };
@@ -614,6 +635,10 @@ impl Workspace {
                 self.add_center_panel(panel_handle(panel), window, cx);
             }
             ExplorerEvent::ImportData(object) => ImportDialog::open(object, window, cx),
+            ExplorerEvent::CompareData(object) => {
+                let panel = cx.new(|cx| DataComparePanel::new(Some(object), window, cx));
+                self.add_center_panel(panel_handle(panel), window, cx);
+            }
             ExplorerEvent::DumpOrRestore(data_source) => DumpDialog::open(data_source, window, cx),
         }
     }
@@ -633,6 +658,14 @@ impl Workspace {
     /// Show the data editor of the relation `object`, opening one when
     /// there is none.
     fn open_table(&mut self, object: &ObjectRef, window: &mut Window, cx: &mut Context<Self>) {
+        Recent::record(
+            RecentEntry::Table {
+                data_source: object.data_source().read(cx).profile().id().clone(),
+                schema: object.path().schema().to_string(),
+                relation: object.path().name().to_string(),
+            },
+            cx,
+        );
         self.tables
             .borrow_mut()
             .retain(|table| table.upgrade().is_some());
@@ -708,6 +741,7 @@ impl Workspace {
     /// Show the SQL file at `path` in a console: the one already editing it,
     /// or a new one run against the selected data source.
     fn open_file(&mut self, path: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
+        Recent::record(RecentEntry::File { path: path.clone() }, cx);
         let existing = Sessions::global(cx)
             .read(cx)
             .consoles()
@@ -780,6 +814,34 @@ impl Workspace {
         ));
     }
 
+    fn recent_files(&mut self, _: &RecentFiles, window: &mut Window, cx: &mut Context<Self>) {
+        let list = RecentFilesList::open(window, cx);
+        self.recent = Some(list.clone());
+        self.search_subscription = Some(cx.subscribe_in(
+            &list,
+            window,
+            |this, _, event: &RecentEvent, window, cx| match event {
+                RecentEvent::Open(RecentEntry::File { path }) => {
+                    this.open_file(path.clone(), window, cx)
+                }
+                RecentEvent::Open(RecentEntry::Table {
+                    data_source,
+                    schema,
+                    relation,
+                }) => {
+                    if let Some(data_source) = DataSources::global(cx).read(cx).get(data_source, cx)
+                    {
+                        let object = ObjectRef::new(
+                            data_source,
+                            ObjectPath::relation(schema.as_str(), relation.as_str()),
+                        );
+                        this.open_object(&object, window, cx);
+                    }
+                }
+            },
+        ));
+    }
+
     fn new_console(&mut self, _: &NewConsole, window: &mut Window, cx: &mut Context<Self>) {
         let data_source = self
             .explorer
@@ -821,6 +883,9 @@ impl Workspace {
                 h_flex()
                     .gap_1()
                     .pr_2()
+                    // A press here is a click, not the start of moving the
+                    // window.
+                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                     .child(
                         Button::new("title-search")
                             .ghost()
@@ -899,11 +964,13 @@ fn searchable_actions() -> Vec<SearchableAction> {
         action(t!("menu.history"), Box::new(ToggleHistory)),
         action(t!("menu.reset_layout"), Box::new(ResetLayout)),
         action(t!("menu.go_to_object"), Box::new(GoToObject)),
+        action(t!("menu.recent_files"), Box::new(RecentFiles)),
         action(t!("menu.settings"), Box::new(OpenSettings)),
         action(t!("menu.open_sql_file"), Box::new(OpenSqlFile)),
         action(t!("menu.attach_folder"), Box::new(AttachFolder)),
         action(t!("menu.files"), Box::new(ToggleFiles)),
         action(t!("console.save_as"), Box::new(SaveConsoleAs)),
+        action(t!("menu.local_history"), Box::new(ShowLocalHistory)),
     ]
 }
 
@@ -940,6 +1007,7 @@ impl Render for Workspace {
             }))
             .on_action(|_: &OpenSettings, window, cx| SettingsDialog::open(window, cx))
             .on_action(cx.listener(Self::open_sql_file))
+            .on_action(cx.listener(Self::recent_files))
             .on_action(cx.listener(|this, _: &AttachFolder, window, cx| {
                 this.show_files(window, cx);
                 this.files.update(cx, |files, cx| files.attach_folder(cx));

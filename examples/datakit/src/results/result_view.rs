@@ -1,42 +1,63 @@
 use std::{path::PathBuf, sync::Arc, time::Duration};
 
 use datakit_driver::{ColumnInfo, Dialect};
-use datakit_sql::{Lexeme, lex};
+use datakit_sql::{Lexeme, filtered_statement, lex};
 use gpui_kit::assets::IconName;
 use gpui_kit::component::{
-    ActiveTheme as _, Sizable as _, WindowExt as _,
+    ActiveTheme as _, Selectable as _, Sizable as _, WindowExt as _,
     button::{Button, ButtonVariants as _},
     h_flex,
+    input::{Input, InputEvent, InputState},
     menu::{DropdownMenu as _, PopupMenu, PopupMenuItem},
     notification::Notification,
+    scroll::ScrollableElement as _,
     spinner::Spinner,
     table::{DataTable, TableSelection, TableState},
     v_flex,
 };
 use gpui_kit::{
-    AppContext as _, ClipboardItem, Context, Entity, InteractiveElement as _, IntoElement,
-    ParentElement as _, Render, SharedString, Styled as _, Subscription, Task, WeakEntity, Window,
-    div, prelude::FluentBuilder as _,
+    AppContext as _, ClipboardItem, Context, Entity, EventEmitter, InteractiveElement as _,
+    IntoElement, ParentElement as _, Render, SharedString, Styled as _, Subscription, Task,
+    WeakEntity, Window, div, prelude::FluentBuilder as _, rems,
 };
 use rust_i18n::t;
 
 use super::{
     CONTEXT, CopyCells, ExportContext, ExportFormat, FetchState, Page, ResultGrid, RowPages,
-    export, plain_text,
+    aggregate::{Aggregates, number_text},
+    export, export_xlsx, plain_text,
 };
 use crate::format;
 
 /// One result of a console run: the statement, its rows, and the commands
 /// that act on them.
 pub struct ResultView {
+    /// The statement the console ran.
     statement: Arc<str>,
     title: SharedString,
     table: Entity<TableState<ResultGrid>>,
+    condition: Entity<InputState>,
+    order_by: Entity<InputState>,
+    /// Whether the console is running the filtered statement.
+    filtering: bool,
+    filter_error: Option<SharedString>,
+    /// Whether the selected row is shown beside the grid, one column a
+    /// line.
+    show_record: bool,
     dialect: Arc<dyn Dialect>,
     elapsed: Duration,
     export_task: Option<Task<()>>,
+    _table_subscription: Subscription,
     _subscriptions: Vec<Subscription>,
 }
+
+/// What a result asks of the console that ran it.
+pub enum ResultViewEvent {
+    /// Run this statement and show its rows in place of the current ones.
+    Filter(Arc<str>),
+}
+
+impl EventEmitter<ResultViewEvent> for ResultView {}
 
 impl ResultView {
     /// A view of `first_page`, fetching the rest from `pages` as the grid
@@ -57,16 +78,226 @@ impl ResultView {
             .unwrap_or_else(|| t!("results.untitled").into());
         let grid = ResultGrid::new(columns, first_page, pages, window);
         let table = cx.new(|cx| TableState::new(grid, window, cx).cell_selectable(true));
-        let subscriptions = vec![cx.observe(&table, |_, _, cx| cx.notify())];
+        let table_subscription = cx.observe(&table, |_, _, cx| cx.notify());
+        let filter = |placeholder: &'static str, window: &mut Window, cx: &mut Context<Self>| {
+            cx.new(|cx| InputState::new(window, cx).placeholder(placeholder))
+        };
+        let condition = filter("id > 100", window, cx);
+        let order_by = filter("id DESC", window, cx);
+        let subscriptions = [&condition, &order_by]
+            .into_iter()
+            .map(|input| {
+                cx.subscribe(input, |this, _, event: &InputEvent, cx| {
+                    if let InputEvent::PressEnter { .. } = event {
+                        this.apply_filter(cx);
+                    }
+                })
+            })
+            .collect();
         Self {
             statement,
             title,
             table,
+            condition,
+            order_by,
+            filtering: false,
+            filter_error: None,
+            show_record: false,
             dialect,
             elapsed,
             export_task: None,
+            _table_subscription: table_subscription,
             _subscriptions: subscriptions,
         }
+    }
+
+    /// The aggregates of the selected column over the rows fetched, or of
+    /// the selected block of cells.
+    fn column_summary(&self, cx: &Context<Self>) -> Option<SharedString> {
+        let aggregates = if let Some(block) = self.selected_block(cx) {
+            Aggregates::of(block.into_iter().flatten())
+        } else {
+            let table = self.table.read(cx);
+            let TableSelection::Column(col_ix) = table.selection() else {
+                return None;
+            };
+            let grid = table.delegate();
+            let source = grid.source_column(col_ix);
+            Aggregates::of(grid.displayed_rows().map(|row| &row[source]))
+        };
+        let mut parts = vec![
+            t!(
+                "results.aggregate.count",
+                count = format::count(aggregates.count())
+            )
+            .to_string(),
+            t!(
+                "results.aggregate.distinct",
+                count = format::count(aggregates.distinct())
+            )
+            .to_string(),
+            t!(
+                "results.aggregate.nulls",
+                count = format::count(aggregates.nulls())
+            )
+            .to_string(),
+        ];
+        if let Some(numbers) = aggregates.numbers() {
+            parts.extend([
+                t!("results.aggregate.sum", value = number_text(numbers.sum())).to_string(),
+                t!(
+                    "results.aggregate.average",
+                    value = number_text(numbers.average())
+                )
+                .to_string(),
+                t!("results.aggregate.min", value = number_text(numbers.min())).to_string(),
+                t!("results.aggregate.max", value = number_text(numbers.max())).to_string(),
+            ]);
+        }
+        Some(parts.join(" · ").into())
+    }
+
+    /// The row the record view shows: the selected one, or the first.
+    fn record_row(&self, cx: &Context<Self>) -> Option<usize> {
+        let table = self.table.read(cx);
+        let row_ix = match table.selection() {
+            TableSelection::Row(row_ix) | TableSelection::Cell(row_ix, _) => row_ix,
+            TableSelection::None | TableSelection::Column(_) => 0,
+        };
+        (row_ix < table.delegate().rows_fetched()).then_some(row_ix)
+    }
+
+    /// The selected row, one column a line: easier to read than a wide row.
+    fn render_record(&self, cx: &Context<Self>) -> impl IntoElement {
+        let theme = cx.theme();
+        let grid = self.table.read(cx).delegate();
+        let row = self.record_row(cx).map(|row_ix| (row_ix, grid.row(row_ix)));
+        v_flex()
+            .id("record")
+            .flex_none()
+            .w(rems(20.))
+            .h_full()
+            .border_l_1()
+            .border_color(theme.border)
+            .child(
+                div()
+                    .flex_none()
+                    .px_2()
+                    .py_1()
+                    .text_xs()
+                    .text_color(theme.muted_foreground)
+                    .border_b_1()
+                    .border_color(theme.border)
+                    .child(match &row {
+                        Some((row_ix, _)) => {
+                            t!("results.record_row", row = format::count(row_ix + 1)).to_string()
+                        }
+                        None => t!("results.record_empty").to_string(),
+                    }),
+            )
+            .child(
+                v_flex()
+                    .flex_1()
+                    .min_h_0()
+                    .overflow_y_scrollbar()
+                    .when_some(row, |list, (_, row)| {
+                        list.children((0..grid.columns().len()).map(|col_ix| {
+                            let source = grid.source_column(col_ix);
+                            let column = &grid.columns()[source];
+                            let value = row[source].display().map(|text| text.into_owned());
+                            v_flex()
+                                .px_2()
+                                .py_1()
+                                .gap_0p5()
+                                .border_b_1()
+                                .border_color(theme.border.opacity(0.5))
+                                .child(
+                                    h_flex()
+                                        .gap_1()
+                                        .text_xs()
+                                        .child(column.name().to_string())
+                                        .child(
+                                            div()
+                                                .text_color(theme.muted_foreground)
+                                                .child(column.type_name().to_string()),
+                                        ),
+                                )
+                                .child(
+                                    div()
+                                        .text_sm()
+                                        .font_family(theme.mono_font_family.clone())
+                                        .map(|text| match value {
+                                            Some(value) => text.child(value),
+                                            None => text
+                                                .italic()
+                                                .text_color(theme.muted_foreground)
+                                                .child("NULL"),
+                                        }),
+                                )
+                        }))
+                    }),
+            )
+    }
+
+    /// Ask the console to read the statement again through the filter, on
+    /// the server, so the filter sees every row and not only those fetched.
+    fn apply_filter(&mut self, cx: &mut Context<Self>) {
+        if self.filtering {
+            return;
+        }
+        let statement: Arc<str> = filtered_statement(
+            &self.statement,
+            &self.condition.read(cx).value(),
+            &self.order_by.read(cx).value(),
+        )
+        .into();
+        self.filtering = true;
+        self.filter_error = None;
+        // The rows still on the server hold the session; let them go.
+        self.table
+            .update(cx, |table, _| table.delegate_mut().stop_fetching());
+        cx.emit(ResultViewEvent::Filter(statement));
+        cx.notify();
+    }
+
+    /// Show the rows the console read through the filter.
+    pub fn show_filtered(
+        &mut self,
+        columns: Arc<[ColumnInfo]>,
+        first_page: Page,
+        pages: RowPages,
+        elapsed: Duration,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let grid = ResultGrid::new(columns, first_page, pages, window);
+        self.table = cx.new(|cx| TableState::new(grid, window, cx).cell_selectable(true));
+        self._table_subscription = cx.observe(&self.table, |_, _, cx| cx.notify());
+        self.elapsed = elapsed;
+        self.filtering = false;
+        cx.notify();
+    }
+
+    /// The filtered statement failed; the rows shown are the earlier ones.
+    pub fn filter_failed(&mut self, message: SharedString, cx: &mut Context<Self>) {
+        self.filtering = false;
+        self.filter_error = Some(message);
+        cx.notify();
+    }
+
+    #[cfg(test)]
+    pub fn condition(&self) -> &Entity<InputState> {
+        &self.condition
+    }
+
+    #[cfg(test)]
+    pub fn displayed_rows(&self, cx: &gpui_kit::App) -> Vec<datakit_driver::Row> {
+        self.table
+            .read(cx)
+            .delegate()
+            .displayed_rows()
+            .cloned()
+            .collect()
     }
 
     /// What the result's tab is called: the table it reads, when there is one.
@@ -74,7 +305,46 @@ impl ResultView {
         self.title.clone()
     }
 
+    /// The selected block of cells when it is more than one cell, as rows
+    /// of values.
+    fn selected_block<'a>(
+        &self,
+        cx: &'a Context<Self>,
+    ) -> Option<Vec<Vec<&'a datakit_driver::Value>>> {
+        let table = self.table.read(cx);
+        let (rows, cols) = table.selected_cell_range()?;
+        if rows.len() * cols.len() < 2 {
+            return None;
+        }
+        let grid = table.delegate();
+        Some(
+            rows.map(|row_ix| {
+                cols.clone()
+                    .map(|col_ix| &grid.row(row_ix)[grid.source_column(col_ix)])
+                    .collect()
+            })
+            .collect(),
+        )
+    }
+
     fn copy_cells(&mut self, _: &CopyCells, _: &mut Window, cx: &mut Context<Self>) {
+        if let Some(block) = self.selected_block(cx) {
+            let text = block
+                .iter()
+                .map(|row| {
+                    row.iter()
+                        .map(|value| plain_text(value))
+                        .collect::<Vec<_>>()
+                        .join("	")
+                })
+                .collect::<Vec<_>>()
+                .join(
+                    "
+",
+                );
+            cx.write_to_clipboard(ClipboardItem::new_string(text));
+            return;
+        }
         let table = self.table.read(cx);
         let grid = table.delegate();
         let text = match table.selection() {
@@ -122,25 +392,52 @@ impl ResultView {
         cx: &mut Context<Self>,
     ) {
         let text = self.render_all(format, cx);
+        self.save_export(format.extension(), Ok(text.into_bytes()), window, cx);
+    }
+
+    fn export_to_xlsx(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let grid = self.table.read(cx).delegate();
+        let table = source_table(&self.statement).unwrap_or_default();
+        let context = ExportContext {
+            columns: grid.columns(),
+            dialect: &*self.dialect,
+            table: &table,
+        };
+        let workbook = export_xlsx(&context, grid.displayed_rows());
+        self.save_export("xlsx", workbook, window, cx);
+    }
+
+    /// Ask where to save `contents` and write them there.
+    fn save_export(
+        &mut self,
+        extension: &str,
+        contents: anyhow::Result<Vec<u8>>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let directory = dirs::document_dir()
             .or_else(dirs::home_dir)
             .unwrap_or_else(|| PathBuf::from("."));
         let suggested = format!(
             "{}.{}",
             source_table(&self.statement).unwrap_or_else(|| "result".into()),
-            format.extension()
+            extension
         );
         let path = cx.prompt_for_new_path(&directory, Some(&suggested));
         self.export_task = Some(cx.spawn_in(window, async move |_, cx| {
             let Ok(Ok(Some(path))) = path.await else {
                 return;
             };
-            let write = cx
-                .background_spawn({
-                    let path = path.clone();
-                    async move { std::fs::write(&path, text) }
-                })
-                .await;
+            let write = match contents {
+                Ok(contents) => {
+                    cx.background_spawn({
+                        let path = path.clone();
+                        async move { std::fs::write(&path, contents).map_err(anyhow::Error::from) }
+                    })
+                    .await
+                }
+                Err(error) => Err(error),
+            };
             let _ = cx.update(|window, cx| match write {
                 Ok(()) => {}
                 Err(error) => window.push_notification(
@@ -175,14 +472,23 @@ impl ResultView {
                     .text_color(cx.theme().muted_foreground)
                     .child(format::duration(self.elapsed)),
             )
+            .when_some(self.column_summary(cx), |row, summary| {
+                row.child(
+                    div()
+                        .min_w_0()
+                        .truncate()
+                        .text_color(cx.theme().muted_foreground)
+                        .child(summary),
+                )
+            })
             .when(
-                matches!(grid.fetch_state(), FetchState::Fetching { .. }),
+                self.filtering || matches!(grid.fetch_state(), FetchState::Fetching { .. }),
                 |row| row.child(Spinner::new().xsmall()),
             )
             .when_some(
                 match grid.fetch_state() {
                     FetchState::Failed(error) => Some(error.clone()),
-                    _ => None,
+                    _ => self.filter_error.clone(),
                 },
                 |row, error| {
                     row.child(
@@ -275,6 +581,18 @@ impl Render for ResultView {
                             .flex_none()
                             .gap_1()
                             .child(
+                                Button::new("record")
+                                    .ghost()
+                                    .xsmall()
+                                    .icon(IconName::PanelRight)
+                                    .selected(self.show_record)
+                                    .tooltip(t!("results.record").to_string())
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.show_record = !this.show_record;
+                                        cx.notify();
+                                    })),
+                            )
+                            .child(
                                 Button::new("copy-as")
                                     .ghost()
                                     .xsmall()
@@ -298,16 +616,72 @@ impl Render for ResultView {
                                     .icon(IconName::Download)
                                     .label(t!("results.export").to_string())
                                     .dropdown_menu(move |menu, _, _| {
+                                        let xlsx = view.clone();
                                         Self::format_menu(view.clone(), menu, Self::export_to_file)
+                                            .item(
+                                                PopupMenuItem::new(
+                                                    t!("results.format.xlsx").to_string(),
+                                                )
+                                                .on_click(move |_, window, cx| {
+                                                    let _ = xlsx.update(cx, |view, cx| {
+                                                        view.export_to_xlsx(window, cx)
+                                                    });
+                                                }),
+                                            )
                                     }),
                             ),
                     ),
             )
+            .child(self.render_filter(cx))
+            .child(
+                h_flex()
+                    .flex_1()
+                    .min_h_0()
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .h_full()
+                            .child(DataTable::new(&self.table).bordered(false).small()),
+                    )
+                    .when(self.show_record, |body| body.child(self.render_record(cx))),
+            )
+    }
+}
+
+impl ResultView {
+    /// The `WHERE` and `ORDER BY` the result is read through; Enter in
+    /// either runs it.
+    fn render_filter(&self, cx: &Context<Self>) -> impl IntoElement {
+        let theme = cx.theme();
+        let label = |text: &'static str| {
+            div()
+                .flex_none()
+                .text_xs()
+                .font_family(theme.mono_font_family.clone())
+                .text_color(theme.muted_foreground)
+                .child(text)
+        };
+        h_flex()
+            .flex_none()
+            .px_2()
+            .py_1()
+            .gap_2()
+            .border_b_1()
+            .border_color(theme.border)
+            .child(label("WHERE"))
             .child(
                 div()
                     .flex_1()
-                    .min_h_0()
-                    .child(DataTable::new(&self.table).bordered(false).small()),
+                    .min_w(rems(8.))
+                    .child(Input::new(&self.condition).xsmall()),
+            )
+            .child(label("ORDER BY"))
+            .child(
+                div()
+                    .w(rems(12.))
+                    .flex_none()
+                    .child(Input::new(&self.order_by).xsmall()),
             )
     }
 }

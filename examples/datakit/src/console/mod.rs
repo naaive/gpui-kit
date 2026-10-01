@@ -6,6 +6,7 @@ mod console_panel;
 mod intelligence;
 mod parameters_dialog;
 mod sessions;
+mod usages;
 
 use gpui_kit::component::input::{GoToDefinition, ToggleCodeActions};
 use gpui_kit::{App, KeyBinding, actions};
@@ -32,10 +33,19 @@ actions!(
         Rollback,
         /// Show what the name at the caret is.
         QuickDocumentation,
-        /// Rename the alias at the caret everywhere in its statement.
+        /// Rename the alias at the caret everywhere in its statement, or the
+        /// table, view or column the name at the caret refers to.
         RenameAlias,
         /// Save the console's text to a SQL file and edit that file.
-        SaveConsoleAs
+        SaveConsoleAs,
+        /// Offer completions for the word at the caret.
+        ShowCompletions,
+        /// List where the open consoles name the object at the caret.
+        FindUsages,
+        /// Show the arguments of the routine call the caret is in.
+        ParameterInfo,
+        /// Show the earlier versions of the console's text.
+        ShowLocalHistory
     ]
 );
 
@@ -54,6 +64,9 @@ pub fn init(cx: &mut App) {
         KeyBinding::new("alt-enter", ToggleCodeActions, Some(EDITOR)),
         KeyBinding::new("secondary-b", GoToDefinition, Some(EDITOR)),
         KeyBinding::new("shift-f6", RenameAlias, Some(EDITOR)),
+        KeyBinding::new("ctrl-space", ShowCompletions, Some(EDITOR)),
+        KeyBinding::new("alt-f7", FindUsages, Some(EDITOR)),
+        KeyBinding::new("secondary-p", ParameterInfo, Some(EDITOR)),
         KeyBinding::new("secondary-shift-s", SaveConsoleAs, Some(CONTEXT)),
         #[cfg(target_os = "macos")]
         KeyBinding::new("f1", QuickDocumentation, Some(CONTEXT)),

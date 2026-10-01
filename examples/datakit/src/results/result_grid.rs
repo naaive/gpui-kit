@@ -203,6 +203,15 @@ impl ResultGrid {
         (0..self.rows.len()).map(|row_ix| self.row(row_ix))
     }
 
+    /// Stop reading rows; dropping the pages ends the statement on the
+    /// server, so the session can run another.
+    pub fn stop_fetching(&mut self) {
+        self.pages = None;
+        if !matches!(self.fetch, FetchState::Failed(_)) {
+            self.fetch = FetchState::Complete;
+        }
+    }
+
     /// Fetch the next page, unless one is on its way or there is none.
     pub fn fetch_next_page(&mut self, cx: &mut Context<TableState<Self>>) {
         if !matches!(self.fetch, FetchState::Idle) {

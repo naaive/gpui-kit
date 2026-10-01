@@ -46,7 +46,9 @@ actions!(
         /// Open the selected object: a table's data, a routine's source.
         OpenObject,
         /// Show what the selected object is.
-        QuickDocumentation
+        QuickDocumentation,
+        /// Rename the selected table, view or column.
+        RenameObject
     ]
 );
 
@@ -55,6 +57,7 @@ const CONTEXT: &str = "Explorer";
 pub fn init(cx: &mut App) {
     cx.bind_keys([
         KeyBinding::new("f4", OpenObject, Some(CONTEXT)),
+        KeyBinding::new("shift-f6", RenameObject, Some(CONTEXT)),
         #[cfg(target_os = "macos")]
         KeyBinding::new("f1", QuickDocumentation, Some(CONTEXT)),
         #[cfg(not(target_os = "macos"))]
@@ -93,6 +96,8 @@ pub enum ExplorerEvent {
     },
     /// Import rows from a file into a table.
     ImportData(ObjectRef),
+    /// Compare the rows of a table with another's.
+    CompareData(ObjectRef),
     /// Back up or restore a database with the database's own tools.
     DumpOrRestore(Entity<DataSource>),
 }
@@ -288,13 +293,17 @@ impl ExplorerPanel {
         cx.notify();
     }
 
-    fn open_selected(&mut self, _: &OpenObject, _: &mut Window, cx: &mut Context<Self>) {
+    fn open_selected(&mut self, _: &OpenObject, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(node) = self.selected_node(cx) {
-            self.open(&node, cx);
+            self.open(&node, window, cx);
         }
     }
 
-    fn open(&mut self, node: &Node, cx: &mut Context<Self>) {
+    fn open(&mut self, node: &Node, window: &mut Window, cx: &mut Context<Self>) {
+        if let Node::Role { role, .. } = node {
+            show_role(role, window, cx);
+            return;
+        }
         if let Node::Object { object, .. } = node
             && !matches!(
                 object.path(),
@@ -311,11 +320,23 @@ impl ExplorerPanel {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        match self.selected_node(cx) {
+            Some(Node::Role { role, .. }) => show_role(&role, window, cx),
+            Some(node) => {
+                if let Some(object) = node.object() {
+                    show_documentation(object, window, cx);
+                }
+            }
+            None => {}
+        }
+    }
+
+    fn rename_selected(&mut self, _: &RenameObject, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(object) = self
             .selected_node(cx)
             .and_then(|node| node.object().cloned())
         {
-            show_documentation(&object, window, cx);
+            crate::rename::rename_object(&object, window, cx);
         }
     }
 
@@ -422,6 +443,41 @@ impl ExplorerPanel {
                 ))
             }
             Some(Node::Object { object, .. }) => Self::object_menu(&object, menu, &item, &emit, cx),
+            Some(Node::Role { data_source, role }) => {
+                let name = role.name().to_string();
+                let documented = role.clone();
+                let menu = match role.definition() {
+                    Some(definition) => {
+                        let ddl = definition.to_string();
+                        menu.item(emit(
+                            t!("explorer.ddl_to_console").into(),
+                            ExplorerEvent::OpenConsole {
+                                data_source,
+                                sql: Some(ddl.clone()),
+                                run: false,
+                            },
+                        ))
+                        .item(item(
+                            t!("explorer.copy_ddl").into(),
+                            Rc::new(move |_, _, cx| {
+                                cx.write_to_clipboard(ClipboardItem::new_string(ddl.clone()))
+                            }),
+                        ))
+                        .separator()
+                    }
+                    None => menu,
+                };
+                menu.item(item(
+                    t!("explorer.copy_name").into(),
+                    Rc::new(move |_, _, cx| {
+                        cx.write_to_clipboard(ClipboardItem::new_string(name.clone()))
+                    }),
+                ))
+                .item(item(
+                    t!("explorer.quick_documentation").into(),
+                    Rc::new(move |_, window, cx| show_role(&documented, window, cx)),
+                ))
+            }
             _ => menu,
         }
     }
@@ -524,6 +580,10 @@ impl ExplorerPanel {
                         .item(emit(
                             t!("explorer.import").into(),
                             ExplorerEvent::ImportData(object.clone()),
+                        ))
+                        .item(emit(
+                            t!("explorer.compare_data").into(),
+                            ExplorerEvent::CompareData(object.clone()),
                         ));
                 }
             }
@@ -557,6 +617,13 @@ impl ExplorerPanel {
         }
         let documented = object.clone();
         let dropped = object.clone();
+        let renamed = object.clone();
+        if object.target().is_some() {
+            menu = menu.separator().item(item(
+                t!("explorer.rename").into(),
+                Rc::new(move |_, window, cx| crate::rename::rename_object(&renamed, window, cx)),
+            ));
+        }
         menu = menu
             .item(item(
                 t!("explorer.copy_name").into(),
@@ -639,6 +706,15 @@ impl ExplorerPanel {
                         Some(source.profile().address().into()),
                     )
                 }
+                Some(Node::Role { role, .. }) => (
+                    Some(if role.can_login() {
+                        IconName::User
+                    } else {
+                        IconName::Users
+                    }),
+                    muted,
+                    (!role.attributes().is_empty()).then(|| role.attributes().join(" ").into()),
+                ),
                 Some(Node::Group { .. }) => (
                     Some(if entry.is_expanded() {
                         IconName::FolderOpen
@@ -664,6 +740,17 @@ impl ExplorerPanel {
                     None,
                 ),
                 None => (None, muted, None),
+            };
+            // A data source's mark: its color and whether it is read-only.
+            let (mark, locked) = match &node {
+                Some(Node::DataSource(data_source)) => {
+                    let source = data_source.read(cx);
+                    (
+                        source.color().map(|color| color.hsla(cx)),
+                        source.is_read_only(),
+                    )
+                }
+                _ => (None, false),
             };
             let is_message = matches!(node, Some(Node::Message { .. }));
             let failed = matches!(node, Some(Node::Message { failed: true }));
@@ -705,6 +792,12 @@ impl ExplorerPanel {
                                 })
                                 .child(item.label.clone()),
                         )
+                        .when_some(mark, |row, mark| {
+                            row.child(div().flex_none().size_2().rounded_full().bg(mark))
+                        })
+                        .when(locked, |row| {
+                            row.child(Icon::new(IconName::Lock).xsmall().text_color(muted))
+                        })
                         .when_some(detail, |row, detail| {
                             row.child(
                                 div()
@@ -716,11 +809,11 @@ impl ExplorerPanel {
                             )
                         }),
                 )
-                .on_click(move |event, _, cx| {
+                .on_click(move |event, window, cx| {
                     if event.click_count() == 2
                         && let Some(node) = &node
                     {
-                        let _ = explorer.update(cx, |explorer, cx| explorer.open(node, cx));
+                        let _ = explorer.update(cx, |explorer, cx| explorer.open(node, window, cx));
                     }
                 })
         })
@@ -733,10 +826,38 @@ impl ExplorerPanel {
 
 /// Show what `object` is in a dialog.
 pub fn show_documentation(object: &ObjectRef, window: &mut Window, cx: &mut App) {
-    let Some(text) = object.documentation(cx) else {
-        return;
-    };
-    let text = SharedString::from(text);
+    if let Some(text) = object.documentation(cx) {
+        show_markdown(text.into(), window, cx);
+    }
+}
+
+/// Show what a user or role is and may do.
+fn show_role(role: &datakit_catalog::Role, window: &mut Window, cx: &mut App) {
+    let mut text = format!(
+        "**{}** · {}",
+        role.name(),
+        if role.can_login() {
+            t!("explorer.user")
+        } else {
+            t!("explorer.role")
+        }
+    );
+    if !role.attributes().is_empty() {
+        text.push_str(&format!("\n\n`{}`", role.attributes().join(" ")));
+    }
+    if !role.member_of().is_empty() {
+        text.push_str(&format!(
+            "\n\n{}",
+            t!("explorer.member_of", roles = role.member_of().join(", "))
+        ));
+    }
+    if let Some(definition) = role.definition() {
+        text.push_str(&format!("\n\n```sql\n{definition}\n```"));
+    }
+    show_markdown(text.into(), window, cx);
+}
+
+fn show_markdown(text: SharedString, window: &mut Window, cx: &mut App) {
     window.open_dialog(cx, move |dialog, _, _| {
         let text = text.clone();
         dialog
@@ -908,6 +1029,7 @@ impl Render for ExplorerPanel {
             .track_focus(&self.focus_handle)
             .on_action(cx.listener(Self::open_selected))
             .on_action(cx.listener(Self::quick_documentation))
+            .on_action(cx.listener(Self::rename_selected))
             .child(
                 div().flex_none().p_1().child(
                     Input::new(&self.filter)

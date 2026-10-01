@@ -21,10 +21,14 @@
 
 mod analysis;
 mod completion;
+mod filter;
 mod format;
 mod inspect;
+mod intention;
 mod lexer;
+mod parameter_info;
 mod parameters;
+mod read_only;
 mod rename;
 mod resolve;
 mod statement;
@@ -33,10 +37,14 @@ pub mod templates;
 mod test_support;
 
 pub use completion::{Candidate, CandidateCategory, CompletionRequest, Completions, complete};
+pub use filter::filtered_statement;
 pub use format::{FormatStyle, format_sql};
 pub use inspect::{Fix, Inspection, Problem, Severity, inspect};
+pub use intention::{Intention, Refactoring, intentions};
 pub use lexer::{Lexeme, Token, lex};
+pub use parameter_info::{ParameterInfo, Signature, parameter_info};
 pub use parameters::{Parameter, parameters, substitute};
+pub use read_only::is_reading_statement;
 pub use rename::{Occurrences, alias_occurrences, rename};
-pub use resolve::{Resolution, Target, resolve};
+pub use resolve::{Resolution, Target, resolve, usages};
 pub use statement::{split_statements, statement_at};

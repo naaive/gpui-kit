@@ -39,6 +39,21 @@ impl Services {
                     .unwrap_or_else(std::env::temp_dir)
                     .join("DataKit")
             });
+        Self::start(data_directory, Arc::new(KeychainSecrets::new()), cx)
+    }
+
+    /// Services keeping their files in `data_directory` and passwords in
+    /// memory, for a test that drives the whole application.
+    #[cfg(test)]
+    pub fn init_for_test(data_directory: PathBuf, cx: &mut App) -> Result<()> {
+        Self::start(
+            data_directory,
+            Arc::new(datakit_store::MemorySecrets::default()),
+            cx,
+        )
+    }
+
+    fn start(data_directory: PathBuf, secrets: Arc<dyn SecretStore>, cx: &mut App) -> Result<()> {
         let services = Self {
             runtime: IoRuntime::new()?,
             drivers: DriverRegistry::new()
@@ -47,7 +62,7 @@ impl Services {
                 .with_driver(Arc::new(SqliteDriver::new()))
                 .with_driver(Arc::new(SqlServerDriver::new()))
                 .with_driver(Arc::new(ClickHouseDriver::new())),
-            secrets: Arc::new(KeychainSecrets::new()),
+            secrets,
             catalog_cache: Arc::new(CatalogCache::new(data_directory.join("cache"))),
             data_directory,
         };

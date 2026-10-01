@@ -413,7 +413,7 @@ impl DumpDialog {
         let task = self
             .data_source
             .read(cx)
-            .run_statements(vec![format!("VACUUM INTO '{target}'")], cx);
+            .run_reading_statements(vec![format!("VACUUM INTO '{target}'")], cx);
         self.task = Some(cx.spawn(async move |this, cx| {
             let result = task.await;
             let _ = this.update(cx, |this, cx| {

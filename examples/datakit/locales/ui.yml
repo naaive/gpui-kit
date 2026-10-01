@@ -105,6 +105,14 @@ menu:
     en: "Find action…"
     zh-CN: "查找操作…"
     zh-HK: "尋找動作…"
+  local_history:
+    en: Local history…
+    zh-CN: 本地历史…
+    zh-HK: 本機記錄…
+  recent_files:
+    en: Recent files…
+    zh-CN: 最近的文件…
+    zh-HK: 最近的檔案…
   explain:
     en: "Explain plan"
     zh-CN: "执行计划"
@@ -232,6 +240,51 @@ datasource:
       en: "Connected to %{server}"
       zh-CN: "已连接到 %{server}"
       zh-HK: "已連線至 %{server}"
+    color:
+      en: Color
+      zh-CN: 颜色
+      zh-HK: 顏色
+    read_only:
+      en: Read-only
+      zh-CN: 只读
+      zh-HK: 唯讀
+    read_only_description:
+      en: Consoles run only statements that read, and tables cannot be edited.
+      zh-CN: 控制台只执行读取数据的语句，表也不能编辑。
+      zh-HK: 控制台只執行讀取數據的語句，表格亦不能編輯。
+  color:
+    none:
+      en: No color
+      zh-CN: 无颜色
+      zh-HK: 無顏色
+    red:
+      en: Red
+      zh-CN: 红色
+      zh-HK: 紅色
+    yellow:
+      en: Yellow
+      zh-CN: 黄色
+      zh-HK: 黃色
+    green:
+      en: Green
+      zh-CN: 绿色
+      zh-HK: 綠色
+    cyan:
+      en: Cyan
+      zh-CN: 青色
+      zh-HK: 青色
+    blue:
+      en: Blue
+      zh-CN: 蓝色
+      zh-HK: 藍色
+    magenta:
+      en: Magenta
+      zh-CN: 品红色
+      zh-HK: 洋紅色
+  read_only_refused:
+    en: "“%{name}” is read-only."
+    zh-CN: "“%{name}”是只读的。"
+    zh-HK: "「%{name}」是唯讀的。"
   ssl:
     disable:
       en: Off
@@ -358,6 +411,14 @@ explorer:
     en: Open data
     zh-CN: 打开数据
     zh-HK: 開啟數據
+  compare_data:
+    en: Compare data with…
+    zh-CN: 比较数据…
+    zh-HK: 比較數據…
+  rename:
+    en: Rename…
+    zh-CN: 重命名…
+    zh-HK: 重新命名…
   copy_name:
     en: Copy name
     zh-CN: 复制名称
@@ -394,6 +455,22 @@ explorer:
     en: "Triggers %{count}"
     zh-CN: "触发器 %{count}"
     zh-HK: "觸發程序 %{count}"
+  roles:
+    en: "Users and roles %{count}"
+    zh-CN: "用户与角色 %{count}"
+    zh-HK: "使用者與角色 %{count}"
+  user:
+    en: User
+    zh-CN: 用户
+    zh-HK: 使用者
+  role:
+    en: Role
+    zh-CN: 角色
+    zh-HK: 角色
+  member_of:
+    en: "Member of %{roles}"
+    zh-CN: "属于 %{roles}"
+    zh-HK: "屬於 %{roles}"
   view_options:
     en: "View options"
     zh-CN: "显示选项"
@@ -459,6 +536,18 @@ console:
     en: Console
     zh-CN: 控制台
     zh-HK: 控制台
+  read_only:
+    en: Read-only
+    zh-CN: 只读
+    zh-HK: 唯讀
+  no_signature:
+    en: DataKit doesn’t know this routine’s arguments.
+    zh-CN: DataKit 不知道这个例程的参数。
+    zh-HK: DataKit 不知道這個例程的參數。
+  read_only_refused:
+    en: "“%{name}” is read-only; nothing was run, because this statement changes data: %{statement}"
+    zh-CN: "“%{name}”是只读的。这条语句会修改数据，所以没有执行任何语句：%{statement}"
+    zh-HK: "「%{name}」是唯讀的。這條語句會修改數據，所以沒有執行任何語句：%{statement}"
   execute:
     en: Execute
     zh-CN: 执行
@@ -503,6 +592,14 @@ console:
     en: Statement
     zh-CN: 语句
     zh-HK: 語句
+  busy:
+    en: The console is running a statement
+    zh-CN: 控制台正在执行语句
+    zh-HK: 控制台正在執行語句
+  filter_not_a_query:
+    en: The filter only applies to a statement that returns rows
+    zh-CN: 筛选只适用于返回行的语句
+    zh-HK: 篩選只適用於傳回列的語句
   rows_fetched:
     en: "%{count} rows fetched in %{duration}"
     zh-CN: "已获取 %{count} 行，用时 %{duration}"
@@ -604,6 +701,47 @@ results:
     en: Result
     zh-CN: 结果
     zh-HK: 結果
+  record:
+    en: Record view
+    zh-CN: 记录视图
+    zh-HK: 記錄檢視
+  record_row:
+    en: "Row %{row}"
+    zh-CN: "第 %{row} 行"
+    zh-HK: "第 %{row} 列"
+  record_empty:
+    en: No rows
+    zh-CN: 没有行
+    zh-HK: 沒有列
+  aggregate:
+    count:
+      en: "Count %{count}"
+      zh-CN: "计数 %{count}"
+      zh-HK: "計數 %{count}"
+    distinct:
+      en: "Distinct %{count}"
+      zh-CN: "去重 %{count}"
+      zh-HK: "不重複 %{count}"
+    nulls:
+      en: "Null %{count}"
+      zh-CN: "空值 %{count}"
+      zh-HK: "空值 %{count}"
+    sum:
+      en: "Sum %{value}"
+      zh-CN: "求和 %{value}"
+      zh-HK: "總和 %{value}"
+    average:
+      en: "Avg %{value}"
+      zh-CN: "平均 %{value}"
+      zh-HK: "平均 %{value}"
+    min:
+      en: "Min %{value}"
+      zh-CN: "最小 %{value}"
+      zh-HK: "最小 %{value}"
+    max:
+      en: "Max %{value}"
+      zh-CN: "最大 %{value}"
+      zh-HK: "最大 %{value}"
   rows:
     en: "%{count} rows"
     zh-CN: "%{count} 行"
@@ -633,6 +771,10 @@ results:
     zh-CN: "无法写入 %{path}：%{error}"
     zh-HK: "無法寫入 %{path}：%{error}"
   format:
+    xlsx:
+      en: Excel (XLSX)
+      zh-CN: Excel（XLSX）
+      zh-HK: Excel（XLSX）
     tsv:
       en: TSV (spreadsheet)
       zh-CN: TSV（电子表格）
@@ -1336,3 +1478,97 @@ files:
     en: "Couldn’t open %{path}: %{error}"
     zh-CN: "无法打开 %{path}：%{error}"
     zh-HK: "無法開啟 %{path}：%{error}"
+rename:
+  title:
+    en: "Rename “%{name}”"
+    zh-CN: "重命名“%{name}”"
+    zh-HK: "重新命名「%{name}」"
+  label:
+    en: New name
+    zh-CN: 新名称
+    zh-HK: 新名稱
+  confirm:
+    en: Rename
+    zh-CN: 重命名
+    zh-HK: 重新命名
+  updated:
+    en: "Renamed. %{count} usages in open consoles now use the new name."
+    zh-CN: "已重命名。打开的控制台中有 %{count} 处引用已改用新名称。"
+    zh-HK: "已重新命名。開啟的控制台中有 %{count} 處引用已改用新名稱。"
+intention:
+  expand_star:
+    en: Expand column list
+    zh-CN: 展开列列表
+    zh-HK: 展開欄清單
+recent:
+  title:
+    en: Recent
+    zh-CN: 最近
+    zh-HK: 最近
+  placeholder:
+    en: Search recent files and tables
+    zh-CN: 搜索最近的文件和表
+    zh-HK: 搜尋最近的檔案和表格
+  empty:
+    en: Files and tables you open show here.
+    zh-CN: 打开过的文件和表会显示在这里。
+    zh-HK: 開啟過的檔案和表格會顯示在這裡。
+usages:
+  title:
+    en: "%{count} usages of “%{name}”"
+    zh-CN: "“%{name}”的 %{count} 处引用"
+    zh-HK: "「%{name}」的 %{count} 處引用"
+  placeholder:
+    en: Filter usages
+    zh-CN: 筛选引用
+    zh-HK: 篩選引用
+  none:
+    en: No open console names it.
+    zh-CN: 没有打开的控制台引用它。
+    zh-HK: 沒有開啟的控制台引用它。
+local_history:
+  title:
+    en: "Local history of “%{name}”"
+    zh-CN: "“%{name}”的本地历史"
+    zh-HK: "「%{name}」的本機記錄"
+  revert:
+    en: Revert to this version
+    zh-CN: 恢复到此版本
+    zh-HK: 還原至此版本
+  empty:
+    en: DataKit keeps a version whenever the text runs, and every few minutes while you type.
+    zh-CN: 每次执行时，以及编辑过程中每隔几分钟，DataKit 都会保存一个版本。
+    zh-HK: 每次執行時，以及編輯期間每隔數分鐘，DataKit 都會保存一個版本。
+data_compare:
+  title:
+    en: Data comparison
+    zh-CN: 数据比较
+    zh-HK: 數據比較
+  choose:
+    en: Choose the table to compare and the table to make like it.
+    zh-CN: 选择要比较的表，以及要改成与它一致的表。
+    zh-HK: 選擇要比較的表格，以及要改成與它一致的表格。
+  compare:
+    en: Compare
+    zh-CN: 比较
+    zh-HK: 比較
+  reading:
+    en: Reading both tables…
+    zh-CN: 正在读取两张表…
+    zh-HK: 正在讀取兩張表格…
+  no_columns:
+    en: DataKit doesn’t know the source table’s columns yet; open its schema in the explorer.
+    zh-CN: DataKit 还不知道源表有哪些列，请先在资源管理器里展开它的 schema。
+    zh-HK: DataKit 還不知道來源表格有哪些欄，請先在資源管理器裡展開它的 schema。
+  identical:
+    en: "The tables hold the same %{rows} rows."
+    zh-CN: "两张表的 %{rows} 行完全相同。"
+    zh-HK: "兩張表格的 %{rows} 列完全相同。"
+  summary:
+    en: "%{only_source} rows only in the source, %{only_target} only in the target, %{changed} differ, %{identical} the same."
+    zh-CN: "仅在源表 %{only_source} 行，仅在目标表 %{only_target} 行，不同 %{changed} 行，相同 %{identical} 行。"
+    zh-HK: "僅在來源表格 %{only_source} 列，僅在目標表格 %{only_target} 列，不同 %{changed} 列，相同 %{identical} 列。"
+  truncated:
+    en: "Only the first %{limit} rows of each table were compared."
+    zh-CN: "每张表只比较了前 %{limit} 行。"
+    zh-HK: "每張表格只比較了前 %{limit} 列。"

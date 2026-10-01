@@ -13,8 +13,8 @@ use std::{
 
 use datakit_driver::{Connection, DataSourceId, DatabaseError, StatementOutcome};
 use datakit_sql::{
-    FormatStyle, Inspection, Severity, Target, format_sql, inspect, parameters, resolve,
-    split_statements, statement_at, substitute, templates::CARET,
+    FormatStyle, Inspection, Severity, Target, format_sql, inspect, is_reading_statement,
+    parameters, resolve, split_statements, statement_at, substitute, templates::CARET,
 };
 use datakit_store::{HistoryEntry, HistoryOutcome};
 use futures::StreamExt as _;
@@ -35,27 +35,30 @@ use gpui_kit::component::{
     v_flex,
 };
 use gpui_kit::{
-    AnyElement, App, AppContext as _, Context, Entity, EventEmitter, FocusHandle, Focusable,
-    InteractiveElement as _, IntoElement, ParentElement as _, Render, SharedString, Styled as _,
-    Subscription, Task, Window, div, prelude::FluentBuilder as _, rems,
+    AnyElement, AnyWindowHandle, App, AppContext as _, Context, Entity, EventEmitter, FocusHandle,
+    Focusable, InteractiveElement as _, IntoElement, ParentElement as _, Render, SharedString,
+    Styled as _, Subscription, Task, Window, div, prelude::FluentBuilder as _, rems,
 };
 use rust_i18n::t;
 use serde::{Deserialize, Serialize};
 
 use super::{
-    CONTEXT, CancelExecution, Commit, ExecuteStatement, ExplainAnalyze, ExplainPlan, FormatSql,
-    QuickDocumentation, RenameAlias, Rollback, SaveConsoleAs,
+    CONTEXT, CancelExecution, Commit, ExecuteStatement, ExplainAnalyze, ExplainPlan, FindUsages,
+    FormatSql, ParameterInfo, QuickDocumentation, RenameAlias, Rollback, SaveConsoleAs,
+    ShowCompletions, ShowLocalHistory,
     completion::SqlCompletion,
     intelligence::{SqlIntelligence, problem_message},
     parameters_dialog::ParametersDialog,
 };
 use crate::{
     datasource::{ConnectionStatus, DataSource, DataSourceEvent, DataSources, describe_error},
+    disk_watch::{self, DiskWatch, RecursiveMode},
     format,
     history::HistoryLog,
+    local_history,
     navigation::{Navigation, NavigationEvent},
     objects::{ObjectPath, ObjectRef},
-    results::{Page, PlanView, ResultView, result_pages},
+    results::{Page, PlanView, ResultView, ResultViewEvent, result_pages},
     services::Services,
 };
 
@@ -142,6 +145,12 @@ pub struct ConsolePanel {
     /// The SQL file the text is saved to; a scratch console's text lives in
     /// the data directory.
     file: Option<PathBuf>,
+    /// The file's text as DataKit last wrote or read it, to tell another
+    /// program's change from its own.
+    disk_text: SharedString,
+    /// Reloads the file when another program changes it.
+    file_watch: Option<DiskWatch>,
+    window: AnyWindowHandle,
     editor: Entity<EditorState>,
     inspections: Rc<RefCell<Vec<Inspection>>>,
     session: Option<Arc<dyn Connection>>,
@@ -149,12 +158,17 @@ pub struct ConsolePanel {
     in_transaction: bool,
     run: Option<Run>,
     results: Vec<ResultEntry>,
+    /// What the console hears from the results in [`Self::results`].
+    result_subscriptions: Vec<Subscription>,
+    /// Reading a result again through its filter.
+    filter_task: Option<Task<()>>,
     output: Vec<OutputLine>,
     active_tab: ResultTab,
     parameter_values: HashMap<String, String>,
     /// Where the server said the last failure was, kept until the next edit.
     server_error: Option<Diagnostic>,
     save_task: Option<Task<()>>,
+    reload_task: Option<Task<()>>,
     inspect_task: Option<Task<()>>,
     data_source_subscriptions: Vec<Subscription>,
     _subscriptions: Vec<Subscription>,
@@ -248,6 +262,35 @@ impl ConsolePanel {
         )
     }
 
+    #[cfg(test)]
+    pub fn result_views(&self) -> Vec<Entity<ResultView>> {
+        self.results
+            .iter()
+            .filter_map(|entry| match entry {
+                ResultEntry::Rows(view) => Some(view.clone()),
+                ResultEntry::Plan { .. } => None,
+            })
+            .collect()
+    }
+
+    #[cfg(test)]
+    pub fn editor(&self) -> &Entity<EditorState> {
+        &self.editor
+    }
+
+    /// The console's text.
+    pub fn text(&self, cx: &App) -> String {
+        self.editor.read(cx).value().to_string()
+    }
+
+    /// Select `range` of the text and put the caret in the editor.
+    pub fn select(&mut self, range: Range<usize>, window: &mut Window, cx: &mut Context<Self>) {
+        self.editor.update(cx, |editor, cx| {
+            editor.set_selected_range(range, cx);
+            editor.focus(window, cx);
+        });
+    }
+
     /// The SQL file the console edits.
     pub fn file(&self) -> Option<&PathBuf> {
         self.file.as_ref()
@@ -317,6 +360,7 @@ impl ConsolePanel {
                     }
                     this.name = file_name(&path);
                     this.file = Some(path);
+                    this.watch_file(cx);
                     cx.emit(PanelEvent::LayoutChanged);
                     cx.notify();
                 }
@@ -430,6 +474,7 @@ impl ConsolePanel {
         cx: &mut Context<Self>,
     ) -> Self {
         let text = SharedString::from(text.to_string());
+        let disk_text = text.clone();
         let inspections: Rc<RefCell<Vec<Inspection>>> = Rc::default();
         let editor = cx.new(|cx| {
             let mut state = EditorState::new(window, cx)
@@ -463,6 +508,9 @@ impl ConsolePanel {
             name,
             data_source_id,
             data_source,
+            disk_text,
+            file_watch: None,
+            window: window.window_handle(),
             file,
             editor,
             inspections,
@@ -471,16 +519,20 @@ impl ConsolePanel {
             in_transaction: false,
             run: None,
             results: Vec::new(),
+            result_subscriptions: Vec::new(),
+            filter_task: None,
             output: Vec::new(),
             active_tab: ResultTab::Output,
             parameter_values: HashMap::new(),
             server_error: None,
             save_task: None,
+            reload_task: None,
             inspect_task: None,
             data_source_subscriptions,
             _subscriptions: subscriptions,
         };
         console.schedule_inspection(cx);
+        console.watch_file(cx);
         super::Sessions::register(&cx.entity(), cx);
         console
     }
@@ -516,16 +568,85 @@ impl ConsolePanel {
                 return;
             };
             let written = cx
-                .background_spawn(async move {
-                    if let Some(directory) = path.parent() {
-                        std::fs::create_dir_all(directory)?;
+                .background_spawn({
+                    let text = text.clone();
+                    async move {
+                        if let Some(directory) = path.parent() {
+                            std::fs::create_dir_all(directory)?;
+                        }
+                        std::fs::write(&path, text.as_bytes())
                     }
-                    std::fs::write(&path, text.as_bytes())
                 })
                 .await;
-            if let Err(error) = written {
-                tracing::error!("couldn’t save the console: {error}");
+            match written {
+                Ok(()) => {
+                    let _ = this.update(cx, |this, cx| {
+                        local_history::record(&this.history_key(), text.to_string(), false, cx)
+                            .detach();
+                        this.disk_text = text;
+                    });
+                }
+                Err(error) => tracing::error!("couldn’t save the console: {error}"),
             }
+        }));
+    }
+
+    /// Watch the console's file, so a change another program makes shows.
+    fn watch_file(&mut self, cx: &mut Context<Self>) {
+        let Some(directory) = self.file.as_ref().and_then(|file| file.parent()) else {
+            self.file_watch = None;
+            return;
+        };
+        // Editors often save by replacing the file, which a watch on the
+        // file itself would lose; the folder sees it.
+        self.file_watch = disk_watch::watch(
+            &[(directory.to_path_buf(), RecursiveMode::NonRecursive)],
+            cx,
+            |this, changed, cx| {
+                if let Some(file) = &this.file
+                    && changed.contains(file)
+                {
+                    this.reload_file(cx);
+                }
+            },
+        );
+    }
+
+    /// Show the file's text again after another program changed it, unless
+    /// the console has edits of its own still to save; those win.
+    fn reload_file(&mut self, cx: &mut Context<Self>) {
+        let Some(path) = self.file.clone() else {
+            return;
+        };
+        self.reload_task = Some(cx.spawn(async move |this, cx| {
+            let Ok(text) = cx
+                .background_spawn(async move { std::fs::read_to_string(path) })
+                .await
+            else {
+                return;
+            };
+            let _ = this.update(cx, |this, cx| {
+                let text = SharedString::from(text);
+                let unsaved = this.editor.read(cx).value() != this.disk_text;
+                if text == this.disk_text || unsaved {
+                    return;
+                }
+                this.disk_text = text.clone();
+                let editor = this.editor.clone();
+                let _ = cx.update_window(this.window, |_, window, cx| {
+                    editor.update(cx, |editor, cx| {
+                        // The caret stays where it was, as far as the text
+                        // still reaches.
+                        let caret = editor.cursor().min(text.len());
+                        let caret = (0..=caret)
+                            .rev()
+                            .find(|offset| text.is_char_boundary(*offset))
+                            .unwrap_or_default();
+                        editor.set_value(text, window, cx);
+                        editor.set_selected_range(caret..caret, cx);
+                    });
+                });
+            });
         }));
     }
 
@@ -622,7 +743,39 @@ impl ConsolePanel {
         (text, statements)
     }
 
+    /// What the console's Local History is kept under: its file, or its id.
+    fn history_key(&self) -> String {
+        self.file
+            .as_ref()
+            .map(|file| file.display().to_string())
+            .unwrap_or_else(|| self.id.to_string())
+    }
+
+    fn show_local_history(
+        &mut self,
+        _: &ShowLocalHistory,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let console = cx.entity().downgrade();
+        local_history::LocalHistoryView::open(
+            &self.history_key(),
+            self.name.clone(),
+            move |text, window, cx| {
+                let _ = console.update(cx, |console, cx| {
+                    console
+                        .editor
+                        .update(cx, |editor, cx| editor.replace_all(text, window, cx));
+                });
+            },
+            window,
+            cx,
+        );
+    }
+
     fn execute(&mut self, _: &ExecuteStatement, window: &mut Window, cx: &mut Context<Self>) {
+        // Text that runs is worth going back to.
+        local_history::record(&self.history_key(), self.text(cx), true, cx).detach();
         let (text, statements) = self.statements_to_run(cx);
         self.prepare_run(text, statements, RunMode::Execute, window, cx);
     }
@@ -697,6 +850,140 @@ impl ConsolePanel {
         Some(ObjectRef::new(data_source, path))
     }
 
+    /// Ask for completions without typing, as `Ctrl-Space` does in
+    /// DataGrip: the menu replaces the word the caret is in.
+    fn show_completions(
+        &mut self,
+        _: &ShowCompletions,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let editor = self.editor.read(cx);
+        let Some(provider) = editor.lsp().completion_provider.clone() else {
+            return;
+        };
+        let text = editor.text().clone();
+        let offset = editor.cursor();
+        let trigger = lsp_types::CompletionContext {
+            trigger_kind: lsp_types::CompletionTriggerKind::INVOKED,
+            trigger_character: None,
+        };
+        let request = provider.completions(&text, offset, trigger, window, cx);
+        let editor = self.editor.downgrade();
+        cx.spawn_in(window, async move |_, cx| {
+            let Ok(response) = request.await else {
+                return;
+            };
+            let items = match response {
+                lsp_types::CompletionResponse::Array(items) => items,
+                lsp_types::CompletionResponse::List(list) => list.items,
+            };
+            // Every item replaces the same word; it starts the query.
+            let start = items
+                .iter()
+                .find_map(|item| match item.text_edit.as_ref()? {
+                    lsp_types::CompletionTextEdit::Edit(edit) => {
+                        Some(text.position_to_offset(&edit.range.start))
+                    }
+                    lsp_types::CompletionTextEdit::InsertAndReplace(edit) => {
+                        Some(text.position_to_offset(&edit.replace.start))
+                    }
+                })
+                .unwrap_or(offset)
+                .min(offset);
+            let query = text.slice(start..offset).to_string();
+            let _ = editor.update(cx, |editor, cx| {
+                editor.present_completion_items(start, query, items, cx)
+            });
+        })
+        .detach();
+    }
+
+    /// Show the signatures of the routine whose arguments the caret is
+    /// in, the current argument in bold.
+    fn parameter_info(&mut self, _: &ParameterInfo, _: &mut Window, cx: &mut Context<Self>) {
+        let Some(data_source) = &self.data_source else {
+            return;
+        };
+        let source = data_source.read(cx);
+        let editor = self.editor.read(cx);
+        let text = editor.value().to_string();
+        let Some(info) = datakit_sql::parameter_info(
+            &text,
+            editor.cursor(),
+            source.catalog(),
+            &*source.dialect(),
+        ) else {
+            return;
+        };
+        let markdown = if info.signatures().is_empty() {
+            format!(
+                "`{}(…)`
+
+{}",
+                info.name(),
+                t!("console.no_signature")
+            )
+        } else {
+            info.signatures()
+                .iter()
+                .map(|signature| {
+                    let arguments = signature
+                        .arguments()
+                        .iter()
+                        .enumerate()
+                        .map(|(ix, argument)| {
+                            if ix == info.argument() {
+                                format!("**`{argument}`**")
+                            } else {
+                                format!("`{argument}`")
+                            }
+                        })
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    let result = signature
+                        .result()
+                        .map(|result| format!(" → `{result}`"))
+                        .unwrap_or_default();
+                    format!("{}({arguments}){result}", info.name())
+                })
+                .collect::<Vec<_>>()
+                .join(
+                    "
+
+",
+                )
+        };
+        let range = info.name_range();
+        self.editor.update(cx, |editor, cx| {
+            editor.present_hover(
+                range,
+                lsp_types::Hover {
+                    contents: lsp_types::HoverContents::Markup(lsp_types::MarkupContent {
+                        kind: lsp_types::MarkupKind::Markdown,
+                        value: markdown,
+                    }),
+                    range: None,
+                },
+                cx,
+            )
+        });
+    }
+
+    fn find_usages(&mut self, _: &FindUsages, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(object) = self.object_at_caret(cx) else {
+            return;
+        };
+        let Some(target) = object.usage_target() else {
+            return;
+        };
+        let name = object.path().name();
+        // The search reads every console, this one too.
+        window.defer(cx, move |window, cx| {
+            super::usages::UsagesList::open(&name, &target, object.data_source(), window, cx)
+        });
+    }
+
     fn quick_documentation(
         &mut self,
         _: &QuickDocumentation,
@@ -708,6 +995,40 @@ impl ConsolePanel {
         }
     }
 
+    /// Change every name in the text that refers to `target` to
+    /// `replacement`, and return how many there were.
+    pub fn replace_usages(
+        &mut self,
+        target: &Target,
+        catalog: &datakit_catalog::Catalog,
+        dialect: &dyn datakit_driver::Dialect,
+        replacement: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> usize {
+        self.editor.update(cx, |editor, cx| {
+            let text = editor.value().to_string();
+            let rope = editor.text().clone();
+            let edits: Vec<lsp_types::TextEdit> =
+                datakit_sql::usages(&text, target, catalog, dialect)
+                    .into_iter()
+                    .map(|range| lsp_types::TextEdit {
+                        range: lsp_types::Range::new(
+                            rope.offset_to_position(range.start),
+                            rope.offset_to_position(range.end),
+                        ),
+                        new_text: replacement.to_string(),
+                    })
+                    .collect();
+            if !edits.is_empty() {
+                editor.apply_lsp_edits(&edits, window, cx);
+            }
+            edits.len()
+        })
+    }
+
+    /// Rename the alias at the caret within its statement, or the table,
+    /// view or column the name at the caret refers to.
     fn rename_alias(&mut self, _: &RenameAlias, window: &mut Window, cx: &mut Context<Self>) {
         let Some(data_source) = &self.data_source else {
             return;
@@ -717,6 +1038,12 @@ impl ConsolePanel {
         let text = editor.value().to_string();
         let Some(occurrences) = datakit_sql::alias_occurrences(&text, editor.cursor(), &*dialect)
         else {
+            if let Some(object) = self
+                .object_at_caret(cx)
+                .filter(|object| object.target().is_some())
+            {
+                crate::rename::rename_object(&object, window, cx);
+            }
             return;
         };
         let editor = self.editor.downgrade();
@@ -814,9 +1141,32 @@ impl ConsolePanel {
         let Some(data_source) = self.data_source.clone() else {
             return;
         };
+        // A read-only data source runs only statements that read; DataKit
+        // says which one it refused rather than running those before it.
+        if data_source.read(cx).is_read_only()
+            && let Some((_, refused)) = statements.iter().find(|(_, sql)| {
+                !is_reading_statement(sql) || mode == RunMode::Explain { analyze: true }
+            })
+        {
+            let statement = refused.lines().next().unwrap_or_default().to_string();
+            self.log(
+                t!(
+                    "console.read_only_refused",
+                    name = data_source.read(cx).name(),
+                    statement = statement
+                )
+                .into(),
+                true,
+            );
+            self.active_tab = ResultTab::Output;
+            cx.notify();
+            return;
+        }
         self.server_error = None;
         self.show_diagnostics(cx);
         self.results.clear();
+        self.result_subscriptions.clear();
+        self.filter_task = None;
         self.active_tab = ResultTab::Output;
 
         let dialect = data_source.read(cx).dialect();
@@ -1006,6 +1356,15 @@ impl ConsolePanel {
                             {
                                 this.active_tab = ResultTab::Result(this.results.len());
                             }
+                            this.result_subscriptions.push(cx.subscribe_in(
+                                &result,
+                                window,
+                                |this, result, event: &ResultViewEvent, window, cx| match event {
+                                    ResultViewEvent::Filter(sql) => {
+                                        this.filter_result(result.clone(), sql.clone(), window, cx)
+                                    }
+                                },
+                            ));
                             this.results.push(ResultEntry::Rows(result));
                             let outcome = match &failure {
                                 Some(error) => {
@@ -1189,6 +1548,97 @@ impl ConsolePanel {
         cx.notify();
     }
 
+    /// Run `sql`, a result's statement through its filter, in the
+    /// console's session and show its rows in `result`.
+    fn filter_result(
+        &mut self,
+        result: Entity<ResultView>,
+        sql: Arc<str>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let data_source = match (&self.run, &self.data_source) {
+            (None, Some(data_source)) => data_source.clone(),
+            _ => {
+                result.update(cx, |result, cx| {
+                    result.filter_failed(t!("console.busy").into(), cx)
+                });
+                return;
+            }
+        };
+        let session = self.session.clone().filter(|session| !session.is_closed());
+        self.filter_task = Some(cx.spawn_in(window, async move |this, cx| {
+            let fail = |message: SharedString, cx: &mut gpui_kit::AsyncWindowContext| {
+                let _ = result.update(cx, |result, cx| result.filter_failed(message, cx));
+            };
+            let connection = match session {
+                Some(connection) => connection,
+                None => {
+                    let Ok(connecting) = cx.update(|_, cx| data_source.read(cx).open_session(cx))
+                    else {
+                        return;
+                    };
+                    match connecting.await {
+                        Ok(connection) => {
+                            let _ = this.update(cx, |this, _| {
+                                this.session = Some(connection.clone());
+                                this.in_transaction = false;
+                            });
+                            connection
+                        }
+                        Err(error) => return fail(describe_error(&error), cx),
+                    }
+                }
+            };
+            let started = Instant::now();
+            let started_at = format::now_ms();
+            let Ok(execution) =
+                cx.update(|_, cx| Services::global(cx).spawn(connection.execute(sql.clone())))
+            else {
+                return;
+            };
+            let (outcome, page) = match execution.await {
+                Ok(StatementOutcome::Rows(stream)) => {
+                    let columns = stream.columns().clone();
+                    let Ok(mut pages) = cx.update(|_, cx| result_pages(stream, cx)) else {
+                        return;
+                    };
+                    let page = Page::fetch(&mut pages).await;
+                    match page.error().cloned() {
+                        Some(message) if page.is_empty() => {
+                            fail(message.clone(), cx);
+                            (HistoryOutcome::Failed(message.to_string().into()), None)
+                        }
+                        _ => (
+                            HistoryOutcome::Rows(page.len() as u64),
+                            Some((columns, page, pages)),
+                        ),
+                    }
+                }
+                Ok(StatementOutcome::Command(_)) => {
+                    let message: SharedString = t!("console.filter_not_a_query").into();
+                    fail(message.clone(), cx);
+                    (HistoryOutcome::Failed(message.to_string().into()), None)
+                }
+                Err(error) => {
+                    let message = describe_error(&error);
+                    fail(message.clone(), cx);
+                    (HistoryOutcome::Failed(message.to_string().into()), None)
+                }
+            };
+            let elapsed = started.elapsed();
+            if let Some((columns, page, pages)) = page {
+                let _ = result.update_in(cx, |result, window, cx| {
+                    result.show_filtered(columns, page, pages, elapsed, window, cx)
+                });
+            }
+            let _ = this.update(cx, |this, cx| {
+                this.record(sql, started_at, elapsed, outcome, cx);
+                this.filter_task = None;
+            });
+        }));
+    }
+
     /// Report a statement that failed, or that the person cancelled.
     #[allow(clippy::too_many_arguments)]
     fn fail_statement(
@@ -1321,6 +1771,13 @@ impl ConsolePanel {
             None => t!("console.data_source_missing").into(),
         };
         let disabled = running || self.data_source.is_none();
+        let (tint, read_only) = match &self.data_source {
+            Some(data_source) => {
+                let source = data_source.read(cx);
+                (source.tint(cx), source.is_read_only())
+            }
+            None => (None, false),
+        };
         let console = cx.entity().downgrade();
         let mode = self.transaction_mode;
         let mode_label: SharedString = match mode {
@@ -1334,6 +1791,7 @@ impl ConsolePanel {
             .gap_1()
             .border_b_1()
             .border_color(theme.border)
+            .when_some(tint, |toolbar, tint| toolbar.bg(tint))
             .child(
                 Button::new("execute")
                     .ghost()
@@ -1486,6 +1944,16 @@ impl ConsolePanel {
                         }
                     }),
             )
+            .when(read_only, |toolbar| {
+                toolbar.child(
+                    h_flex()
+                        .gap_1()
+                        .text_xs()
+                        .text_color(theme.muted_foreground)
+                        .child(Icon::new(IconName::Lock).xsmall())
+                        .child(t!("console.read_only").to_string()),
+                )
+            })
             .child(div().flex_1())
             .when_some(self.run.as_ref(), |toolbar, run| {
                 let label: SharedString = if run.cancelling {
@@ -1633,7 +2101,12 @@ impl Panel for ConsolePanel {
                     IconName::SquareTerminal
                 })
                 .xsmall()
-                .text_color(cx.theme().muted_foreground),
+                .text_color(
+                    self.data_source
+                        .as_ref()
+                        .and_then(|data_source| data_source.read(cx).color())
+                        .map_or(cx.theme().muted_foreground, |color| color.hsla(cx)),
+                ),
             )
             .child(self.name.clone())
             // An open transaction is easy to forget; the tab says so.
@@ -1673,6 +2146,10 @@ impl Render for ConsolePanel {
             .on_action(cx.listener(Self::quick_documentation))
             .on_action(cx.listener(Self::rename_alias))
             .on_action(cx.listener(Self::save_as))
+            .on_action(cx.listener(Self::show_completions))
+            .on_action(cx.listener(Self::find_usages))
+            .on_action(cx.listener(Self::parameter_info))
+            .on_action(cx.listener(Self::show_local_history))
             .child(self.render_toolbar(cx))
             .child(div().flex_1().min_h_0().map(|body| {
                 if has_results {

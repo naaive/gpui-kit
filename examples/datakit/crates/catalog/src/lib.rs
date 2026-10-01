@@ -14,12 +14,14 @@
 
 mod diff;
 mod object;
+mod role;
 
 pub use diff::{RelationChange, SchemaDiff, diff_schemas};
 pub use object::{
     Column, Constraint, ConstraintRule, ForeignKey, Index, ReferentialAction, Relation,
     RelationType, Routine, RoutineType, Schema, Sequence, Trigger,
 };
+pub use role::Role;
 
 use std::sync::Arc;
 
@@ -31,6 +33,9 @@ pub struct Catalog {
     database: Arc<str>,
     schemas: Arc<[Schema]>,
     search_path: Arc<[Arc<str>]>,
+    /// The server's users and roles, as far as the session may see them.
+    #[serde(default)]
+    roles: Arc<[Role]>,
 }
 
 impl Catalog {
@@ -40,6 +45,7 @@ impl Catalog {
             database: database.into(),
             schemas: Arc::from([]),
             search_path: Arc::from([]),
+            roles: Arc::from([]),
         }
     }
 
@@ -58,6 +64,22 @@ impl Catalog {
     /// Whether the list of schemas has been read at least once.
     pub fn has_schemas(&self) -> bool {
         !self.schemas.is_empty()
+    }
+
+    pub fn roles(&self) -> &[Role] {
+        &self.roles
+    }
+
+    pub fn role(&self, name: &str) -> Option<&Role> {
+        self.roles.iter().find(|role| &*role.name() == name)
+    }
+
+    /// The same catalog with `roles` as the server's users and roles.
+    pub fn with_roles(&self, roles: impl IntoIterator<Item = Role>) -> Self {
+        Self {
+            roles: roles.into_iter().collect(),
+            ..self.clone()
+        }
     }
 
     /// The schemas an unqualified name is looked up in, in order.

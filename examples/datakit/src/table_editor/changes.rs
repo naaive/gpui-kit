@@ -227,6 +227,57 @@ pub fn typed_value(text: &str, column: &ColumnInfo) -> Value {
     }
 }
 
+/// Rows copied from a spreadsheet or a result: tab-separated fields, a line
+/// a row. A field in double quotes may hold tabs, line breaks and doubled
+/// quotes, as spreadsheets write them. A trailing line break ends the last
+/// row rather than adding an empty one.
+pub fn parse_tsv(text: &str) -> Vec<Vec<String>> {
+    let mut rows = Vec::new();
+    let mut row = Vec::new();
+    let mut field = String::new();
+    let mut chars = text.chars().peekable();
+    let mut quoted = false;
+    let mut at_field_start = true;
+    while let Some(c) = chars.next() {
+        if quoted {
+            match c {
+                '"' if chars.peek() == Some(&'"') => {
+                    chars.next();
+                    field.push('"');
+                }
+                '"' => quoted = false,
+                c => field.push(c),
+            }
+            continue;
+        }
+        match c {
+            '"' if at_field_start => {
+                quoted = true;
+                at_field_start = false;
+            }
+            '\t' => {
+                row.push(std::mem::take(&mut field));
+                at_field_start = true;
+            }
+            '\r' if chars.peek() == Some(&'\n') => {}
+            '\n' => {
+                row.push(std::mem::take(&mut field));
+                rows.push(std::mem::take(&mut row));
+                at_field_start = true;
+            }
+            c => {
+                field.push(c);
+                at_field_start = false;
+            }
+        }
+    }
+    if !field.is_empty() || !row.is_empty() {
+        row.push(field);
+        rows.push(row);
+    }
+    rows
+}
+
 #[cfg(test)]
 mod tests {
     use datakit_driver::TypeCategory;
@@ -246,6 +297,20 @@ mod tests {
             vec![Value::Int(1), Value::Text("Ada".into())].into(),
             vec![Value::Int(2), Value::Text("Grace".into())].into(),
         ]
+    }
+
+    #[test]
+    fn copied_rows_split_into_fields() {
+        assert_eq!(
+            parse_tsv("1\tAda\r\n2\t\"Grace\tB.\n\"\"Amazing\"\"\"\n3\t\n"),
+            [
+                vec!["1", "Ada"],
+                vec!["2", "Grace\tB.\n\"Amazing\""],
+                vec!["3", ""],
+            ]
+        );
+        assert_eq!(parse_tsv("x"), [vec!["x"]]);
+        assert!(parse_tsv("").is_empty());
     }
 
     #[test]

@@ -5,7 +5,7 @@
 use std::{cell::RefCell, ops::Range, rc::Rc, str::FromStr as _};
 
 use anyhow::Result;
-use datakit_sql::{Inspection, Problem, Target, resolve};
+use datakit_sql::{Inspection, Intention, Problem, Refactoring, Target, intentions, resolve};
 use gpui_kit::component::input::{
     CodeActionProvider, DefinitionProvider, EditorState, HoverProvider, Rope, RopeExt as _,
 };
@@ -50,6 +50,19 @@ impl SqlIntelligence {
         let index: usize = uri.as_str().strip_prefix(OBJECT)?.parse().ok()?;
         let path = self.targets.borrow().get(index)?.clone();
         Some(ObjectRef::new(self.data_source.upgrade()?, path))
+    }
+
+    fn intentions(&self, text: &Rope, offset: usize, cx: &App) -> Vec<Intention> {
+        let Some(data_source) = self.data_source.upgrade() else {
+            return Vec::new();
+        };
+        let source = data_source.read(cx);
+        intentions(
+            &text.to_string(),
+            offset,
+            source.catalog(),
+            &*source.dialect(),
+        )
     }
 
     fn resolution(&self, text: &Rope, offset: usize, cx: &App) -> Option<(Range<usize>, Target)> {
@@ -220,6 +233,30 @@ impl CodeActionProvider for SqlIntelligence {
                     }
                 })
             })
+            .chain(
+                self.intentions(&text, range.start, cx)
+                    .into_iter()
+                    .map(|intention| {
+                        let edit = TextEdit {
+                            range: lsp_types::Range::new(
+                                text.offset_to_position(intention.range().start),
+                                text.offset_to_position(intention.range().end),
+                            ),
+                            new_text: intention.replacement().to_string(),
+                        };
+                        CodeAction {
+                            title: match intention.refactoring() {
+                                Refactoring::ExpandStar => t!("intention.expand_star").to_string(),
+                            },
+                            kind: Some(CodeActionKind::REFACTOR_REWRITE),
+                            edit: Some(WorkspaceEdit {
+                                changes: Some([(uri.clone(), vec![edit])].into_iter().collect()),
+                                ..Default::default()
+                            }),
+                            ..Default::default()
+                        }
+                    }),
+            )
             .collect();
         Task::ready(Ok(actions))
     }

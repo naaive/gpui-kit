@@ -20,13 +20,21 @@ use datakit_driver::{Connection, ConnectionProfile, DataSourceId};
 use datakit_runtime::RemoteTask;
 use gpui_kit::{App, SharedString};
 
-pub use data_source::{CatalogRequest, ConnectionStatus, DataSource, DataSourceEvent};
+pub use data_source::{
+    CatalogRequest, ConnectionStatus, DataSource, DataSourceColor, DataSourceEvent,
+};
 pub use data_sources::{DataSources, DataSourcesEvent};
 pub use form::DataSourceForm;
 
 use crate::services::Services;
 
 pub(crate) use datakit_tunnel as tunnel;
+
+/// The profile option holding a data source's [`DataSourceColor`].
+pub const COLOR: &str = "color";
+/// The profile option that is `true` for a data source whose data must not
+/// change.
+pub const READ_ONLY: &str = "read_only";
 
 /// Open a new session to `profile`'s database, through its SSH tunnel when
 /// it has one. A password of `None` is read from the keychain.

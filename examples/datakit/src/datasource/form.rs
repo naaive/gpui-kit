@@ -4,24 +4,28 @@ use datakit_driver::{ConnectionProfile, DataSourceId, Driver, SslMode};
 use datakit_driver_postgres::PostgresDriver;
 use gpui_kit::assets::IconName;
 use gpui_kit::component::{
-    ActiveTheme as _, IndexPath, Sizable as _, WindowExt as _,
+    ActiveTheme as _, Icon, IndexPath, Sizable as _, WindowExt as _,
     button::{Button, ButtonVariants as _},
     checkbox::Checkbox,
     dialog::{DialogAction, DialogClose, DialogFooter},
-    form::{field, v_form},
+    form::{Field, field, v_form},
     h_flex,
     input::{Input, InputEvent, InputState},
     select::{Select, SelectEvent, SelectItem, SelectState},
     spinner::Spinner,
+    tooltip::Tooltip,
 };
 use gpui_kit::{
-    App, AppContext as _, Context, Entity, IntoElement, ParentElement as _, PathPromptOptions,
-    Render, SharedString, Styled as _, Subscription, Task, Window, div,
-    prelude::FluentBuilder as _, rems,
+    App, AppContext as _, Context, Entity, InteractiveElement as _, IntoElement,
+    ParentElement as _, PathPromptOptions, Render, SharedString, StatefulInteractiveElement as _,
+    Styled as _, Subscription, Task, Window, div, prelude::FluentBuilder as _, rems,
 };
 use rust_i18n::t;
 
-use super::{DataSource, DataSources, describe_error, open_connection, tunnel};
+use super::{
+    COLOR, DataSource, DataSourceColor, DataSources, READ_ONLY, describe_error, open_connection,
+    tunnel,
+};
 use crate::services::Services;
 
 /// The fields of a data source, for adding one or changing its properties.
@@ -45,6 +49,8 @@ pub struct DataSourceForm {
     ssh_user: Entity<InputState>,
     ssh_password: Entity<InputState>,
     ssh_key_file: Entity<InputState>,
+    color: Option<DataSourceColor>,
+    read_only: bool,
     port_error: Option<SharedString>,
     test: TestStatus,
     browse_task: Option<Task<()>>,
@@ -277,6 +283,8 @@ impl DataSourceForm {
             ssh_user,
             ssh_password,
             ssh_key_file,
+            color: profile.option(COLOR).and_then(DataSourceColor::parse),
+            read_only: profile.option(READ_ONLY) == Some("true"),
             port_error: None,
             test: TestStatus::Idle,
             browse_task: None,
@@ -401,6 +409,12 @@ impl DataSourceForm {
                 .with_option(tunnel::PORT, text(&self.ssh_port))
                 .with_option(tunnel::USER, text(&self.ssh_user))
                 .with_option(tunnel::KEY_FILE, text(&self.ssh_key_file));
+        }
+        if let Some(color) = self.color {
+            profile = profile.with_option(COLOR, color.as_str());
+        }
+        if self.read_only {
+            profile = profile.with_option(READ_ONLY, "true");
         }
         if let Some(id) = &self.existing {
             profile = profile.with_id(id.clone());
@@ -572,19 +586,21 @@ impl Render for DataSourceForm {
                     .child(Select::new(&self.driver)),
             );
         if file_based {
-            return form.child(
-                field()
-                    .col_span(4)
-                    .label(t!("datasource.form.file").to_string())
-                    .child(
-                        h_flex().gap_2().child(Input::new(&self.file)).child(
-                            Button::new("browse")
-                                .outline()
-                                .label(t!("datasource.form.browse").to_string())
-                                .on_click(cx.listener(|this, _, _, cx| this.browse(cx))),
+            return form
+                .child(
+                    field()
+                        .col_span(4)
+                        .label(t!("datasource.form.file").to_string())
+                        .child(
+                            h_flex().gap_2().child(Input::new(&self.file)).child(
+                                Button::new("browse")
+                                    .outline()
+                                    .label(t!("datasource.form.browse").to_string())
+                                    .on_click(cx.listener(|this, _, _, cx| this.browse(cx))),
+                            ),
                         ),
-                    ),
-            );
+                )
+                .children(self.render_marking(cx));
         }
         form.child(
             field()
@@ -670,5 +686,73 @@ impl Render for DataSourceForm {
                     .child(Input::new(&self.ssh_key_file)),
             )
         })
+        .children(self.render_marking(cx))
+    }
+}
+
+impl DataSourceForm {
+    /// The color the data source is marked with, and whether it is
+    /// read-only.
+    fn render_marking(&self, cx: &mut Context<Self>) -> [Field; 2] {
+        let theme = cx.theme();
+        let (ring, muted) = (theme.ring, theme.muted_foreground);
+        let transparent = theme.transparent;
+        let swatch = |color: Option<DataSourceColor>, cx: &mut Context<Self>| {
+            let selected = self.color == color;
+            let title = match color {
+                Some(color) => color.title(),
+                None => t!("datasource.color.none").into(),
+            };
+            div()
+                .id(SharedString::from(format!(
+                    "color-{}",
+                    color.map_or("none", DataSourceColor::as_str)
+                )))
+                .size_6()
+                .p_0p5()
+                .rounded_full()
+                .border_2()
+                .border_color(if selected { ring } else { transparent })
+                .child(
+                    div()
+                        .size_full()
+                        .rounded_full()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .map(|dot| match color {
+                            Some(color) => dot.bg(color.hsla(cx)),
+                            None => dot.child(Icon::new(IconName::Ban).small().text_color(muted)),
+                        }),
+                )
+                .tooltip(move |window, cx| Tooltip::new(title.clone()).build(window, cx))
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.color = color;
+                    cx.notify();
+                }))
+                .into_any_element()
+        };
+        let mut swatches = vec![swatch(None, cx)];
+        for color in DataSourceColor::ALL {
+            swatches.push(swatch(Some(color), cx));
+        }
+        [
+            field()
+                .col_span(4)
+                .label(t!("datasource.form.color").to_string())
+                .child(h_flex().gap_1().children(swatches)),
+            field()
+                .col_span(4)
+                .child(
+                    Checkbox::new("read-only")
+                        .label(t!("datasource.form.read_only").to_string())
+                        .checked(self.read_only)
+                        .on_click(cx.listener(|this, checked: &bool, _, cx| {
+                            this.read_only = *checked;
+                            cx.notify();
+                        })),
+                )
+                .description(t!("datasource.form.read_only_description").to_string()),
+        ]
     }
 }

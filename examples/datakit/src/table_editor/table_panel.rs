@@ -27,9 +27,9 @@ use rust_i18n::t;
 use serde::{Deserialize, Serialize};
 
 use super::{
-    AddRow, CONTEXT, CancelCellEdit, DeleteRows, EditCell, ReloadRows, RevertChanges, RevertRow,
-    SetNull, SubmitChanges,
-    changes::{RowState, typed_value},
+    AddRow, CONTEXT, CancelCellEdit, DeleteRows, EditCell, PasteCells, ReloadRows, RevertChanges,
+    RevertRow, SetNull, SubmitChanges,
+    changes::{RowState, parse_tsv, typed_value},
     grid::EditableGrid,
 };
 use crate::{
@@ -269,6 +269,9 @@ impl TablePanel {
         let Some(data_source) = &self.data_source else {
             return true;
         };
+        if data_source.read(cx).is_read_only() {
+            return true;
+        }
         let path = ObjectPath::relation(self.schema.clone(), self.relation.clone());
         !matches!(
             path.resolve(data_source.read(cx).catalog()),
@@ -702,20 +705,28 @@ impl TablePanel {
             cx.propagate();
             return;
         }
-        let Some((row, _)) = self.selected_cell(cx) else {
+        let Some(table) = self.table.clone() else {
             return;
         };
-        if let Some(table) = &self.table {
-            table.update(cx, |table, cx| {
-                let grid = table.delegate_mut();
-                if grid.is_read_only() {
-                    return;
-                }
-                let existing = grid.rows().len();
-                grid.changes_mut().toggle_delete(&[row], existing);
-                cx.notify();
-            });
-        }
+        // Every row the selected block of cells spans.
+        let Some(rows) = table
+            .read(cx)
+            .selected_cell_range()
+            .map(|(rows, _)| rows)
+            .or_else(|| self.selected_cell(cx).map(|(row, _)| row..row + 1))
+        else {
+            return;
+        };
+        table.update(cx, |table, cx| {
+            let grid = table.delegate_mut();
+            if grid.is_read_only() {
+                return;
+            }
+            let existing = grid.rows().len();
+            let rows: Vec<usize> = rows.collect();
+            grid.changes_mut().toggle_delete(&rows, existing);
+            cx.notify();
+        });
     }
 
     fn revert_row(&mut self, _: &RevertRow, _: &mut Window, cx: &mut Context<Self>) {
@@ -915,6 +926,51 @@ impl TablePanel {
         self.set_cell(row, column, value, window, cx);
     }
 
+    /// Put the clipboard's rows into the cells from the selected one on.
+    /// An empty field is `NULL`, as copying writes it.
+    fn paste_cells(&mut self, _: &PasteCells, window: &mut Window, cx: &mut Context<Self>) {
+        if self.is_editing(cx) {
+            cx.propagate();
+            return;
+        }
+        let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) else {
+            return;
+        };
+        let Some(table) = self.table.clone() else {
+            return;
+        };
+        let start = match table.read(cx).selection() {
+            TableSelection::Cell(row, column) => (row, column),
+            TableSelection::Row(row) => (row, 0),
+            _ => return,
+        };
+        let pasted = parse_tsv(&text);
+        table.update(cx, |table, cx| {
+            let grid = table.delegate_mut();
+            if grid.is_read_only() {
+                return;
+            }
+            let rows = grid.rows().to_vec();
+            let columns = grid.columns().clone();
+            for (offset, fields) in pasted.iter().enumerate() {
+                let row = start.0 + offset;
+                if row >= rows.len() + grid.changes().inserted_rows() {
+                    grid.changes_mut().insert_row();
+                }
+                for (column, field) in (start.1..columns.len()).zip(fields) {
+                    let value = if field.is_empty() {
+                        Value::Null
+                    } else {
+                        typed_value(field, &columns[column])
+                    };
+                    grid.changes_mut().set(&rows, row, column, value);
+                }
+            }
+            cx.notify();
+        });
+        self.show_value(window, cx);
+    }
+
     fn copy_cells(&mut self, _: &CopyCells, _: &mut Window, cx: &mut Context<Self>) {
         let Some(table) = &self.table else {
             return;
@@ -922,8 +978,23 @@ impl TablePanel {
         let table = table.read(cx);
         let grid = table.delegate();
         let text = match table.selection() {
-            TableSelection::Cell(row, column) => {
-                grid.value(row, column).map(plain_text).unwrap_or_default()
+            // A block of cells, a line a row.
+            TableSelection::Cell(..) => {
+                let Some((rows, columns)) = table.selected_cell_range() else {
+                    return;
+                };
+                rows.map(|row| {
+                    columns
+                        .clone()
+                        .map(|column| grid.value(row, column).map(plain_text).unwrap_or_default())
+                        .collect::<Vec<_>>()
+                        .join("	")
+                })
+                .collect::<Vec<_>>()
+                .join(
+                    "
+",
+                )
             }
             TableSelection::Row(row) => (0..grid.columns().len())
                 .map(|column| grid.value(row, column).map(plain_text).unwrap_or_default())
@@ -951,6 +1022,10 @@ impl TablePanel {
                 .text_color(theme.muted_foreground)
                 .child(text)
         };
+        let tint = self
+            .data_source
+            .as_ref()
+            .and_then(|data_source| data_source.read(cx).tint(cx));
         h_flex()
             .flex_none()
             .px_2()
@@ -958,6 +1033,7 @@ impl TablePanel {
             .gap_1()
             .border_b_1()
             .border_color(theme.border)
+            .when_some(tint, |toolbar, tint| toolbar.bg(tint))
             .child(
                 Button::new("reload")
                     .ghost()
@@ -1214,9 +1290,12 @@ impl Panel for TablePanel {
         h_flex()
             .gap_1()
             .child(
-                Icon::new(IconName::Table)
-                    .xsmall()
-                    .text_color(cx.theme().muted_foreground),
+                Icon::new(IconName::Table).xsmall().text_color(
+                    self.data_source
+                        .as_ref()
+                        .and_then(|data_source| data_source.read(cx).color())
+                        .map_or(cx.theme().muted_foreground, |color| color.hsla(cx)),
+                ),
             )
             .child(SharedString::from(self.relation.to_string()))
             .when(pending, |title| {
@@ -1253,6 +1332,7 @@ impl Render for TablePanel {
             .on_action(cx.listener(Self::edit_cell))
             .on_action(cx.listener(Self::cancel_edit))
             .on_action(cx.listener(Self::copy_cells))
+            .on_action(cx.listener(Self::paste_cells))
             .on_action(cx.listener(|this, _: &ReloadRows, window, cx| this.reload(window, cx)))
             .child(
                 TabBar::new("table-tabs")

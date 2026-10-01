@@ -32,7 +32,10 @@ actions!(
         /// Leave the cell being edited without changing it.
         CancelCellEdit,
         /// Read the rows again.
-        ReloadRows
+        ReloadRows,
+        /// Put copied rows into the cells from the selected one on, adding
+        /// rows past the last.
+        PasteCells
     ]
 );
 
@@ -55,6 +58,7 @@ pub fn init(cx: &mut App) {
             CancelCellEdit,
             Some("TableEditor > DataTable > Input"),
         ),
+        KeyBinding::new("secondary-v", PasteCells, Some("TableEditor > DataTable")),
         KeyBinding::new("secondary-r", ReloadRows, Some(CONTEXT)),
         KeyBinding::new("f5", ReloadRows, Some(CONTEXT)),
     ]);

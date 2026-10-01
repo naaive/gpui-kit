@@ -275,6 +275,58 @@ impl ObjectRef {
         }
     }
 
+    /// What names in SQL refer to the object, for the objects that can be
+    /// renamed: tables, views and columns.
+    pub fn target(&self) -> Option<datakit_sql::Target> {
+        match &self.path {
+            ObjectPath::Relation { schema, relation } => Some(datakit_sql::Target::Relation {
+                schema: schema.clone(),
+                relation: relation.clone(),
+            }),
+            ObjectPath::Column {
+                schema,
+                relation,
+                column,
+            } => Some(datakit_sql::Target::Column {
+                schema: schema.clone(),
+                relation: relation.clone(),
+                column: column.clone(),
+            }),
+            _ => None,
+        }
+    }
+
+    /// What names in SQL refer to the object, for the objects SQL names
+    /// by themselves: tables, views, columns and routines.
+    pub fn usage_target(&self) -> Option<datakit_sql::Target> {
+        match &self.path {
+            ObjectPath::Routine { schema, signature } => Some(datakit_sql::Target::Routine {
+                schema: schema.clone(),
+                name: signature
+                    .split_once('(')
+                    .map_or(&**signature, |(name, _)| name)
+                    .into(),
+            }),
+            _ => self.target(),
+        }
+    }
+
+    /// The statement that renames the object to `new_name`.
+    pub fn rename_statement(&self, new_name: &str, cx: &App) -> Option<String> {
+        let source = self.data_source.read(cx);
+        let dialect = source.dialect();
+        let schema = self.path.schema();
+        match self.path.resolve(source.catalog())? {
+            CatalogObject::Relation(relation) => {
+                Some(dialect.rename_relation(schema, relation, new_name))
+            }
+            CatalogObject::Column(relation, column) => {
+                Some(dialect.rename_column(schema, &relation.name(), &column.name(), new_name))
+            }
+            _ => None,
+        }
+    }
+
     /// The statement that removes the object from the database.
     pub fn drop_statement(&self, cx: &App) -> Option<String> {
         let source = self.data_source.read(cx);

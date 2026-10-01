@@ -23,7 +23,10 @@ use gpui_kit::{
 };
 use rust_i18n::t;
 
-use crate::services::Services;
+use crate::{
+    disk_watch::{self, DiskWatch, RecursiveMode},
+    services::Services,
+};
 
 use scan::{FileEntry, scan};
 
@@ -63,6 +66,8 @@ pub struct FilesPanel {
     nodes: Rc<HashMap<SharedString, Node>>,
     expanded: std::collections::HashSet<SharedString>,
     scan_task: Option<Task<()>>,
+    /// Rescans when a file under an attached folder changes.
+    watch: Option<DiskWatch>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -99,9 +104,10 @@ impl FilesPanel {
             nodes: Rc::default(),
             expanded: Default::default(),
             scan_task: None,
+            watch: None,
             _subscriptions: subscriptions,
         };
-        panel.rescan(cx);
+        panel.folders_changed(cx);
         panel
     }
 
@@ -125,7 +131,7 @@ impl FilesPanel {
                     }
                 }
                 this.save(cx);
-                this.rescan(cx);
+                this.folders_changed(cx);
             });
         })
         .detach();
@@ -134,7 +140,7 @@ impl FilesPanel {
     fn detach_folder(&mut self, folder: &PathBuf, cx: &mut Context<Self>) {
         self.folders.retain(|attached| attached != folder);
         self.save(cx);
-        self.rescan(cx);
+        self.folders_changed(cx);
     }
 
     fn save(&self, cx: &App) {
@@ -149,6 +155,17 @@ impl FilesPanel {
             }
         })
         .detach();
+    }
+
+    /// Watch the attached folders, and read them.
+    fn folders_changed(&mut self, cx: &mut Context<Self>) {
+        let paths: Vec<_> = self
+            .folders
+            .iter()
+            .map(|folder| (folder.clone(), RecursiveMode::Recursive))
+            .collect();
+        self.watch = disk_watch::watch(&paths, cx, |this, _, cx| this.rescan(cx));
+        self.rescan(cx);
     }
 
     /// Read the attached folders again.

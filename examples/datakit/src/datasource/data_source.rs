@@ -1,13 +1,15 @@
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
-use datakit_catalog::{Catalog, Schema};
+use datakit_catalog::{Catalog, Role, Schema};
 use datakit_driver::{Connection, ConnectionProfile, Dialect, StatementOutcome};
 use datakit_driver_postgres::PostgresDialect;
 use datakit_runtime::RemoteTask;
 use futures::StreamExt as _;
-use gpui_kit::{App, AppContext as _, Context, EventEmitter, SharedString, Task};
+use gpui_kit::component::ActiveTheme as _;
+use gpui_kit::{App, AppContext as _, Context, EventEmitter, Hsla, SharedString, Task};
+use rust_i18n::t;
 
-use super::{describe_error, open_connection};
+use super::{COLOR, READ_ONLY, describe_error, open_connection};
 use crate::services::Services;
 
 /// Something the catalog can be asked to read.
@@ -36,6 +38,70 @@ pub enum DataSourceEvent {
     CatalogChanged,
 }
 
+/// The color a data source is marked with, as DataGrip marks them, so a
+/// production database looks different wherever its data appears.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DataSourceColor {
+    Red,
+    Yellow,
+    Green,
+    Cyan,
+    Blue,
+    Magenta,
+}
+
+impl DataSourceColor {
+    pub const ALL: [DataSourceColor; 6] = [
+        DataSourceColor::Red,
+        DataSourceColor::Yellow,
+        DataSourceColor::Green,
+        DataSourceColor::Cyan,
+        DataSourceColor::Blue,
+        DataSourceColor::Magenta,
+    ];
+
+    /// The name the profile keeps it under.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            DataSourceColor::Red => "red",
+            DataSourceColor::Yellow => "yellow",
+            DataSourceColor::Green => "green",
+            DataSourceColor::Cyan => "cyan",
+            DataSourceColor::Blue => "blue",
+            DataSourceColor::Magenta => "magenta",
+        }
+    }
+
+    pub fn parse(name: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|color| color.as_str() == name)
+    }
+
+    pub fn title(self) -> SharedString {
+        match self {
+            DataSourceColor::Red => t!("datasource.color.red"),
+            DataSourceColor::Yellow => t!("datasource.color.yellow"),
+            DataSourceColor::Green => t!("datasource.color.green"),
+            DataSourceColor::Cyan => t!("datasource.color.cyan"),
+            DataSourceColor::Blue => t!("datasource.color.blue"),
+            DataSourceColor::Magenta => t!("datasource.color.magenta"),
+        }
+        .into()
+    }
+
+    /// The theme's color of this name.
+    pub fn hsla(self, cx: &App) -> Hsla {
+        let theme = cx.theme();
+        match self {
+            DataSourceColor::Red => theme.red,
+            DataSourceColor::Yellow => theme.yellow,
+            DataSourceColor::Green => theme.green,
+            DataSourceColor::Cyan => theme.cyan,
+            DataSourceColor::Blue => theme.blue,
+            DataSourceColor::Magenta => theme.magenta,
+        }
+    }
+}
+
 /// One configured database and what DataKit knows about it.
 pub struct DataSource {
     profile: ConnectionProfile,
@@ -62,6 +128,16 @@ pub struct DataSource {
 }
 
 impl EventEmitter<DataSourceEvent> for DataSource {}
+
+/// The options that decide how a profile connects: all but DataKit's own.
+fn connection_options(profile: &ConnectionProfile) -> Vec<(&str, &str)> {
+    profile
+        .options()
+        .iter()
+        .map(|(name, value)| (&**name, &**value))
+        .filter(|(name, _)| ![COLOR, READ_ONLY].contains(name))
+        .collect()
+}
 
 impl DataSource {
     pub fn new(profile: ConnectionProfile, cx: &mut Context<Self>) -> Self {
@@ -97,12 +173,34 @@ impl DataSource {
         self.dialect.clone()
     }
 
+    /// The color the data source is marked with, if any.
+    pub fn color(&self) -> Option<DataSourceColor> {
+        self.profile.option(COLOR).and_then(DataSourceColor::parse)
+    }
+
+    /// The background of a toolbar or tab showing the data source's data:
+    /// a wash of its color.
+    pub fn tint(&self, cx: &App) -> Option<Hsla> {
+        self.color().map(|color| color.hsla(cx).opacity(0.14))
+    }
+
+    /// Whether DataKit refuses to change the data source's data: consoles
+    /// run only statements that read, and tables cannot be edited.
+    pub fn is_read_only(&self) -> bool {
+        self.profile.option(READ_ONLY) == Some("true")
+    }
+
     pub fn status(&self) -> &ConnectionStatus {
         &self.status
     }
 
     pub fn catalog(&self) -> &Catalog {
         &self.catalog
+    }
+
+    #[cfg(test)]
+    pub fn set_catalog(&mut self, catalog: Catalog) {
+        self.catalog = catalog;
     }
 
     /// The loaded schema `name`, if it is loaded.
@@ -134,8 +232,23 @@ impl DataSource {
 
     /// Run `statements` one after another in a session of their own,
     /// stopping at the first that fails. Rows a statement returns are read
-    /// and discarded.
+    /// and discarded. A read-only data source refuses them.
     pub fn run_statements(&self, statements: Vec<String>, cx: &App) -> Task<anyhow::Result<()>> {
+        if self.is_read_only() {
+            return Task::ready(Err(anyhow::anyhow!(
+                t!("datasource.read_only_refused", name = self.name()).to_string()
+            )));
+        }
+        self.run_reading_statements(statements, cx)
+    }
+
+    /// Run `statements`, which leave the data as it is, as
+    /// [`Self::run_statements`] does, even when the data source is read-only.
+    pub fn run_reading_statements(
+        &self,
+        statements: Vec<String>,
+        cx: &App,
+    ) -> Task<anyhow::Result<()>> {
         let session = self.open_session(cx);
         let services = Services::global(cx);
         let work = services.spawn(async move {
@@ -186,7 +299,7 @@ impl DataSource {
             || self.profile.user() != profile.user()
             || self.profile.ssl_mode() != profile.ssl_mode()
             || self.profile.driver() != profile.driver()
-            || self.profile.options() != profile.options();
+            || connection_options(&self.profile) != connection_options(&profile);
         self.dialect = dialect_for(&profile, cx);
         self.profile = profile;
         if reconnect {
@@ -336,7 +449,10 @@ impl DataSource {
             CatalogRequest::Schemas => services.spawn(async move {
                 let (schemas, search_path) =
                     futures::try_join!(connection.introspect_schemas(), connection.search_path())?;
-                Ok(CatalogUpdate::Schemas(schemas, search_path))
+                // Seeing the users and roles takes privileges many logins
+                // lack; without them there are none to show.
+                let roles = connection.introspect_roles().await.unwrap_or_default();
+                Ok(CatalogUpdate::Schemas(schemas, search_path, roles))
             }),
             CatalogRequest::Objects(schema) => {
                 let schema = schema.clone();
@@ -355,11 +471,12 @@ impl DataSource {
                 }
                 this.in_flight.remove(&key);
                 match result {
-                    Ok(CatalogUpdate::Schemas(schemas, search_path)) => {
+                    Ok(CatalogUpdate::Schemas(schemas, search_path, roles)) => {
                         this.catalog = this
                             .catalog
                             .with_schemas(schemas)
-                            .with_search_path(search_path);
+                            .with_search_path(search_path)
+                            .with_roles(roles);
                         this.save_cache(cx);
                     }
                     Ok(CatalogUpdate::Objects(schema)) => {
@@ -426,7 +543,7 @@ impl DataSource {
 }
 
 enum CatalogUpdate {
-    Schemas(Vec<Schema>, Vec<Arc<str>>),
+    Schemas(Vec<Schema>, Vec<Arc<str>>, Vec<Role>),
     Objects(Schema),
 }
 

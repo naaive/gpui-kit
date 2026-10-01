@@ -25,7 +25,8 @@ use std::{collections::HashMap, sync::Arc};
 
 use anyhow::{Context as _, Result};
 use datakit_catalog::{
-    Column, Constraint, ConstraintRule, Index, Relation, RelationType, Routine, RoutineType, Schema,
+    Column, Constraint, ConstraintRule, Index, Relation, RelationType, Role, Routine, RoutineType,
+    Schema,
 };
 use datakit_driver::Dialect as _;
 
@@ -75,6 +76,44 @@ fn schema_from_record(record: Record) -> Schema {
         schema = schema.with_comment(comment);
     }
     schema
+}
+
+const USERS: &str = "SELECT name, 1 AS login FROM system.users \
+    UNION ALL SELECT name, 0 AS login FROM system.roles ORDER BY name";
+const ROLE_GRANTS: &str = "SELECT ifNull(user_name, role_name) AS grantee, granted_role_name \
+    FROM system.role_grants";
+
+/// The server's users and roles; a user without `SHOW USERS` sees none.
+pub(crate) async fn roles(http: Http) -> Result<Vec<Role>> {
+    let (users, grants) = futures::try_join!(http.query(USERS, &[]), http.query(ROLE_GRANTS, &[]),)
+        .context("Couldn’t read the users and roles")?;
+    let mut granted: HashMap<&str, Vec<Arc<str>>> = HashMap::new();
+    for grant in grants.records() {
+        granted
+            .entry(grant.text("grantee"))
+            .or_default()
+            .push(grant.text("granted_role_name").into());
+    }
+    Ok(users
+        .records()
+        .map(|record| {
+            let name = record.text("name");
+            let login = record.text("login") == "1";
+            let quoted = ClickHouseDialect.quote_identifier(name);
+            let member_of = granted.get(name).cloned().unwrap_or_default();
+            let mut definition =
+                format!("CREATE {} {quoted};", if login { "USER" } else { "ROLE" });
+            for role in &member_of {
+                definition.push_str(&format!(
+                    "\nGRANT {} TO {quoted};",
+                    ClickHouseDialect.quote_identifier(role)
+                ));
+            }
+            Role::new(name, login)
+                .with_member_of(member_of)
+                .with_definition(definition)
+        })
+        .collect())
 }
 
 pub(crate) async fn schemas(http: Http) -> Result<Vec<Schema>> {

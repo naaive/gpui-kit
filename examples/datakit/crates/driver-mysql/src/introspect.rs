@@ -13,7 +13,7 @@ use std::{collections::HashMap, sync::Arc};
 use anyhow::{Context as _, Result};
 use datakit_catalog::{
     Column, Constraint, ConstraintRule, ForeignKey, Index, ReferentialAction, Relation,
-    RelationType, Routine, RoutineType, Schema, Trigger,
+    RelationType, Role, Routine, RoutineType, Schema, Trigger,
 };
 use datakit_driver::Dialect as _;
 use mysql_async::{Pool, Row, prelude::Queryable as _};
@@ -116,6 +116,63 @@ const PARAMETERS: &str = "
 /// Server errors that mean an older server lacks a table or column the
 /// query reads: unknown column, unknown table.
 const MISSING: &[u16] = &[1054, 1109, 1146];
+
+const USERS: &str = "
+    SELECT CAST(user AS CHAR), CAST(host AS CHAR)
+    FROM mysql.user
+    ORDER BY 1, 2";
+
+/// Which accounts are granted which roles (MySQL 8).
+const ROLE_EDGES: &str = "
+    SELECT CAST(FROM_USER AS CHAR), CAST(FROM_HOST AS CHAR),
+           CAST(TO_USER AS CHAR), CAST(TO_HOST AS CHAR)
+    FROM mysql.role_edges";
+
+/// The server's accounts, as `user@host`. Reading them needs the `SELECT`
+/// privilege on `mysql`; a session without it sees none.
+pub(crate) async fn roles(pool: Pool) -> Result<Vec<Role>> {
+    let mut conn = pool.get_conn().await?;
+    let users: Vec<(String, String)> = conn
+        .query(USERS)
+        .await
+        .context("Couldn’t read the accounts")?;
+    // MariaDB keeps roles elsewhere; its accounts just show no roles.
+    let edges: Vec<(String, String, String, String)> =
+        conn.query(ROLE_EDGES).await.unwrap_or_default();
+    let account = |user: &str, host: &str| {
+        format!(
+            "'{}'@'{}'",
+            user.replace('\'', "''"),
+            host.replace('\'', "''")
+        )
+    };
+    Ok(users
+        .into_iter()
+        .map(|(user, host)| {
+            let roles: Vec<(String, String)> = edges
+                .iter()
+                .filter(|(_, _, to_user, to_host)| *to_user == user && *to_host == host)
+                .map(|(from_user, from_host, _, _)| (from_user.clone(), from_host.clone()))
+                .collect();
+            let mut definition = format!("CREATE USER {};", account(&user, &host));
+            for (role_user, role_host) in &roles {
+                definition.push_str(&format!(
+                    "\nGRANT {} TO {};",
+                    account(role_user, role_host),
+                    account(&user, &host)
+                ));
+            }
+            Role::new(format!("{user}@{host}"), true)
+                .with_attributes([Arc::from(format!("HOST '{host}'"))])
+                .with_member_of(
+                    roles
+                        .iter()
+                        .map(|(user, host)| Arc::from(format!("{user}@{host}"))),
+                )
+                .with_definition(definition)
+        })
+        .collect())
+}
 
 pub(crate) async fn schemas(pool: Pool) -> Result<Vec<Schema>> {
     let names: Vec<String> = async {

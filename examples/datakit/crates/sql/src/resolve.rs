@@ -87,6 +87,38 @@ pub fn resolve(
     })
 }
 
+/// Every name in `text` that refers to `target`, as byte ranges in text
+/// order: what renaming the object must change.
+pub fn usages(
+    text: &str,
+    target: &Target,
+    catalog: &Catalog,
+    dialect: &dyn Dialect,
+) -> Vec<Range<usize>> {
+    let name = match target {
+        Target::Schema { schema } => schema,
+        Target::Relation { relation, .. } => relation,
+        Target::Column { column, .. } => column,
+        Target::Routine { name, .. } => name,
+        Target::Declaration(_) => return Vec::new(),
+    };
+    crate::lexer::lex(text)
+        .into_iter()
+        .filter(|token| matches!(token.lexeme(), Lexeme::Word | Lexeme::QuotedIdentifier))
+        // Only a token spelling the name can refer to it; resolving the
+        // others would be wasted work.
+        .filter(|token| {
+            identifier(text, token, dialect)
+                .is_some_and(|identifier| identifier.eq_ignore_ascii_case(name))
+        })
+        .filter_map(|token| {
+            let resolution = resolve(text, token.range().start, catalog, dialect)?;
+            (resolution.target() == target && resolution.range() == token.range())
+                .then(|| token.range())
+        })
+        .collect()
+}
+
 struct Resolver<'a> {
     catalog: &'a Catalog,
     references: &'a [Reference],
@@ -274,6 +306,30 @@ mod tests {
                     .with_routines([Routine::new("total", RoutineType::Function, "o integer")]),
             )
             .with_search_path(["shop".into()])
+    }
+
+    #[test]
+    fn usages_are_the_names_that_refer_to_the_object() {
+        let text =
+            "select o.id, o.customer_id from orders o join customers c on c.id = o.customer_id;
+                    select id from customers;
+                    select 'orders', ordersx from shop.orders";
+        let orders = Target::Relation {
+            schema: "shop".into(),
+            relation: "orders".into(),
+        };
+        let found: Vec<&str> = usages(text, &orders, &catalog(), &Plain)
+            .into_iter()
+            .map(|range| &text[range])
+            .collect();
+        // Not the string, nor a longer name.
+        assert_eq!(found, ["orders", "orders"]);
+        let customer_id = Target::Column {
+            schema: "shop".into(),
+            relation: "orders".into(),
+            column: "customer_id".into(),
+        };
+        assert_eq!(usages(text, &customer_id, &catalog(), &Plain).len(), 2);
     }
 
     fn target(text: &str) -> Option<Target> {

@@ -19,7 +19,7 @@ use std::{collections::HashMap, sync::Arc};
 use anyhow::{Context as _, Result};
 use datakit_catalog::{
     Column, Constraint, ConstraintRule, ForeignKey, Index, ReferentialAction, Relation,
-    RelationType, Routine, RoutineType, Schema, Sequence, Trigger,
+    RelationType, Role, Routine, RoutineType, Schema, Sequence, Trigger,
 };
 use datakit_driver::{Dialect as _, Value};
 
@@ -281,6 +281,71 @@ pub(crate) async fn schemas(client: &mut Client) -> Result<Vec<Schema>> {
     Ok(rows
         .iter()
         .map(|row| schema_from_row(&types::row_values(row)))
+        .collect())
+}
+
+const PRINCIPALS: &str = "
+    SELECT p.name, p.type_desc, p.is_disabled,
+           STUFF((SELECT ',' + r.name
+                  FROM sys.server_role_members m
+                  JOIN sys.server_principals r ON r.principal_id = m.role_principal_id
+                  WHERE m.member_principal_id = p.principal_id
+                  ORDER BY r.name
+                  FOR XML PATH('')), 1, 1, '')
+    FROM sys.server_principals p
+    WHERE p.type IN ('S', 'U', 'G', 'R', 'E', 'X')
+      AND p.name NOT LIKE '##%'
+    ORDER BY p.name";
+
+/// The server's logins and server roles, as far as the login may see them.
+pub(crate) async fn roles(client: &mut Client) -> Result<Vec<Role>> {
+    let rows = async {
+        client
+            .simple_query(PRINCIPALS)
+            .await?
+            .into_first_result()
+            .await
+    }
+    .await
+    .context("Couldn’t read the logins")?;
+    Ok(rows
+        .iter()
+        .map(|row| {
+            let row = types::row_values(row);
+            let name = string(&row, 0);
+            let kind = string(&row, 1);
+            let disabled = flag(&row, 2);
+            let member_of: Vec<Arc<str>> = text(&row, 3)
+                .unwrap_or_default()
+                .split(',')
+                .filter(|role| !role.is_empty())
+                .map(Arc::from)
+                .collect();
+            let quoted = SqlServerDialect.quote_identifier(&name);
+            let is_role = kind == "SERVER_ROLE";
+            let mut definition = match kind.as_str() {
+                "SERVER_ROLE" => format!("CREATE SERVER ROLE {quoted};"),
+                "SQL_LOGIN" => format!("CREATE LOGIN {quoted} WITH PASSWORD = N'…';"),
+                _ => format!("CREATE LOGIN {quoted} FROM WINDOWS;"),
+            };
+            if disabled && !is_role {
+                definition.push_str(&format!("\nALTER LOGIN {quoted} DISABLE;"));
+            }
+            for role in &member_of {
+                definition.push_str(&format!(
+                    "\nALTER SERVER ROLE {} ADD MEMBER {quoted};",
+                    SqlServerDialect.quote_identifier(role)
+                ));
+            }
+            let mut attributes = vec![Arc::from(kind.replace('_', " "))];
+            if disabled {
+                attributes.push("DISABLE".into());
+            }
+            Role::new(name, !is_role && !disabled)
+                .with_attributes(attributes)
+                .with_member_of(member_of)
+                .with_definition(definition)
+        })
         .collect())
 }
 

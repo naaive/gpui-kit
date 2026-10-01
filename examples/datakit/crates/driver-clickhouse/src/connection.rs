@@ -6,7 +6,7 @@ use std::{
 };
 
 use anyhow::Result;
-use datakit_catalog::Schema;
+use datakit_catalog::{Role, Schema};
 use datakit_driver::{
     BoxFuture, ColumnInfo, CommandSummary, Connection, DatabaseError, Row, RowStream,
     StatementOutcome, TypeCategory, Value,
@@ -112,6 +112,10 @@ impl Connection for ClickHouseConnection {
 
     fn introspect_schemas(&self) -> BoxFuture<Vec<Schema>> {
         introspect::schemas(self.session.http.clone()).boxed()
+    }
+
+    fn introspect_roles(&self) -> BoxFuture<Vec<Role>> {
+        introspect::roles(self.session.http.clone()).boxed()
     }
 
     fn introspect_schema(&self, schema: Arc<str>) -> BoxFuture<Schema> {

@@ -28,7 +28,7 @@ use std::{
 };
 
 use anyhow::{Result, anyhow};
-use datakit_catalog::Schema;
+use datakit_catalog::{Role, Schema};
 use datakit_driver::{
     BoxFuture, ColumnInfo, CommandSummary, Connection, DatabaseError, Row, RowStream,
     StatementOutcome, TypeCategory,
@@ -209,6 +209,17 @@ impl Connection for SqlServerConnection {
         async move {
             let mut guard = client.lock_owned().await;
             let result = introspect::schemas(open_client(&mut guard)?).await;
+            settle(result, &mut guard, &session)
+        }
+        .boxed()
+    }
+
+    fn introspect_roles(&self) -> BoxFuture<Vec<Role>> {
+        let client = self.client.clone();
+        let session = self.session.clone();
+        async move {
+            let mut guard = client.lock_owned().await;
+            let result = introspect::roles(open_client(&mut guard)?).await;
             settle(result, &mut guard, &session)
         }
         .boxed()

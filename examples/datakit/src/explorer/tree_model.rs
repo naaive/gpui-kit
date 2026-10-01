@@ -5,7 +5,7 @@ use std::{
     sync::Arc,
 };
 
-use datakit_catalog::{ConstraintRule, Relation, RelationType, Schema};
+use datakit_catalog::{ConstraintRule, Relation, RelationType, Role, Schema};
 use gpui_kit::{App, Entity, SharedString, assets::IconName, component::tree::TreeItem};
 use rust_i18n::t;
 
@@ -29,6 +29,11 @@ pub(crate) enum Node {
         schema: Arc<str>,
         group: Group,
     },
+    /// A user or role of the server.
+    Role {
+        data_source: Entity<DataSource>,
+        role: Role,
+    },
     Message {
         failed: bool,
     },
@@ -37,7 +42,9 @@ pub(crate) enum Node {
 impl Node {
     pub(crate) fn data_source(&self) -> Option<&Entity<DataSource>> {
         match self {
-            Node::DataSource(data_source) | Node::Group { data_source, .. } => Some(data_source),
+            Node::DataSource(data_source)
+            | Node::Group { data_source, .. }
+            | Node::Role { data_source, .. } => Some(data_source),
             Node::Object { object, .. } => Some(object.data_source()),
             Node::Message { .. } => None,
         }
@@ -71,6 +78,8 @@ pub(crate) enum Group {
     Indexes,
     Checks,
     Triggers,
+    /// The server's users and roles, under the data source.
+    Roles,
 }
 
 impl Group {
@@ -85,6 +94,7 @@ impl Group {
             Group::Indexes => "indexes",
             Group::Checks => "checks",
             Group::Triggers => "triggers",
+            Group::Roles => "roles",
         }
     }
 
@@ -99,6 +109,7 @@ impl Group {
             Group::Indexes => t!("explorer.indexes", count = count),
             Group::Checks => t!("explorer.checks", count = count),
             Group::Triggers => t!("explorer.triggers", count = count),
+            Group::Roles => t!("explorer.roles", count = count),
         }
         .into()
     }
@@ -179,12 +190,14 @@ impl Builder<'_> {
             .insert(id.clone().into(), Node::DataSource(data_source.clone()));
         let catalog = source.catalog();
         let children: Vec<TreeItem> = if catalog.has_schemas() {
-            catalog
+            let mut children: Vec<TreeItem> = catalog
                 .schemas()
                 .iter()
                 .filter(|schema| self.options.show_system_schemas || !schema.is_system())
                 .filter_map(|schema| self.schema(&id, data_source, schema, cx))
-                .collect()
+                .collect();
+            children.extend(self.roles(&id, data_source, catalog.roles()));
+            children
         } else {
             let failure =
                 source
@@ -326,6 +339,47 @@ impl Builder<'_> {
             self.folder(id, schema.name().to_string())
                 .children(children),
         )
+    }
+
+    /// The folder of the server's users and roles, when there are any the
+    /// filter lets through.
+    fn roles(
+        &mut self,
+        parent: &str,
+        data_source: &Entity<DataSource>,
+        roles: &[Role],
+    ) -> Option<TreeItem> {
+        let id = format!("{parent}/g/{}", Group::Roles.key());
+        let shown: Vec<&Role> = roles
+            .iter()
+            .filter(|role| self.matches(&role.name()))
+            .collect();
+        let children: Vec<TreeItem> = shown
+            .into_iter()
+            .map(|role| {
+                self.leaf(
+                    format!("{id}/{}", role.name()),
+                    role.name().to_string(),
+                    Node::Role {
+                        data_source: data_source.clone(),
+                        role: role.clone(),
+                    },
+                )
+            })
+            .collect();
+        if children.is_empty() {
+            return None;
+        }
+        self.nodes.insert(
+            id.clone().into(),
+            Node::Group {
+                data_source: data_source.clone(),
+                schema: "".into(),
+                group: Group::Roles,
+            },
+        );
+        let label = Group::Roles.label(children.len());
+        Some(self.folder(id, label).children(children))
     }
 
     fn group(
@@ -537,5 +591,55 @@ impl Builder<'_> {
             .insert(id.clone().into(), Node::Message { failed });
         let label: SharedString = failure.unwrap_or_else(|| t!("explorer.loading").into());
         TreeItem::new(id, label).disabled(true)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use datakit_catalog::Catalog;
+    use datakit_driver::ConnectionProfile;
+    use gpui_kit::{AppContext as _, TestAppContext};
+
+    use super::*;
+
+    #[gpui_kit::test]
+    fn the_servers_users_and_roles_are_a_folder_of_the_data_source(cx: &mut TestAppContext) {
+        let scratch = std::env::temp_dir().join(format!("datakit-tree-{}", std::process::id()));
+        cx.update(|cx| {
+            crate::services::Services::init_for_test(scratch.clone(), cx).unwrap();
+        });
+        let data_source = cx.new(|cx| {
+            let mut data_source = DataSource::new(ConnectionProfile::new("sqlite", 0), cx);
+            data_source.set_catalog(
+                Catalog::new("app")
+                    .with_schemas([Schema::new("public")])
+                    .with_roles([
+                        Role::new("admin", true).with_attributes(["SUPERUSER".into()]),
+                        Role::new("readers", false),
+                    ]),
+            );
+            data_source
+        });
+        cx.update(|cx| {
+            let expanded = HashSet::new();
+            let options = |filter| TreeOptions {
+                expanded: &expanded,
+                filter,
+                show_system_schemas: false,
+            };
+            let model = build(std::slice::from_ref(&data_source), &options(""), cx);
+            let children = &model.items[0].children;
+            let roles = children.last().unwrap();
+            assert_eq!(roles.label.as_ref(), "Users and roles 2");
+            assert!(matches!(
+                model.nodes.get(&roles.children[0].id),
+                Some(Node::Role { role, .. }) if &*role.name() == "admin"
+            ));
+
+            let filtered = build(std::slice::from_ref(&data_source), &options("read"), cx);
+            let roles = filtered.items[0].children.last().unwrap();
+            assert_eq!(roles.children.len(), 1);
+        });
+        let _ = std::fs::remove_dir_all(scratch);
     }
 }

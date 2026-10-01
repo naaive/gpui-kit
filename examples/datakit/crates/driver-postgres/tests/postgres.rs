@@ -414,3 +414,45 @@ fn introspection_reads_keys_indexes_triggers_routines_and_sequences() {
         run(&connection, &format!("DROP SCHEMA {schema}_copy CASCADE")).await;
     });
 }
+
+#[test]
+fn roles_show_who_can_log_in_and_their_memberships() {
+    with_schema("roles", |connection, _| async move {
+        for sql in [
+            "DROP ROLE IF EXISTS datakit_test_member",
+            "DROP ROLE IF EXISTS datakit_test_group",
+            "CREATE ROLE datakit_test_group NOLOGIN CREATEDB",
+            "CREATE ROLE datakit_test_member LOGIN CONNECTION LIMIT 3 IN ROLE datakit_test_group",
+        ] {
+            run(&connection, sql).await;
+        }
+        let roles = connection.introspect_roles().await.expect("roles");
+        for sql in [
+            "DROP ROLE datakit_test_member",
+            "DROP ROLE datakit_test_group",
+        ] {
+            run(&connection, sql).await;
+        }
+
+        assert!(roles.iter().all(|role| !role.name().starts_with("pg_")));
+        let group = roles
+            .iter()
+            .find(|role| &*role.name() == "datakit_test_group")
+            .expect("the group");
+        assert!(!group.can_login());
+        assert_eq!(group.attributes(), [Arc::from("CREATEDB")]);
+        let member = roles
+            .iter()
+            .find(|role| &*role.name() == "datakit_test_member")
+            .expect("the member");
+        assert!(member.can_login());
+        assert_eq!(member.member_of(), [Arc::from("datakit_test_group")]);
+        assert_eq!(
+            member.definition(),
+            Some(
+                "CREATE ROLE datakit_test_member WITH LOGIN CONNECTION LIMIT 3;\n\
+                 GRANT datakit_test_group TO datakit_test_member;"
+            )
+        );
+    });
+}

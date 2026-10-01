@@ -196,6 +196,59 @@ fn markdown<'a>(context: &ExportContext, rows: impl Iterator<Item = &'a Row>) ->
     out
 }
 
+/// The rows as an Excel workbook: one sheet with a bold header row, and
+/// numbers and booleans as Excel's own, so formulas can use them.
+pub fn export_xlsx<'a>(
+    context: &ExportContext,
+    rows: impl Iterator<Item = &'a Row>,
+) -> anyhow::Result<Vec<u8>> {
+    use rust_xlsxwriter::{Format, Workbook};
+
+    /// The most characters Excel keeps in a cell.
+    const CELL_LIMIT: usize = 32_767;
+    /// The most rows a sheet has, the header among them.
+    const ROW_LIMIT: usize = 1_048_576;
+
+    let mut workbook = Workbook::new();
+    let sheet = workbook.add_worksheet();
+    let bold = Format::new().set_bold();
+    for (col, column) in context.columns.iter().enumerate() {
+        sheet.write_string_with_format(0, col as u16, column.name().as_ref(), &bold)?;
+    }
+    for (ix, row) in rows.take(ROW_LIMIT - 1).enumerate() {
+        let row_ix = ix as u32 + 1;
+        for (col, value) in row.iter().enumerate() {
+            let col = col as u16;
+            match value {
+                Value::Null => {}
+                Value::Bool(value) => {
+                    sheet.write_boolean(row_ix, col, *value)?;
+                }
+                Value::Int(value) => {
+                    sheet.write_number(row_ix, col, *value as f64)?;
+                }
+                Value::Float(value) => {
+                    sheet.write_number(row_ix, col, *value)?;
+                }
+                // `numeric` keeps the server's text; Excel wants the number.
+                Value::Text(text)
+                    if context.columns[col as usize].category().is_numeric()
+                        && let Ok(number) = text.trim().parse::<f64>() =>
+                {
+                    sheet.write_number(row_ix, col, number)?;
+                }
+                Value::Text(text) => {
+                    let text: String = text.chars().take(CELL_LIMIT).collect();
+                    sheet.write_string(row_ix, col, text)?;
+                }
+            }
+        }
+    }
+    sheet.set_freeze_panes(1, 0)?;
+    sheet.autofit();
+    Ok(workbook.save_to_buffer()?)
+}
+
 #[cfg(test)]
 mod tests {
     use datakit_driver_postgres::PostgresDialect;
@@ -238,6 +291,18 @@ mod tests {
             table: "public.orders",
         };
         export(format, &context, rows().iter())
+    }
+
+    #[test]
+    fn xlsx_is_a_workbook() {
+        let columns = columns();
+        let context = ExportContext {
+            columns: &columns,
+            dialect: &PostgresDialect,
+            table: "public.orders",
+        };
+        let bytes = export_xlsx(&context, rows().iter()).unwrap();
+        assert!(bytes.starts_with(b"PK"), "an xlsx file is a zip archive");
     }
 
     #[test]

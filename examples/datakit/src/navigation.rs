@@ -4,7 +4,9 @@
 
 use gpui_kit::{App, AppContext as _, Entity, EventEmitter, Global};
 
-use crate::objects::ObjectRef;
+use std::ops::Range;
+
+use crate::{console::ConsolePanel, objects::ObjectRef};
 
 #[derive(Clone)]
 pub enum NavigationEvent {
@@ -14,6 +16,11 @@ pub enum NavigationEvent {
     Open(ObjectRef),
     /// Open a console for the object's data source holding `sql`.
     OpenConsole { object: ObjectRef, sql: String },
+    /// Show the console with `range` of its text selected.
+    ShowConsole {
+        console: Entity<ConsolePanel>,
+        range: Range<usize>,
+    },
 }
 
 /// The application's navigation requests. Subscribe to receive them.
