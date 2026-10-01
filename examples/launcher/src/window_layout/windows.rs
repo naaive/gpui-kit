@@ -55,6 +55,11 @@ pub fn remember_frontmost() {
     }
 }
 
+pub fn frontmost() -> Option<isize> {
+    let raw = FRONTMOST.load(Ordering::Relaxed);
+    (raw != 0 && unsafe { IsWindow(HWND(raw as *mut c_void)) }.as_bool()).then_some(raw)
+}
+
 pub fn apply(layout: Layout, gap: i32) -> Result<(), SharedString> {
     let raw = FRONTMOST.load(Ordering::Relaxed);
     let window = HWND(raw as *mut c_void);

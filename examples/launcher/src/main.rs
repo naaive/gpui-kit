@@ -5,16 +5,21 @@
 //! by extensions, and drawn by the one renderer in `ui`.
 
 mod bookmarks;
+mod browser_history;
+mod browser_tabs;
+mod calculator_history;
 mod calendar;
 mod clipboard;
 mod colors;
 mod customizations;
+mod dictionary;
 mod emoji;
 mod extensions;
 mod file_search;
 mod focus;
 mod format;
 mod hyper_key;
+mod menu_items;
 mod model;
 mod notes;
 mod ocr;
@@ -22,6 +27,7 @@ mod pages;
 mod placeholders;
 mod processes;
 mod quicklinks;
+mod reminders;
 mod screenshots;
 mod script_commands;
 mod search;
@@ -31,7 +37,9 @@ mod shell;
 mod snippets;
 mod sources;
 mod switch_windows;
+mod system_monitor;
 mod themes;
+mod translate;
 mod ui;
 mod window_layout;
 

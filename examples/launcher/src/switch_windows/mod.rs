@@ -37,7 +37,7 @@ pub struct OpenWindow {
 impl OpenWindow {
     /// The application's name: the executable's description would be
     /// nicer, but its file name is what people type.
-    fn application(&self) -> Option<String> {
+    pub fn application(&self) -> Option<String> {
         let name = self
             .exe
             .as_ref()?
@@ -82,6 +82,11 @@ pub fn open_windows() -> Vec<OpenWindow> {
     {
         Vec::new()
     }
+}
+
+/// Brings the window `handle` to the front, restoring it if minimized.
+pub fn focus_window(handle: isize) -> bool {
+    run(Command::Focus, handle)
 }
 
 /// What can be done to a window.

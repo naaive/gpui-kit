@@ -119,6 +119,8 @@ pub struct Launcher {
     catalog_is_stale: bool,
     window: Option<OpenWindow>,
     is_visible: bool,
+    /// What the window showed when it last hid, and when, to come back to.
+    left: Option<(std::time::Instant, crate::ui::Snapshot)>,
     hotkey: SummonHotkey,
     _tasks: Vec<Task<()>>,
 }
@@ -255,6 +257,7 @@ pub fn start(startup: Startup, cx: &mut App) {
         catalog_is_stale: false,
         window: None,
         is_visible: false,
+        left: None,
         hotkey,
         _tasks: tasks,
     });
@@ -283,6 +286,7 @@ pub fn start(startup: Startup, cx: &mut App) {
     crate::hyper_key::set(cx.global::<Launcher>().settings.hyper_key());
     crate::calendar::start(cx);
     crate::focus::start(cx);
+    crate::reminders::start(cx);
     super::platform::hide_dock_icon();
     show(cx);
 }
@@ -477,6 +481,7 @@ pub fn reload_data(cx: &mut App) {
     crate::snippets::set_expansion(settings.expands_snippets(), cx);
     crate::hyper_key::set(settings.hyper_key());
     crate::focus::reload(cx);
+    crate::reminders::reload(cx);
     crate::notes::reload_open_note(cx);
     let schedule = crate::calendar::schedule(cx);
     schedule.update(cx, |schedule, cx| schedule.refresh(true, cx));
@@ -591,9 +596,18 @@ fn show_now(cx: &mut App) {
     }
     cx.global_mut::<Launcher>().is_visible = true;
     cx.activate(true);
+    let pop_to_root = settings(cx).pop_to_root();
+    let left = cx
+        .global_mut::<Launcher>()
+        .left
+        .take()
+        .filter(|(at, _)| pop_to_root.keeps(at.elapsed()));
     with_window(cx, |window, view, cx| {
         window.activate_window();
-        view.update(cx, |view, cx| view.reset(window, cx));
+        view.update(cx, |view, cx| match left {
+            Some((_, snapshot)) => view.restore(snapshot, window, cx),
+            None => view.reset(window, cx),
+        });
     });
 }
 
@@ -604,8 +618,14 @@ fn hide_now(cx: &mut App) {
     {
         return;
     }
+    let snapshot = cx
+        .global::<Launcher>()
+        .window
+        .as_ref()
+        .map(|open| open.view.read(cx).snapshot());
     let launcher = cx.global_mut::<Launcher>();
     launcher.is_visible = false;
+    launcher.left = snapshot.map(|snapshot| (std::time::Instant::now(), snapshot));
     if cfg!(target_os = "macos") {
         cx.hide();
     } else {

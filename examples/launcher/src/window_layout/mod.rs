@@ -511,6 +511,18 @@ pub fn remember_frontmost() {
     windows::remember_frontmost();
 }
 
+/// The window that was in front before the launcher, as a raw handle.
+pub fn frontmost() -> Option<isize> {
+    #[cfg(target_os = "windows")]
+    {
+        windows::frontmost()
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        None
+    }
+}
+
 /// Hides the launcher, then lays out the window that was in front of it.
 fn run(layout: Layout, cx: &mut App) {
     let gap = crate::shell::launcher::settings(cx).window_gap() as i32;

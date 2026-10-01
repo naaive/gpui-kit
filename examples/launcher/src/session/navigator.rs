@@ -139,6 +139,11 @@ impl Navigator {
             .expect("the root page is never popped")
     }
 
+    /// Every entry on the stack, bottom first.
+    pub fn entries(&self) -> impl Iterator<Item = &Entry> + '_ {
+        self.stack.iter()
+    }
+
     pub fn depth(&self) -> usize {
         self.stack.len()
     }

@@ -1,12 +1,19 @@
 //! The Search Files page: recent files with nothing typed, matches by name
-//! otherwise, and a preview of the selected one.
+//! otherwise, and a preview of the selected one: an image, the start of a
+//! text file, a folder's contents, or the system's thumbnail of anything
+//! else (a PDF's first page, a video's frame). Quick Look shows the preview
+//! on a page of its own.
 
-use std::{io::Read as _, path::Path};
+use std::{
+    collections::HashMap,
+    io::Read as _,
+    path::{Path, PathBuf},
+};
 
 use anyhow::Result;
 use gpui_kit::{
     App, AppContext as _, ClipboardEntry, ClipboardItem, Context, Entity, ExternalPaths,
-    SharedString, Subscription, Window,
+    SharedString, Subscription, Task, Window,
 };
 
 use super::{FileIndex, file_index, index};
@@ -14,10 +21,10 @@ use crate::{
     format::{code_block_in, format_bytes, format_time},
     model::{
         Accessory, Action, ActionPanel, Choice, DetailModel, Dropdown, Effect, Image, Item, ItemId,
-        ListModel, Metadata, MetadataValue, PageModel, Section, TextHandler,
+        ListModel, Metadata, MetadataValue, PageModel, PushHandler, Section, TextHandler,
     },
     pages::{self, Page, PageHandle},
-    sources::applications::REVEAL_TITLE,
+    sources::applications::{REVEAL_TITLE, file_thumbnail},
 };
 
 const RESULTS: usize = 100;
@@ -27,6 +34,11 @@ const PREVIEW_BYTES: usize = 16 * 1024;
 const PREVIEW_LINES: usize = 80;
 /// Larger images are not previewed; decoding them would stall the list.
 const PREVIEW_IMAGE_BYTES: u64 = 25 * 1024 * 1024;
+/// Quick Look reads more of a text file than the side panel.
+const QUICK_LOOK_BYTES: usize = 256 * 1024;
+const QUICK_LOOK_LINES: usize = 2000;
+/// A folder's preview lists at most this many of its entries.
+const FOLDER_ENTRIES: usize = 60;
 
 pub fn search_files_page(_: &mut Window, cx: &mut App) -> Result<PageHandle> {
     let index = file_index(cx);
@@ -40,6 +52,8 @@ pub fn search_files_page(_: &mut Window, cx: &mut App) -> Result<PageHandle> {
         selected: None,
         filter: None,
         list: None,
+        thumbnails: HashMap::new(),
+        thumbnail_task: None,
     })))
 }
 
@@ -51,6 +65,9 @@ struct SearchFilesPage {
     /// The kind of file shown, or every kind.
     filter: Option<Group>,
     list: Option<ListModel>,
+    /// The system's thumbnails of files previewed so far.
+    thumbnails: HashMap<PathBuf, Option<PathBuf>>,
+    thumbnail_task: Option<Task<()>>,
     _subscription: Subscription,
 }
 
@@ -60,18 +77,34 @@ impl SearchFilesPage {
         cx.notify();
     }
 
-    fn build_list(&self, cx: &mut Context<Self>) -> ListModel {
+    /// Draws the thumbnail of `path` in the background, then the list again.
+    fn request_thumbnail(&mut self, path: PathBuf, cx: &mut Context<Self>) {
+        self.thumbnail_task = Some(cx.spawn(async move |this, cx| {
+            let thumbnail = {
+                let path = path.clone();
+                cx.background_spawn(async move { file_thumbnail(&path) })
+                    .await
+            };
+            this.update(cx, |page, cx| {
+                page.thumbnails.insert(path, thumbnail);
+                page.invalidate(cx);
+            })
+            .ok();
+        }));
+    }
+
+    fn build_list(&mut self, cx: &mut Context<Self>) -> ListModel {
         let page = cx.entity().downgrade();
         let index = self.index.read(cx);
         let files = index.files().clone();
-        let query = self.query.trim();
+        let query = self.query.trim().to_owned();
         let filter = self.filter;
         let keep = |file: &index::FileEntry| {
             filter.is_none_or(|group| Some(group) == Group::of(&file.path, file.is_dir))
         };
         let (title, found) = match query.is_empty() {
             true => ("Recent Files", index::recent(&files, RECENT, keep)),
-            false => ("Files", index::search(&files, query, RESULTS, keep)),
+            false => ("Files", index::search(&files, &query, RESULTS, keep)),
         };
         // The first row is selected until the user picks another.
         let selected = self
@@ -87,12 +120,25 @@ impl SearchFilesPage {
                     .first()
                     .map(|file| file.path.to_string_lossy().into_owned().into())
             });
-        let items = found.iter().map(|file| {
-            let id: SharedString = file.path.to_string_lossy().into_owned().into();
-            let preview = selected.as_ref() == Some(&id);
-            item(file, preview)
-        });
+        let wanted = found
+            .iter()
+            .find(|file| Some(file.path.to_string_lossy().as_ref()) == selected.as_deref())
+            .filter(|file| needs_thumbnail(file))
+            .map(|file| file.path.clone())
+            .filter(|path| !self.thumbnails.contains_key(path));
+        let items: Vec<Item> = found
+            .iter()
+            .map(|file| {
+                let id: SharedString = file.path.to_string_lossy().into_owned().into();
+                let preview = selected.as_ref() == Some(&id);
+                let thumbnail = self.thumbnails.get(&file.path).cloned().flatten();
+                item(file, preview, thumbnail)
+            })
+            .collect();
         let indexing = index.is_indexing();
+        if let Some(path) = wanted {
+            self.request_thumbnail(path, cx);
+        }
         let filter_page = cx.entity().downgrade();
         let dropdown = Group::ALL.into_iter().fold(
             Dropdown::new("Kind")
@@ -259,14 +305,27 @@ fn kind(path: &Path, is_dir: bool) -> (&'static str, &'static str, Option<&'stat
     }
 }
 
-fn item(file: &index::FileEntry, preview: bool) -> Item {
+/// Whether the preview of `file` is the system's thumbnail: it is not a
+/// folder, a text file, or an image small enough to show itself.
+fn needs_thumbnail(file: &index::FileEntry) -> bool {
+    let (kind_title, _, language) = kind(&file.path, file.is_dir);
+    !file.is_dir
+        && language.is_none()
+        && !(kind_title == "Image" && file.size <= PREVIEW_IMAGE_BYTES)
+}
+
+fn item(file: &index::FileEntry, preview: bool, thumbnail: Option<PathBuf>) -> Item {
     let (kind_title, icon, language) = kind(&file.path, file.is_dir);
     let parent = file
         .path
         .parent()
         .map(|parent| home_relative(parent))
         .unwrap_or_default();
-    let detail = detail(file, kind_title, language, preview);
+    let detail = detail(file, kind_title, language, preview, thumbnail.clone());
+    let quick_look = {
+        let (file, thumbnail) = (file.clone(), thumbnail);
+        PushHandler::new(move |_, cx| Ok(quick_look_page(&file, thumbnail.clone(), cx)))
+    };
     let copy_file = ClipboardItem {
         entries: vec![ClipboardEntry::ExternalPaths(ExternalPaths(
             vec![file.path.clone()].into(),
@@ -292,6 +351,11 @@ fn item(file: &index::FileEntry, preview: bool) -> Item {
             .with_action(
                 Action::new(REVEAL_TITLE, Effect::RevealPath(file.path.clone()))
                     .with_image(Image::Icon("folder-open".into())),
+            )
+            .with_action(
+                Action::new("Quick Look", Effect::Push(quick_look))
+                    .with_image(Image::Icon("eye".into()))
+                    .with_shortcut("secondary-y"),
             )
             .with_action(
                 Action::new(
@@ -385,16 +449,11 @@ fn detail(
     kind_title: &str,
     language: Option<&str>,
     preview: bool,
+    thumbnail: Option<PathBuf>,
 ) -> DetailModel {
-    let detail = match (preview, kind_title, language) {
-        (true, "Image", _) if file.size <= PREVIEW_IMAGE_BYTES => {
-            DetailModel::new("").with_image(file.path.clone())
-        }
-        (true, _, Some(language)) => match read_preview(&file.path) {
-            Some(text) => DetailModel::new(code_block_in(&text, language)),
-            None => DetailModel::new(""),
-        },
-        _ => DetailModel::new(""),
+    let detail = match preview {
+        true => preview_of(file, kind_title, language, thumbnail, false),
+        false => DetailModel::new(""),
     };
     let label =
         |label: &str, value: String| Metadata::new(label, MetadataValue::Text(value.into()));
@@ -413,22 +472,135 @@ fn detail(
         ))
 }
 
+/// What the preview of `file` shows: the image, the start of the text, the
+/// folder's entries or the thumbnail. `full` reads more, for Quick Look.
+fn preview_of(
+    file: &index::FileEntry,
+    kind_title: &str,
+    language: Option<&str>,
+    thumbnail: Option<PathBuf>,
+    full: bool,
+) -> DetailModel {
+    let (bytes, lines) = match full {
+        true => (QUICK_LOOK_BYTES, QUICK_LOOK_LINES),
+        false => (PREVIEW_BYTES, PREVIEW_LINES),
+    };
+    if file.is_dir {
+        return DetailModel::new(folder_preview(&file.path));
+    }
+    if kind_title == "Image" && file.size <= PREVIEW_IMAGE_BYTES {
+        return DetailModel::new("").with_image(file.path.clone());
+    }
+    if let Some(language) = language {
+        return match read_preview(&file.path, bytes, lines) {
+            Some(text) => DetailModel::new(code_block_in(&text, language)),
+            None => DetailModel::new(""),
+        };
+    }
+    match thumbnail {
+        Some(thumbnail) => DetailModel::new("").with_image(thumbnail),
+        None => DetailModel::new(""),
+    }
+}
+
+/// A folder's entries as a Markdown list, folders first.
+fn folder_preview(path: &Path) -> String {
+    let Ok(entries) = std::fs::read_dir(path) else {
+        return "*This folder can’t be read.*".into();
+    };
+    let mut entries: Vec<(bool, String)> = entries
+        .flatten()
+        .map(|entry| {
+            let is_dir = entry.file_type().is_ok_and(|kind| kind.is_dir());
+            (is_dir, entry.file_name().to_string_lossy().into_owned())
+        })
+        .filter(|(_, name)| !name.starts_with('.'))
+        .collect();
+    if entries.is_empty() {
+        return "*This folder is empty.*".into();
+    }
+    entries.sort_by(|a, b| {
+        b.0.cmp(&a.0)
+            .then_with(|| a.1.to_lowercase().cmp(&b.1.to_lowercase()))
+    });
+    let total = entries.len();
+    let mut text: String = entries
+        .iter()
+        .take(FOLDER_ENTRIES)
+        .map(|(is_dir, name)| {
+            let name = name.replace('*', "\\*").replace('_', "\\_");
+            match is_dir {
+                true => format!("- **{name}/**\n"),
+                false => format!("- {name}\n"),
+            }
+        })
+        .collect();
+    if total > FOLDER_ENTRIES {
+        text.push_str(&format!("\n*and {} more*", total - FOLDER_ENTRIES));
+    }
+    text
+}
+
 /// The start of a text file, or `None` when it is not text.
-fn read_preview(path: &Path) -> Option<String> {
-    let mut bytes = Vec::with_capacity(PREVIEW_BYTES);
+fn read_preview(path: &Path, limit: usize, lines: usize) -> Option<String> {
+    let mut bytes = Vec::with_capacity(limit.min(PREVIEW_BYTES));
     std::fs::File::open(path)
         .ok()?
-        .take(PREVIEW_BYTES as u64)
+        .take(limit as u64)
         .read_to_end(&mut bytes)
         .ok()?;
     if bytes.contains(&0) {
         return None;
     }
     let text = String::from_utf8_lossy(&bytes);
-    Some(
-        text.lines()
-            .take(PREVIEW_LINES)
-            .collect::<Vec<_>>()
-            .join("\n"),
-    )
+    Some(text.lines().take(lines).collect::<Vec<_>>().join("\n"))
+}
+
+/// Quick Look: the preview of `file` on a page of its own, larger.
+fn quick_look_page(
+    file: &index::FileEntry,
+    thumbnail: Option<PathBuf>,
+    cx: &mut App,
+) -> PageHandle {
+    let (kind_title, _, language) = kind(&file.path, file.is_dir);
+    let detail = preview_of(file, kind_title, language, thumbnail, true).with_actions(
+        ActionPanel::new()
+            .with_action(
+                Action::new("Open", Effect::OpenPath(file.path.clone()))
+                    .with_image(Image::Icon("external-link".into())),
+            )
+            .with_action(
+                Action::new(REVEAL_TITLE, Effect::RevealPath(file.path.clone()))
+                    .with_image(Image::Icon("folder-open".into())),
+            )
+            .with_action(
+                Action::new(
+                    "Copy Path",
+                    Effect::Copy(file.path.display().to_string().into()),
+                )
+                .with_image(Image::Icon("copy".into()))
+                .with_shortcut("secondary-shift-c"),
+            ),
+    );
+    pages::handle(cx.new(|_| QuickLookPage {
+        title: file.name().into(),
+        detail,
+    }))
+}
+
+struct QuickLookPage {
+    title: SharedString,
+    detail: DetailModel,
+}
+
+impl Page for QuickLookPage {
+    fn title(&self) -> SharedString {
+        self.title.clone()
+    }
+
+    fn model(&mut self, _: &mut Window, _: &mut Context<Self>) -> PageModel {
+        PageModel::Detail(self.detail.clone())
+    }
+
+    fn set_query(&mut self, _: &str, _: &mut Window, _: &mut Context<Self>) {}
 }

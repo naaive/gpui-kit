@@ -94,14 +94,28 @@ fn collect_shortcuts(directory: &Path, found: &mut Vec<PathBuf>) {
 
 /// Icons are drawn at about 20 points, so 64 px covers a 2× display.
 const ICON_PIXELS: u32 = 64;
+/// The side of a file preview\'s thumbnail.
+const THUMBNAIL_PIXELS: u32 = 480;
 
 /// The shortcut's icon as a PNG in `cache`, reusing an earlier extraction of
 /// the same shortcut. The cache key includes the shortcut's size and
 /// modification time, so a reinstalled application gets its new icon.
 pub(super) fn cached_icon(shortcut: &Path, cache: &Path) -> Option<PathBuf> {
+    cached_picture(shortcut, cache, false)
+}
+
+/// The shell's thumbnail of the file's content (a PDF's first page, a
+/// video's frame), as a PNG in `cache`; `None` for a file the shell has no
+/// thumbnail of.
+pub(super) fn cached_thumbnail(file: &Path, cache: &Path) -> Option<PathBuf> {
+    cached_picture(file, cache, true)
+}
+
+fn cached_picture(shortcut: &Path, cache: &Path, thumbnail: bool) -> Option<PathBuf> {
     let metadata = std::fs::metadata(shortcut).ok()?;
     let mut hasher = DefaultHasher::new();
     shortcut.hash(&mut hasher);
+    thumbnail.hash(&mut hasher);
     metadata.len().hash(&mut hasher);
     metadata.modified().ok().hash(&mut hasher);
     let png = cache.join(format!("{:016x}.png", hasher.finish()));
@@ -111,7 +125,10 @@ pub(super) fn cached_icon(shortcut: &Path, cache: &Path) -> Option<PathBuf> {
 
     #[cfg(target_os = "windows")]
     {
-        let image = shell_icon::extract(shortcut, ICON_PIXELS)?;
+        let image = match thumbnail {
+            true => shell_icon::extract_thumbnail(shortcut, THUMBNAIL_PIXELS)?,
+            false => shell_icon::extract(shortcut, ICON_PIXELS)?,
+        };
         std::fs::create_dir_all(cache).ok()?;
         let temporary = png.with_extension("png.tmp");
         image
@@ -123,7 +140,10 @@ pub(super) fn cached_icon(shortcut: &Path, cache: &Path) -> Option<PathBuf> {
         Some(png)
     }
     #[cfg(not(target_os = "windows"))]
-    None
+    {
+        let _ = thumbnail;
+        None
+    }
 }
 
 /// Runs `work` with COM initialized on this thread, as icon extraction needs.
@@ -148,7 +168,10 @@ mod shell_icon {
                 GetDIBits, GetObjectW, HBITMAP, HGDIOBJ, ReleaseDC,
             },
             System::Com::{COINIT_APARTMENTTHREADED, CoInitializeEx, CoUninitialize},
-            UI::Shell::{IShellItemImageFactory, SHCreateItemFromParsingName, SIIGBF_ICONONLY},
+            UI::Shell::{
+                IShellItemImageFactory, SHCreateItemFromParsingName, SIIGBF, SIIGBF_ICONONLY,
+                SIIGBF_RESIZETOFIT, SIIGBF_THUMBNAILONLY,
+            },
         },
         core::HSTRING,
     };
@@ -177,11 +200,19 @@ mod shell_icon {
 
     /// The icon the shell draws for `path`, at most `pixels` square.
     pub fn extract(path: &Path, pixels: u32) -> Option<Image> {
+        draw(path, pixels, SIIGBF_ICONONLY)
+    }
+
+    /// The thumbnail of `path`'s content, fit within `pixels` square.
+    pub fn extract_thumbnail(path: &Path, pixels: u32) -> Option<Image> {
+        draw(path, pixels, SIIGBF_THUMBNAILONLY | SIIGBF_RESIZETOFIT)
+    }
+
+    fn draw(path: &Path, pixels: u32, flags: SIIGBF) -> Option<Image> {
         let factory: IShellItemImageFactory =
             unsafe { SHCreateItemFromParsingName(&HSTRING::from(path), None) }.ok()?;
         let side = pixels as i32;
-        let bitmap =
-            unsafe { factory.GetImage(SIZE { cx: side, cy: side }, SIIGBF_ICONONLY) }.ok()?;
+        let bitmap = unsafe { factory.GetImage(SIZE { cx: side, cy: side }, flags) }.ok()?;
         let image = read_bitmap(bitmap);
         unsafe {
             let _ = DeleteObject(HGDIOBJ(bitmap.0));

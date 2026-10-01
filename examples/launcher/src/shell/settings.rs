@@ -72,12 +72,90 @@ impl Appearance {
     }
 }
 
+/// How the launcher opens: whole, or as just its search field until
+/// something is typed.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WindowMode {
+    #[default]
+    Default,
+    Compact,
+}
+
+impl WindowMode {
+    pub const ALL: [Self; 2] = [Self::Default, Self::Compact];
+
+    pub fn value(self) -> &'static str {
+        match self {
+            Self::Default => "default",
+            Self::Compact => "compact",
+        }
+    }
+
+    pub fn title(self) -> &'static str {
+        match self {
+            Self::Default => "Default",
+            Self::Compact => "Compact",
+        }
+    }
+
+    fn from_value(value: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|mode| mode.value() == value)
+    }
+}
+
+/// When the launcher, summoned again, starts over at the root search
+/// rather than on the command it was left on.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PopToRoot {
+    Immediately,
+    #[default]
+    After90Seconds,
+    Never,
+}
+
+impl PopToRoot {
+    pub const ALL: [Self; 3] = [Self::Immediately, Self::After90Seconds, Self::Never];
+
+    pub fn value(self) -> &'static str {
+        match self {
+            Self::Immediately => "immediately",
+            Self::After90Seconds => "after_90_seconds",
+            Self::Never => "never",
+        }
+    }
+
+    pub fn title(self) -> &'static str {
+        match self {
+            Self::Immediately => "Immediately",
+            Self::After90Seconds => "After 90 Seconds",
+            Self::Never => "Never",
+        }
+    }
+
+    fn from_value(value: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|when| when.value() == value)
+    }
+
+    /// Whether a launcher hidden `hidden_for` ago comes back where it was.
+    pub fn keeps(self, hidden_for: std::time::Duration) -> bool {
+        match self {
+            Self::Immediately => false,
+            Self::After90Seconds => hidden_for < std::time::Duration::from_secs(90),
+            Self::Never => true,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(default)]
 pub struct Settings {
     /// A GPUI keystroke, such as `alt-space`.
     summon_shortcut: String,
     appearance: Appearance,
+    window_mode: WindowMode,
+    pop_to_root: PopToRoot,
     /// Loaded ahead of the bundled extensions.
     extension_directory: Option<PathBuf>,
     /// Whether what is copied is recorded in Clipboard History.
@@ -139,6 +217,8 @@ impl Default for Settings {
         Self {
             summon_shortcut: DEFAULT_SHORTCUT.into(),
             appearance: Appearance::default(),
+            window_mode: WindowMode::default(),
+            pop_to_root: PopToRoot::default(),
             extension_directory: None,
             clipboard_history: true,
             clipboard_retention_days: 90,
@@ -179,6 +259,14 @@ impl Settings {
 
     pub fn appearance(&self) -> Appearance {
         self.appearance
+    }
+
+    pub fn window_mode(&self) -> WindowMode {
+        self.window_mode
+    }
+
+    pub fn pop_to_root(&self) -> PopToRoot {
+        self.pop_to_root
     }
 
     pub fn extension_directory(&self) -> Option<&Path> {
@@ -292,6 +380,8 @@ impl Settings {
 pub(crate) mod field {
     pub const SUMMON_SHORTCUT: &str = "summon_shortcut";
     pub const APPEARANCE: &str = "appearance";
+    pub const WINDOW_MODE: &str = "window_mode";
+    pub const POP_TO_ROOT: &str = "pop_to_root";
     pub const EXTENSION_DIRECTORY: &str = "extension_directory";
     pub const CLIPBOARD_HISTORY: &str = "clipboard_history";
     pub const CLIPBOARD_RETENTION: &str = "clipboard_retention_days";
@@ -335,6 +425,22 @@ pub fn from_form(values: &FormValues, current: &Settings) -> Result<Settings, Fi
             current.appearance
         }),
         None => current.appearance,
+    };
+
+    let window_mode = match text(field::WINDOW_MODE) {
+        Some(value) => WindowMode::from_value(&value).unwrap_or_else(|| {
+            errors.insert(field::WINDOW_MODE, "Choose Default or Compact.".into());
+            current.window_mode
+        }),
+        None => current.window_mode,
+    };
+
+    let pop_to_root = match text(field::POP_TO_ROOT) {
+        Some(value) => PopToRoot::from_value(&value).unwrap_or_else(|| {
+            errors.insert(field::POP_TO_ROOT, "Choose when to start over.".into());
+            current.pop_to_root
+        }),
+        None => current.pop_to_root,
     };
 
     let extension_directory = match text(field::EXTENSION_DIRECTORY) {
@@ -436,6 +542,8 @@ pub fn from_form(values: &FormValues, current: &Settings) -> Result<Settings, Fi
     Ok(Settings {
         summon_shortcut,
         appearance,
+        window_mode,
+        pop_to_root,
         extension_directory,
         clipboard_history,
         clipboard_retention_days,

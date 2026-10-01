@@ -6130,6 +6130,8 @@ dependencies = [
  "pinyin",
  "plist",
  "raw-window-handle",
+ "regex",
+ "rusqlite",
  "schemars",
  "serde",
  "serde_json",

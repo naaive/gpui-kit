@@ -214,6 +214,102 @@ fn feature_commands() -> Vec<Item> {
             Effect::Push(PushHandler::new(crate::emoji::search_emoji_page)),
         )),
     );
+    commands.push(
+        command_item(
+            "system/search-browser-history",
+            "Search Browser History",
+            "clock",
+        )
+        .with_keyword("history")
+        .with_keyword("visited")
+        .with_keyword("chrome")
+        .with_keyword("edge")
+        .with_keyword("firefox")
+        .with_action(Action::new(
+            "Search Browser History",
+            Effect::Push(PushHandler::new(
+                crate::browser_history::search_history_page,
+            )),
+        )),
+    );
+    if crate::browser_tabs::is_supported() {
+        commands.push(
+            command_item(
+                "system/search-browser-tabs",
+                "Search Browser Tabs",
+                "panels-top-left",
+            )
+            .with_keyword("tabs")
+            .with_keyword("chrome")
+            .with_keyword("edge")
+            .with_keyword("firefox")
+            .with_action(Action::new(
+                "Search Browser Tabs",
+                Effect::Push(PushHandler::new(crate::browser_tabs::search_tabs_page)),
+            )),
+        );
+    }
+    if crate::menu_items::is_supported() {
+        commands.push(
+            command_item(
+                "system/search-menu-items",
+                "Search Menu Items",
+                "square-menu",
+            )
+            .with_keyword("menu bar")
+            .with_keyword("commands")
+            .with_action(Action::new(
+                "Search Menu Items",
+                Effect::Push(PushHandler::new(crate::menu_items::search_menu_items_page)),
+            )),
+        );
+    }
+    commands.extend(crate::reminders::commands());
+    commands.push(
+        command_item("system/system-monitor", "System Monitor", "activity")
+            .with_keyword("cpu")
+            .with_keyword("memory")
+            .with_keyword("disk")
+            .with_keyword("battery")
+            .with_keyword("network")
+            .with_action(Action::new(
+                "System Monitor",
+                Effect::Push(PushHandler::new(crate::system_monitor::system_monitor_page)),
+            )),
+    );
+    commands.push(
+        command_item("system/translate", "Translate", "languages")
+            .with_keyword("translation")
+            .with_keyword("language")
+            .with_keyword("fanyi")
+            .with_action(Action::new(
+                "Translate",
+                Effect::Push(PushHandler::new(crate::translate::translate_page)),
+            )),
+    );
+    commands.push(
+        command_item("system/define-word", "Define Word", "book-a")
+            .with_keyword("dictionary")
+            .with_keyword("meaning")
+            .with_keyword("definition")
+            .with_action(Action::new(
+                "Define Word",
+                Effect::Push(PushHandler::new(crate::dictionary::define_word_page)),
+            )),
+    );
+    commands.push(
+        command_item(
+            "system/calculator-history",
+            "Calculator History",
+            "calculator",
+        )
+        .with_keyword("calculations")
+        .with_keyword("math")
+        .with_action(Action::new(
+            "Calculator History",
+            Effect::Push(PushHandler::new(crate::calculator_history::history_page)),
+        )),
+    );
     commands.extend(crate::colors::commands());
     commands.extend(crate::notes::commands());
     commands.extend(crate::calendar::commands());

@@ -20,8 +20,10 @@ keyring = "4"
 notify.workspace = true
 percent-encoding = "2.3"
 raw-window-handle.workspace = true
-pinyin = { version = "0.10", default-features = false, features = ["heteronym", "plain"] }
+pinyin = { version = "0.10", default-features = false, features = ["heteronym", "plain", "with_tone"] }
 plist = "1"
+rusqlite = { version = "0.40", features = ["bundled"] }
+regex = "1"
 reqwest = { workspace = true, features = ["blocking", "json"] }
 schemars.workspace = true
 serde.workspace = true
@@ -39,7 +41,7 @@ objc2-app-kit = { version = "0.3", default-features = false, features = ["std", 
 sys-locale = "0.3"
 
 [target.'cfg(target_os = "windows")'.dependencies]
-windows = { workspace = true, features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_System_Com", "Win32_System_Ole", "Win32_System_Variant", "Win32_Graphics_Dwm", "Win32_System_DataExchange", "Win32_System_LibraryLoader", "Win32_System_Memory", "Win32_System_Threading", "Win32_System_WinRT", "Foundation", "Foundation_Collections", "Globalization", "Graphics_Imaging", "Media_Ocr", "Storage", "Storage_Streams", "Win32_UI_Accessibility", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
+windows = { workspace = true, features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_System_Com", "Win32_System_Ole", "Win32_System_Variant", "Win32_Graphics_Dwm", "Win32_System_DataExchange", "Win32_System_LibraryLoader", "Win32_System_Memory", "Win32_System_Power", "Win32_System_Threading", "Win32_System_WinRT", "Foundation", "Foundation_Collections", "Globalization", "Graphics_Imaging", "Media_Ocr", "Storage", "Storage_Streams", "Win32_UI_Accessibility", "Win32_UI_Controls", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
 
 [dev-dependencies]
 gpui = { workspace = true, features = ["test-support"] }

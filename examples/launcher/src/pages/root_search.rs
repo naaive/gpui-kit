@@ -129,6 +129,8 @@ pub struct RootSearchPage {
     next_meeting: Option<crate::calendar::Occurrence>,
     /// The running focus session, with its controls.
     focus_session: Option<Item>,
+    /// Reminders overdue or due within the hour.
+    due_reminders: Vec<Item>,
     /// The subtitles extension commands had before `update_command_metadata`
     /// replaced them, by command id.
     manifest_subtitles: HashMap<String, Option<SharedString>>,
@@ -205,6 +207,7 @@ impl RootSearchPage {
             fallbacks: FallbackCommand::from_catalog(catalog),
             next_meeting: None,
             focus_session: None,
+            due_reminders: Vec::new(),
             manifest_subtitles: HashMap::new(),
             usage: UsageStore::in_memory(),
             query: String::new(),
@@ -281,6 +284,15 @@ impl RootSearchPage {
                     page.invalidate(cx);
                 }));
         }
+        if self.options.platform_commands {
+            let reminders = crate::reminders::store(cx);
+            self.read_reminders(&reminders, cx);
+            self.store_subscriptions
+                .push(cx.observe(&reminders, |page, reminders, cx| {
+                    page.read_reminders(&reminders, cx);
+                    page.invalidate(cx);
+                }));
+        }
         if let Some(store) = snippets::store(cx) {
             self.snippets.items = snippets::snippet_items(store.read(cx).snippets());
             self.store_subscriptions
@@ -297,6 +309,19 @@ impl RootSearchPage {
         cx: &mut Context<Self>,
     ) {
         self.next_meeting = schedule.read(cx).next_meeting().cloned();
+    }
+
+    fn read_reminders(
+        &mut self,
+        reminders: &gpui_kit::Entity<crate::reminders::Reminders>,
+        cx: &mut Context<Self>,
+    ) {
+        self.due_reminders = reminders
+            .read(cx)
+            .due_soon()
+            .iter()
+            .map(crate::reminders::due_item)
+            .collect();
     }
 
     /// Reads the script commands folder again; a few small files.
@@ -632,6 +657,14 @@ impl RootSearchPage {
             }
             None => list,
         };
+        let list = match self.due_reminders.is_empty() {
+            true => list,
+            false => list.with_section(
+                Section::new()
+                    .with_title("Reminders")
+                    .with_items(self.due_reminders.iter().cloned()),
+            ),
+        };
         let list = [("Favorites", favorites), ("Recent", recent)]
             .into_iter()
             .filter(|(_, items)| !items.is_empty())
@@ -795,6 +828,9 @@ impl Page for RootSearchPage {
     /// calculator's answer and the fallback commands change with every query.
     fn did_perform(&mut self, item: &ItemId, query: &str, cx: &mut Context<Self>) {
         self.start(cx);
+        if self.options.platform_commands && item.as_str() == calculator::RESULT_ID {
+            crate::calculator_history::record(query);
+        }
         if !self.contains(item) {
             return;
         }

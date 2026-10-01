@@ -10,7 +10,7 @@
 //! Windows only; elsewhere the commands are not offered.
 
 #[cfg(target_os = "windows")]
-mod browser;
+pub(crate) mod browser;
 
 use std::{path::PathBuf, time::Duration};
 

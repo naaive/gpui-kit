@@ -13,9 +13,10 @@ use crate::model::{Accessory, Action, Effect, Item, ItemId};
 
 pub const RESULT_ID: &str = "calculator/result";
 
-/// The answer to `query` as an item, or `None` when it is not arithmetic.
-pub fn item(query: &str) -> Option<Item> {
-    let (answer, display): (SharedString, String) = match evaluate(query) {
+/// The answer to `query`: the value copied and the text shown, such as
+/// `1.5` and `1.5 km`; `None` when it is not arithmetic or a conversion.
+pub fn answer(query: &str) -> Option<(SharedString, String)> {
+    Some(match evaluate(query) {
         Some(value) => {
             let answer = format(value);
             (answer.clone().into(), answer)
@@ -26,7 +27,12 @@ pub fn item(query: &str) -> Option<Item> {
                 .or_else(|| super::dates::answer(query))?;
             (conversion.value.into(), conversion.display)
         }
-    };
+    })
+}
+
+/// The answer to `query` as an item, or `None` when it is not arithmetic.
+pub fn item(query: &str) -> Option<Item> {
+    let (answer, display) = answer(query)?;
     Some(
         Item::new(ItemId::new(RESULT_ID), format!("= {display}"))
             .with_subtitle(query.trim().to_owned())

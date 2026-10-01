@@ -20,15 +20,17 @@ const FORMAT: &str = "gpui-kit-launcher-export";
 const VERSION: u32 = 1;
 
 /// The data files exported as they are, by name in the data directory.
-const FILES: [&str; 9] = [
+const FILES: [&str; 11] = [
     "settings.json",
     "customizations.json",
     "quicklinks.json",
     "snippets.json",
     "colors.json",
+    "calculator-history.json",
     "emoji.json",
     "window-layouts.json",
     "focus.json",
+    "reminders.json",
     "usage.json",
 ];
 

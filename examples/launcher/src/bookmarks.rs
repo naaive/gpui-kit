@@ -18,7 +18,7 @@ use crate::{
 const ALL: &str = "all";
 
 /// A browser's name and its profiles' folder, per platform.
-fn browsers() -> Vec<(&'static str, PathBuf)> {
+pub(crate) fn browsers() -> Vec<(&'static str, PathBuf)> {
     let base = if cfg!(target_os = "windows") {
         dirs::data_local_dir()
     } else {
@@ -156,7 +156,7 @@ fn load() -> Vec<Bookmark> {
     bookmarks
 }
 
-fn host(url: &str) -> String {
+pub(crate) fn host(url: &str) -> String {
     url::Url::parse(url)
         .ok()
         .and_then(|url| {

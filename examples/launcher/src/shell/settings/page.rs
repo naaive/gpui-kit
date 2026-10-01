@@ -6,7 +6,9 @@ use gpui_kit::{
     },
 };
 
-use super::{Appearance, FieldErrors, RETENTION_DAYS, WINDOW_GAPS, field, from_form};
+use super::{
+    Appearance, FieldErrors, PopToRoot, RETENTION_DAYS, WINDOW_GAPS, WindowMode, field, from_form,
+};
 use crate::{
     model::{
         Action, ActionPanel, Choice, Control, Effect, Field, FormHandler, FormModel, FormValue,
@@ -138,6 +140,47 @@ impl Page for SettingsPage {
                             value: Some(appearance),
                         },
                     )),
+                )
+                .with_field(
+                    self.with_error(Field::new(
+                        field::WINDOW_MODE,
+                        "Window mode",
+                        Control::Dropdown {
+                            choices: WindowMode::ALL
+                                .into_iter()
+                                .map(|mode| Choice::new(mode.value(), mode.title()))
+                                .collect(),
+                            value: Some(
+                                match self.draft.as_ref().and_then(|d| d.get(field::WINDOW_MODE)) {
+                                    Some(FormValue::Text(value)) => value.clone(),
+                                    _ => settings.window_mode().value().into(),
+                                },
+                            ),
+                        },
+                    ))
+                    .with_info("Compact shows only the search field until you type."),
+                )
+                .with_field(
+                    self.with_error(Field::new(
+                        field::POP_TO_ROOT,
+                        "Return to root search",
+                        Control::Dropdown {
+                            choices: PopToRoot::ALL
+                                .into_iter()
+                                .map(|when| Choice::new(when.value(), when.title()))
+                                .collect(),
+                            value: Some(
+                                match self.draft.as_ref().and_then(|d| d.get(field::POP_TO_ROOT)) {
+                                    Some(FormValue::Text(value)) => value.clone(),
+                                    _ => settings.pop_to_root().value().into(),
+                                },
+                            ),
+                        },
+                    ))
+                    .with_info(
+                        "When the launcher, opened again, starts over instead of showing the \
+                         command you left.",
+                    ),
                 )
                 .with_field(
                     self.with_error(

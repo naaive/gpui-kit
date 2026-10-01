@@ -81,8 +81,21 @@ pub struct LauncherWindow {
     /// The placeholder last written to the search field. Writing notifies, so
     /// `render` writes only when it changed.
     applied_placeholder: SharedString,
+    /// The full size of the window, kept while compact mode shrinks it.
+    full_size: Option<gpui_kit::Size<Pixels>>,
     _subscriptions: Vec<Subscription>,
 }
+
+/// What the launcher showed when it hid: the root search's text and
+/// selection, and each page above it, to come back to.
+pub struct Snapshot {
+    root_query: SharedString,
+    root_selected: Option<ItemId>,
+    pages: Vec<(PageHandle, SharedString, Option<ItemId>)>,
+}
+
+/// The height of the window in compact mode: the search field alone.
+const COMPACT_HEIGHT: f32 = 49.;
 
 /// A list's filter dropdown and the value last applied to it from the model.
 struct ListDropdown {
@@ -177,8 +190,67 @@ impl LauncherWindow {
             detail_item: None,
             syncing_input: false,
             applied_placeholder: SharedString::default(),
+            full_size: None,
             _subscriptions: subscriptions,
         }
+    }
+
+    /// The stack as it is, to restore in the next window.
+    pub fn snapshot(&self) -> Snapshot {
+        let mut entries = self.navigator.entries();
+        let root = entries.next().expect("the root page is never popped");
+        Snapshot {
+            root_query: root.query().clone(),
+            root_selected: root.selected().cloned(),
+            pages: entries
+                .map(|entry| {
+                    (
+                        entry.page().clone(),
+                        entry.query().clone(),
+                        entry.selected().cloned(),
+                    )
+                })
+                .collect(),
+        }
+    }
+
+    /// Shows what `snapshot` holds, as the launcher was left.
+    pub fn restore(&mut self, snapshot: Snapshot, window: &mut Window, cx: &mut Context<Self>) {
+        self.navigator.pop_to_root();
+        self.set_query(snapshot.root_query, window, cx);
+        self.navigator
+            .current_mut()
+            .set_selected(snapshot.root_selected);
+        for (page, query, selected) in snapshot.pages {
+            let entry = Self::entry(page, cx);
+            self.navigator.push(entry);
+            let entry = self.navigator.current_mut();
+            entry.set_query(query);
+            entry.set_selected(selected);
+        }
+        self.sync_input(window, cx);
+        self.page_did_appear(window, cx);
+    }
+
+    /// In compact mode, the root search with nothing typed is the search
+    /// field alone; the window shrinks to it and grows back when typing
+    /// starts or a command opens.
+    fn fit_window(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        let compact = crate::shell::launcher::settings(cx).window_mode()
+            == crate::shell::settings::WindowMode::Compact
+            && self.navigator.depth() == 1
+            && self.navigator.current().query().is_empty()
+            && self.action_panel.is_none();
+        let current = window.bounds().size;
+        let full = *self.full_size.get_or_insert(current);
+        let wanted = match compact {
+            true => gpui_kit::size(full.width, px(COMPACT_HEIGHT)),
+            false => full,
+        };
+        if current != wanted {
+            window.resize(wanted);
+        }
+        compact
     }
 
     /// Wraps a page for the stack; the window redraws whenever the page does.
@@ -1237,6 +1309,7 @@ impl Render for LauncherWindow {
             }
         };
         let search_bar = self.render_search_bar(&model, show_loading, window, cx);
+        let compact = self.fit_window(window, cx);
 
         v_flex()
             .id("launcher")
@@ -1262,22 +1335,24 @@ impl Render for LauncherWindow {
             .bg(cx.theme().background)
             .text_color(cx.theme().foreground)
             .child(search_bar)
-            .child(div().relative().flex_1().min_h_0().child(body).when_some(
-                self.action_panel.as_ref().zip(panel_actions.as_ref()),
-                |this, (open, actions)| {
-                    this.child(div().absolute().right_2().bottom_2().child(open.render(
-                        actions,
-                        launcher.clone(),
-                        cx,
-                    )))
-                },
-            ))
-            .child(
-                Footer::new(title, launcher)
-                    .loading(show_loading)
-                    .primary(primary)
-                    .shows_actions(panel_actions.is_some_and(|panel| entry_count(&panel) > 1)),
-            )
+            .when(!compact, |this| {
+                this.child(div().relative().flex_1().min_h_0().child(body).when_some(
+                    self.action_panel.as_ref().zip(panel_actions.as_ref()),
+                    |this, (open, actions)| {
+                        this.child(div().absolute().right_2().bottom_2().child(open.render(
+                            actions,
+                            launcher.clone(),
+                            cx,
+                        )))
+                    },
+                ))
+                .child(
+                    Footer::new(title, launcher)
+                        .loading(show_loading)
+                        .primary(primary)
+                        .shows_actions(panel_actions.is_some_and(|panel| entry_count(&panel) > 1)),
+                )
+            })
     }
 }
 

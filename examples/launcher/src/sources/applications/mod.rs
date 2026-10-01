@@ -262,6 +262,21 @@ pub fn file_icon(path: &std::path::Path) -> Option<PathBuf> {
     }
 }
 
+/// The system's thumbnail of the file at `path` (a PDF's first page, a
+/// video's frame), as a cached PNG; `None` where there is none. Blocking.
+pub fn file_thumbnail(path: &std::path::Path) -> Option<PathBuf> {
+    #[cfg(target_os = "windows")]
+    {
+        let cache = icon_cache()?.with_file_name("thumbnails");
+        start_menu::with_com(|| start_menu::cached_thumbnail(path, &cache))
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = path;
+        None
+    }
+}
+
 /// Calls `on_change` from a background thread whenever something changes in
 /// `directories`. The returned watcher stops watching when dropped; `None`
 /// when no directory could be watched.
@@ -291,6 +306,15 @@ pub fn watch(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Draws the thumbnail of `THUMBNAIL_SAMPLE`, a video or document, to
+    /// try the shell's thumbnails by hand.
+    #[test]
+    #[ignore = "needs a sample file"]
+    fn test_file_thumbnail() {
+        let sample = std::env::var("THUMBNAIL_SAMPLE").unwrap();
+        println!("{:?}", file_thumbnail(std::path::Path::new(&sample)));
+    }
 
     #[test]
     fn test_application_item_opens_reveals_and_copies() {

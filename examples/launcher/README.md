@@ -52,7 +52,7 @@ Settings, holding Caps Lock is Ctrl+Shift+Alt+Win, for hotkeys such as
 | Command                                     | Does                                                                                                                                          |
 | ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
 | Clipboard History                           | Text, links, colors, images and files you copied, by day, with a preview; paste or copy again, pin, delete. Private copies are never recorded, nor copies from applications you exclude (password managers by default); text in copied images is recognized and searchable (Windows) |
-| Search Files                                | Files and folders in your home folder by name, recent files with nothing typed, a preview of text and images                                  |
+| Search Files                                | Files and folders in your home folder by name, recent files with nothing typed, a preview of text, images, a folder's contents and the system's thumbnail of documents and videos; Quick Look shows it larger |
 | Create Quicklink, Search Quicklinks         | Saved links and paths, opened from the search; `{argument}`, `{clipboard}`, `{date}` and `{time}` are filled in when one opens                |
 | Create Snippet, Search Snippets             | Saved text to paste, with the same placeholders; a keyword puts it first, and can expand as you type anywhere (Windows, opt-in in Settings, except in applications you list)   |
 | Search Emoji & Symbols                      | Every emoji by name and shortcode, with a skin tone chosen once, and arrows, math, currency, keyboard and box-drawing symbols; recently used first |
@@ -67,6 +67,14 @@ Settings, holding Caps Lock is Ctrl+Shift+Alt+Win, for hotkeys such as
 | Create Script Command                       | Scripts in the script commands folder become commands; Raycast's `@raycast.title`, `mode`, `icon` and `argument1…3` comments are understood   |
 | Search Processes                            | Running programs with CPU and memory, to quit or force quit                                                                                   |
 | Search Bookmarks                            | Bookmarks of Chrome, Edge, Brave, Vivaldi and Chromium                                                                                        |
+| Search Browser History                      | Pages visited in Chrome, Edge, Brave, Vivaldi, Chromium and Firefox, newest first, by title or address                                       |
+| Search Browser Tabs                         | The tabs open in every browser window, to switch to (Windows)                                                                                 |
+| Search Menu Items                           | The menu commands of the window that was in front, to run by name; a drawn menu bar's menus are opened (Windows)                             |
+| Search Reminders, Create Reminder           | Reminders with a due time typed as `tomorrow 9am`, `in 2 hours` or `明天下午3点`, and a priority; a small alert opens in the corner when one comes due, and due ones show in the root search |
+| Calculator History                          | Calculations and conversions whose answer you copied or pasted                                                                                |
+| Translate                                   | The typed or selected text in another language, through Google Translate                                                                      |
+| Define Word                                 | An English or Chinese word's meanings, pronunciation and examples, from Wiktionary                                                            |
+| System Monitor                              | CPU, memory, disks, network, battery and uptime, refreshed every two seconds                                                                  |
 | Left Half, Maximize, Center, Next Display…  | Window Management for the window that was in front: halves (pressed again: two thirds, then one third), thirds, fourths, sixths, quarters, moving to an edge, larger and smaller, other displays, restore, and layouts of your own; a gap between windows in Settings (Windows) |
 | Display Settings, Sound Settings…           | Pages of the system settings (Windows)                                                                                                        |
 
@@ -94,7 +102,8 @@ Under the platform data directory (for example
 Support/gpui-kit-launcher` on macOS): `settings.json`, `usage.json` (ranking),
 `permissions.json`, `preferences.json`, `quicklinks.json`, `snippets.json`,
 `customizations.json` (aliases, favorites, hotkeys), `currency-rates.json`,
-`colors.json`, `emoji.json`, `focus.json`, `window-layouts.json`, `notes/`
+`colors.json`, `emoji.json`, `focus.json`, `reminders.json`,
+`calculator-history.json`, `window-layouts.json`, `notes/`
 (one Markdown file per note), `calendars/` (cached feeds),
 `screenshot-text.json`, `themes/` (your own themes),
 `clipboard/` (the clipboard

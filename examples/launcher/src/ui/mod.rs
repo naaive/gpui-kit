@@ -13,7 +13,7 @@ mod list_view;
 mod picture;
 mod toast;
 
-pub use launcher_window::LauncherWindow;
+pub use launcher_window::{LauncherWindow, Snapshot};
 
 use std::sync::Arc;
 
