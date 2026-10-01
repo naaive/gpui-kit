@@ -40,6 +40,7 @@ members = [
     "crates/shell/rquickjs-compat",
     "crates/component-shell",
     "examples/launcher",
+    "examples/snip",
     "examples/datakit",
     "examples/datakit/crates/catalog",
     "examples/datakit/crates/driver",
