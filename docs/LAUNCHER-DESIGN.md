@@ -430,6 +430,7 @@ M0 实现了一条最窄的端到端路径：窗口 + 宿主搜索框 + 内置�
 | M6   | 浏览器历史（Chromium 与 Firefox）与标签页切换、当前应用菜单项搜索、提醒事项（自然语言截止时间与到期提醒窗口）、计算器历史、翻译、查词（含中文与拼音）、系统监视器；文件预览的文件夹内容、系统缩略图与 Quick Look；紧凑窗口模式与“回到根搜索”的时机 | **已完成**；标签页、菜单项与缩略图仅 Windows |
 | M7   | 扩展 SDK 对标 Raycast API：`menu-bar` 命令（`MenuBarExtra`，托盘图标与菜单，经 `tray-icon`）与 `interval` 后台定时运行（在不显示的后台窗口里加载，用户打开一次后启用）；`confirm_alert`、带按钮的 toast、`selected_text`/`selected_files`、前台应用与应用列表、OAuth（PKCE 与本机回环，令牌存系统钥匙串）、`launch_command` 的 `context` 与 deep link 的 `context`；`FilePicker`、`TagPicker`、带时间的 `DatePicker`、`FormSeparator`/`FormDescription`；网络图片、系统文件图标、图标色调与圆形裁剪、相对日期；`open_with`、`trash`、`quick_look`、`create_quicklink`/`create_snippet`、`pick_date`；`launcher dev` 热重载、`launcher new`/`lint`、`LAUNCHER_LOG` | **已完成**；托盘仅 Windows 与 macOS，`selected_files` 为 Explorer 与 Finder；第三方包沿用 GPUI Shell 的 Git `dependencies` |
 | M8   | 扩展生态：Extension Store（GitHub 仓库存放，`index.json` 带每个文件的 SHA-256，下载校验后安装，可更新与卸载，来源可在设置中改为其他仓库或本地文件夹；`launcher store-index`）；首批商店扩展（开发者工具、网页搜索、网络工具、包搜索、最近项目、Docker、Obsidian、Bitwarden、Todoist、Spotify、Linear、Notion）与内置 GitHub 扩展的 PR、Issue、通知与托盘未读数；SDK 补充 `sql_query`、`fs` 授权的 `${homeDir}`/`${configDir}`、OAuth 固定回调端口 | **已完成** |
+| M9   | 内置媒体控制（Windows SMTC）、Wi‑Fi 与蓝牙开关（Windows Radios）、防止休眠、计时器与秒表、弹出驱动器；扩展的隐私复制（不进剪贴板历史，30 秒后清空）、`open_preferences`、`List.search_text`、`process.run` 的 `input`/`env`；商店的更新检查、Update All 与截图；网页图片的 HTTP 客户端；GPUI Shell 在 Windows 上的 Git 依赖（长路径、文件锁、目录联接）与路径显示修复 | **已完成**；媒体与无线仅 Windows |
 
 ## 11. 测试
 

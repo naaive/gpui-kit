@@ -329,6 +329,22 @@ impl StorePage {
             }
             markdown.push('\n');
         }
+        if let Ok(source) = &self.source {
+            let screenshots: Vec<String> = listing
+                .screenshots()
+                .map(|path| {
+                    format!(
+                        "![Screenshot]({})",
+                        source.picture_url(&format!("{}/{path}", listing.path))
+                    )
+                })
+                .collect();
+            if !screenshots.is_empty() {
+                markdown.push('\n');
+                markdown.push_str(&screenshots.join("\n\n"));
+                markdown.push('\n');
+            }
+        }
         let readme = self.readmes.get(&listing.id);
         if let Some(Some(readme)) = readme
             && !readme.trim().is_empty()
@@ -430,6 +446,35 @@ impl Page for StorePage {
         let (installed, available): (Vec<&Listing>, Vec<&Listing>) = shown
             .into_iter()
             .partition(|listing| self.installed.contains_key(&listing.id));
+        let outdated: Vec<String> = installed
+            .iter()
+            .filter(|listing| {
+                self.installed.get(&listing.id) != Some(&listing.version)
+                    && !self.busy.contains(&listing.id)
+            })
+            .map(|listing| listing.id.clone())
+            .collect();
+        crate::shell::launcher::set_store_update_count(outdated.len(), cx);
+        let update_all = (outdated.len() > 1).then(|| {
+            let page = page.clone();
+            Item::new(
+                ItemId::new("store-update-all"),
+                format!("Update All ({})", outdated.len()),
+            )
+            .with_image(Image::Icon("refresh-cw".into()))
+            .with_action(Action::new(
+                "Update All",
+                Effect::Run(RunHandler::new(move |(), _, cx| {
+                    let outdated = outdated.clone();
+                    page.update(cx, |page, cx| {
+                        for id in outdated {
+                            page.install(id, cx);
+                        }
+                    })
+                    .ok();
+                })),
+            ))
+        });
         let section = |title: &str, listings: Vec<&Listing>| {
             Section::new().with_title(title.to_owned()).with_items(
                 listings
@@ -437,8 +482,16 @@ impl Page for StorePage {
                     .map(|listing| self.item(listing, &page)),
             )
         };
+        let installed_section = section("Installed", installed);
+        let installed_section = match update_all {
+            Some(item) => Section::new()
+                .with_title("Installed")
+                .with_item(item)
+                .with_items(installed_section.items().iter().cloned()),
+            None => installed_section,
+        };
         list.with_dropdown(dropdown)
-            .with_section(section("Installed", installed))
+            .with_section(installed_section)
             .with_section(section("Available", available))
             .with_empty_title("No extensions in this category")
             .with_on_selection_change(TextHandler::new(move |id, _, cx| {

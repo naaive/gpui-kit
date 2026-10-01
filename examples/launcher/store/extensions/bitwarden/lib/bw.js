@@ -34,21 +34,11 @@ function installHint() {
 }
 
 /**
- * The launcher starts programs with an empty environment, so `bw` cannot see
- * APPDATA, HOME or XDG_CONFIG_HOME and keeps its data in a "Bitwarden CLI"
- * folder of the working directory instead of the user's: it then reports
- * itself logged out. bw's portable mode, a "bw-data" folder beside the program,
- * needs no environment.
- */
-const DATA_FOLDER_HINT =
-  "The launcher runs bw without environment variables, so bw cannot find the data “bw login” saved. Create a folder named “bw-data” next to the bw executable (next to node.exe for an npm install), run “bw login” once in a terminal, and reopen this command.";
-
-/**
  * Runs `bw` with `args`, the session if any, and never an interactive prompt;
  * `operands` follow `--`, so a value starting with "-" is not read as an
  * option. Answers stdout.
  */
-export async function bw(args, session = null, operands = []) {
+export async function bw(args, session = null, operands = [], env = {}) {
   const full = [
     ...args,
     "--nointeraction",
@@ -57,7 +47,7 @@ export async function bw(args, session = null, operands = []) {
   ];
   let output;
   try {
-    output = await run("bw", full);
+    output = await run("bw", full, { env });
   } catch (error) {
     const message = String(error?.message ?? error);
     if (/not found|not granted/i.test(message)) throw new BwError("Bitwarden CLI not found", installHint());
@@ -75,7 +65,7 @@ export async function bw(args, session = null, operands = []) {
 }
 
 export function loginHint() {
-  return `Run “bw login” in a terminal (after “bw config server <url>” for a self-hosted server). ${DATA_FOLDER_HINT}`;
+  return "Run “bw login” in a terminal (after “bw config server <url>” for a self-hosted server), then reopen this command.";
 }
 
 /** `{ status: "unauthenticated" | "locked" | "unlocked", userEmail, serverUrl, lastSync }`. */
@@ -90,7 +80,9 @@ export async function status(session = null) {
 
 /** Unlocks the vault and answers the session key. */
 export async function unlock(password) {
-  const key = (await bw(["unlock", "--raw"], null, [password])).trim();
+  // From a variable bw is told to read, not an argument: other programs can
+  // list a process's arguments.
+  const key = (await bw(["unlock", "--raw", "--passwordenv", "BW_PASSWORD"], null, [], { BW_PASSWORD: password })).trim();
   if (!key) throw new BwError("Cannot unlock the vault", "bw answered no session key.");
   return key;
 }

@@ -6,7 +6,7 @@
       "name": "Bitwarden",
       "description": "Search your Bitwarden vault, copy passwords and TOTP codes, and generate passwords with the Bitwarden CLI.",
       "author": "GPUI Kit",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "icon": "shield-check",
       "categories": [
         "Security",
@@ -36,13 +36,13 @@
       "files": [
         {
           "path": "README.md",
-          "sha256": "0009d484f6df459b8095115ace8bfa0b01a1477d10b6b1b36dc7ae029ae35345",
-          "size": 2991
+          "sha256": "c08c6c4d2cafdbae5c7b372472175cd1d93817a85d15d22062a78b189e086f49",
+          "size": 2365
         },
         {
           "path": "commands/generate-password.js",
-          "sha256": "16048960ab020727613512dfd5c31cb56c1ed01608b5d7f41d0f4a28e54b272a",
-          "size": 4445
+          "sha256": "68e884c814d146c2f1eb23685559fac666e8c221ace2413198082b6292c5ba78",
+          "size": 4624
         },
         {
           "path": "commands/lock-vault.js",
@@ -51,13 +51,13 @@
         },
         {
           "path": "commands/search-vault.js",
-          "sha256": "e23a807fe32765c000559487bc11cfcb68f8d5f1dd35fe9b720c713c911d3625",
-          "size": 10736
+          "sha256": "a17becd8251aed461e0597490ab17ece325129dd54f5130226c346728126e8bc",
+          "size": 10301
         },
         {
           "path": "gpui-shell.json",
-          "sha256": "f6d202c72a5779b27fd885862754295d0bb965c7d6cfbcf26844ff84b022a7c6",
-          "size": 238
+          "sha256": "9e095276fe9f1135ea07e68cec4153b4e702a5382d51af1e4bea56c88ca6736f",
+          "size": 217
         },
         {
           "path": "launcher.json",
@@ -66,8 +66,8 @@
         },
         {
           "path": "lib/bw.js",
-          "sha256": "acfafb40598de384f511b867af97ded5a5c0ad1085f64cbf118a1f80441f0f66",
-          "size": 7301
+          "sha256": "d3e4304e6af551459458d650ae0b89a216b78b2aa9ac313dc28a0913c28c6f9f",
+          "size": 6840
         }
       ]
     },
@@ -212,8 +212,8 @@
         },
         {
           "path": "lib/ui.js",
-          "sha256": "f82a6133539824e4a2662fb974d948b2b4360902fc0c41a2ef71956966a208cd",
-          "size": 4418
+          "sha256": "8c50f2ce3d5b7478664f180939702e9801c3402e2143b7abe1ddb201c7d1d35e",
+          "size": 4709
         }
       ]
     },

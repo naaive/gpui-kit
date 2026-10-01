@@ -117,7 +117,13 @@ export class TextToolView extends View {
       rows = [];
       failure = String(error?.message ?? error);
     }
-    return new List()
+    const list = new List();
+    // A short, one-line selection goes in the search field, where it can be
+    // edited; a longer one is used as it is.
+    if (this.selection !== "" && !/[\r\n]/.test(this.selection) && this.selection.length <= 200) {
+      list.search_text(this.selection);
+    }
+    return list
       .placeholder(page.placeholder)
       .showing_detail(page.showing_detail && rows.length > 0)
       .empty_title(failure ? "Something went wrong" : page.empty_title)

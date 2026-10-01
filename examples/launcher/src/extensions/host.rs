@@ -737,6 +737,21 @@ impl ExtensionHost {
         }
     }
 
+    /// Shows `subtitle` for `command` in the root search instead of its own,
+    /// in this window and every later one; `None` restores its own.
+    pub fn set_command_subtitle(
+        &self,
+        command: CommandId,
+        subtitle: Option<SharedString>,
+        cx: &mut App,
+    ) {
+        self.state.services.metadata.notify(
+            command,
+            bridge::CommandMetadata::new().with_subtitle(subtitle),
+            cx,
+        );
+    }
+
     /// The Extension Store, listing what `source` offers.
     pub fn store_page(
         &self,
@@ -794,13 +809,30 @@ pub fn page_from_callback(
 ) -> Result<PageHandle> {
     let view = callback.invoke_view(window, cx)?;
     let policy = view.read(cx).policy();
-    let page = cx.new(|cx| ScriptPage::new(title, view, cx));
     let state = cx
         .try_global::<HostRegistry>()
         .and_then(|registry| registry.0.upgrade());
-    if let Some(state) = state
-        && let Some(launch) = state.launch_for(&policy)
-    {
+    let launch = state.as_ref().and_then(|state| {
+        state
+            .launch_for(&policy)
+            .map(|launch| (state.clone(), launch))
+    });
+    // The pushed page belongs to the command that pushed it.
+    let command = launch.as_ref().and_then(|(state, launch)| {
+        state
+            .launches
+            .borrow()
+            .get(launch)
+            .map(|launch| launch.context.command.command().clone())
+    });
+    let page = cx.new(|cx| {
+        let page = ScriptPage::new(title, view, cx);
+        match command {
+            Some(command) => page.with_command(command),
+            None => page,
+        }
+    });
+    if let Some((state, launch)) = launch {
         state.track_page(launch, &page, cx);
     }
     Ok(pages::handle(page))

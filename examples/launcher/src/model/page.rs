@@ -108,6 +108,7 @@ pub struct ListModel {
     empty_description: Option<SharedString>,
     dropdown: Option<Dropdown>,
     selected: Option<ItemId>,
+    search_text: Option<SharedString>,
     on_query_change: Option<TextHandler>,
     on_selection_change: Option<TextHandler>,
     on_load_more: Option<RunHandler>,
@@ -184,6 +185,17 @@ impl ListModel {
     pub fn with_selected(mut self, selected: ItemId) -> Self {
         self.selected = Some(selected);
         self
+    }
+
+    /// Asks the launcher to put this text in the search field, once per
+    /// different text, such as the selected text a command starts from.
+    pub fn with_search_text(mut self, text: impl Into<SharedString>) -> Self {
+        self.search_text = Some(text.into());
+        self
+    }
+
+    pub fn search_text(&self) -> Option<&SharedString> {
+        self.search_text.as_ref()
     }
 
     pub fn with_on_query_change(mut self, handler: TextHandler) -> Self {

@@ -849,6 +849,17 @@ impl LauncherWindow {
                 })
                 .detach();
             }
+            Effect::OpenPreferences(command) => {
+                match crate::shell::launcher::preferences_page(&command, window, cx) {
+                    Ok(page) => self.push(page, window, cx),
+                    Err(error) => show_toast(
+                        &Toast::new(ToastStyle::Failure, "Couldn’t open the preferences")
+                            .with_message(format!("{error:#}")),
+                        window,
+                        cx,
+                    ),
+                }
+            }
             Effect::QuickLook(path) => match crate::file_search::quick_look_path(&path, cx) {
                 Ok(page) => self.push(page, window, cx),
                 Err(error) => show_toast(
@@ -890,6 +901,20 @@ impl LauncherWindow {
             }
             Effect::Paste(text) => {
                 cx.write_to_clipboard(ClipboardItem::new_string(text.to_string()));
+                self.close(window, cx);
+                crate::shell::platform::paste_into_previous_application(cx);
+            }
+            Effect::CopyConcealed(text) => {
+                crate::clipboard::copy_concealed(&text, cx);
+                show_toast(
+                    &Toast::new(ToastStyle::Success, "Copied to clipboard")
+                        .with_message("It is cleared in 30 seconds."),
+                    window,
+                    cx,
+                );
+            }
+            Effect::PasteConcealed(text) => {
+                crate::clipboard::copy_concealed(&text, cx);
                 self.close(window, cx);
                 crate::shell::platform::paste_into_previous_application(cx);
             }
@@ -1136,6 +1161,14 @@ impl LauncherWindow {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        let entry = self.navigator.current_mut();
+        if let Some(text) = entry.request_search_text(list.search_text()) {
+            // After this frame, as typing would arrive.
+            cx.defer_in(window, move |this, window, cx| {
+                this.set_query(text, window, cx);
+                this.sync_input(window, cx);
+            });
+        }
         let entry = self.navigator.current_mut();
         if entry.request_selection(list.selected()) {
             let id = entry.selected().cloned();

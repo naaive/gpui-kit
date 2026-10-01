@@ -3,8 +3,8 @@
 // field of this page only, and is gone when the page closes. Secrets are
 // never shown: rows and the detail carry names, usernames and addresses, and
 // a password, TOTP or card number is asked of `bw` only when it is copied or
-// pasted. A copied secret is cleared from the clipboard after 30 seconds if
-// it is still there.
+// pasted. Secrets are copied concealed: Clipboard History leaves them out and
+// the launcher clears them from the clipboard after 30 seconds.
 import { View } from "gpui-kit";
 import {
   Action,
@@ -38,7 +38,6 @@ import {
   unlock,
 } from "../lib/bw.js";
 
-const CLEAR_CLIPBOARD_MS = 30000;
 
 export default class SearchVault extends View {
   init(_props, cx) {
@@ -50,7 +49,6 @@ export default class SearchVault extends View {
     this.email = null;
     this.items = [];
     this.folders = new Map();
-    this.clear_timer = null;
     this.check(cx);
   }
 
@@ -148,24 +146,11 @@ export default class SearchVault extends View {
         return;
       }
       if (how === "paste") {
-        paste(value);
+        paste(value, { concealed: true });
         return;
       }
-      copy(value);
+      copy(value, { concealed: true });
       show_hud(`Copied ${label}, clears in 30 seconds`);
-      this.clear_later(task, value);
-    });
-  }
-
-  clear_later(cx, value) {
-    this.clear_timer?.cancel();
-    this.clear_timer = cx.timer.after(CLEAR_CLIPBOARD_MS, (timer) => {
-      try {
-        // Only if it still holds the secret: something copied since stays.
-        if (timer.read_from_clipboard() === value) timer.write_to_clipboard("");
-      } catch (_) {
-        // No clipboard grant: the copy stays, as the README says.
-      }
     });
   }
 

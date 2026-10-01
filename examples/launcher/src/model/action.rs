@@ -257,6 +257,8 @@ pub enum Effect {
     Trash(Vec<PathBuf>),
     /// Shows a file large, as Quick Look does.
     QuickLook(PathBuf),
+    /// Opens the preferences of a command's extension, and of the command.
+    OpenPreferences(crate::extensions::CommandId),
     /// Opens the Create Quicklink form filled in.
     CreateQuicklink {
         name: SharedString,
@@ -271,6 +273,12 @@ pub enum Effect {
     /// Pastes text into the application that was frontmost before the
     /// launcher, then hides the launcher.
     Paste(SharedString),
+    /// Copies a secret: left out of Clipboard History and cleared from the
+    /// clipboard after a while.
+    CopyConcealed(SharedString),
+    /// Pastes a secret into the previous application, as
+    /// [`Effect::CopyConcealed`] copies it.
+    PasteConcealed(SharedString),
     /// Puts anything on the clipboard: an image, files, or text.
     CopyItem(gpui_kit::ClipboardItem),
     /// Pastes anything into the previous application, as [`Effect::Paste`].

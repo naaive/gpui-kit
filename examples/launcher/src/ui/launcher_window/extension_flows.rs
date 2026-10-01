@@ -774,3 +774,47 @@ fn test_a_command_kept_loaded_opens_in_a_new_window(cx: &mut TestAppContext) {
     cx.simulate_keystrokes("down enter");
     assert_eq!(rows(&reopened, &mut cx)[1], ">run", "and still works");
 }
+
+/// A page that asks for search text gets it in the search field, as if
+/// typed, and hears about it; the user's typing wins afterwards.
+#[gpui::test]
+fn test_a_page_fills_the_search_field(cx: &mut TestAppContext) {
+    let root = tempfile::tempdir().unwrap();
+    write_extension(
+        root.path(),
+        "test.fill",
+        r#"{ "commands": [{ "name": "fill", "title": "Fill Search", "module": "main.js" }] }"#,
+        &[(
+            "main.js",
+            r#"import { View } from "gpui-kit";
+import { List, ListItem } from "launcher";
+
+export default class Fill extends View {
+  init() { this.heard = ""; }
+  render() {
+    return new List()
+      .search_text("selected words")
+      .on_query_change((text, cx) => { this.heard = text; cx.notify(); })
+      .child(new ListItem("heard", `Heard ${this.heard}`));
+  }
+}
+"#,
+        )],
+    );
+    let (launcher, mut cx) = open(cx, &[root.path().to_path_buf()]);
+    cx.simulate_input("fill search");
+    cx.simulate_keystrokes("enter");
+    cx.run_until_parked();
+    let query = |cx: &mut VisualTestContext| {
+        cx.update(|_, cx| launcher.read(cx).navigator.current().query().to_string())
+    };
+    assert_eq!(query(&mut cx), "selected words");
+    assert!(
+        item(&launcher, "heard", &mut cx)
+            .is_some_and(|item| item.title().as_ref() == "Heard selected words")
+    );
+
+    cx.simulate_keystrokes("backspace");
+    cx.run_until_parked();
+    assert_eq!(query(&mut cx), "selected word", "the user's typing wins");
+}

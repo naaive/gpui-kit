@@ -87,6 +87,41 @@ pub fn start(cx: &mut App) {
     .detach();
 }
 
+/// How long a concealed copy stays on the clipboard.
+pub const CONCEALED_FOR: Duration = Duration::from_secs(30);
+
+/// Copies a secret, such as a password: Clipboard History leaves it out, and
+/// the clipboard is cleared after [`CONCEALED_FOR`] unless something else was
+/// copied meanwhile. The clearing belongs to the launcher, not to the page
+/// that copied, so it happens even after that page is gone.
+pub fn copy_concealed(text: &str, cx: &mut App) {
+    if let Some(history) = store(cx) {
+        history.update(cx, |history, _| {
+            history.ignore_changes_for(Duration::from_secs(2))
+        });
+    }
+    cx.write_to_clipboard(ClipboardItem::new_string(text.to_owned()));
+    let secret = text.to_owned();
+    cx.spawn(async move |cx| {
+        cx.background_executor().timer(CONCEALED_FOR).await;
+        cx.update(|cx| {
+            let still_there = cx
+                .read_from_clipboard()
+                .and_then(|item| item.text())
+                .is_some_and(|current| current == secret);
+            if still_there {
+                if let Some(history) = store(cx) {
+                    history.update(cx, |history, _| {
+                        history.ignore_changes_for(Duration::from_secs(2))
+                    });
+                }
+                cx.write_to_clipboard(ClipboardItem::new_string(String::new()));
+            }
+        });
+    })
+    .detach();
+}
+
 /// The running history, if [`start`] was called.
 pub fn store(cx: &App) -> Option<Entity<ClipboardStore>> {
     cx.try_global::<GlobalClipboardStore>()

@@ -75,6 +75,12 @@ Settings, holding Caps Lock is Ctrl+Shift+Alt+Win, for hotkeys such as
 | Translate                                   | The typed or selected text in another language, through Google Translate                                                                      |
 | Define Word                                 | An English or Chinese word's meanings, pronunciation and examples, from Wiktionary                                                            |
 | System Monitor                              | CPU, memory, disks, network, battery and uptime, refreshed every two seconds                                                                  |
+| Now Playing, Play/Pause Media, Next Track, Previous Track | What each app is playing, with artwork and position, and its controls (Windows) |
+| Toggle Wi-Fi, Toggle Bluetooth, Network Status | Turn the radios on or off, and see the Wi-Fi network and signal (Windows) |
+| Keep Awake, Allow Sleep | Keep the computer (and optionally the display) awake until stopped, for a while or until a time; the subtitle says until when |
+| Start Timer, Running Timers, Stopwatch | Timers typed as `25m tea`, `1h 30m` or `10分钟`, with pause, restart and +5 minutes, an alert when one ends, and a stopwatch with laps |
+| Eject Drives, Eject All Drives | Removable and external drives with their space, ejected safely and told when one is in use |
+| Extension Store | Extensions to install from the store, with their README and screenshots, and updates when there are any |
 | Left Half, Maximize, Center, Next Display…  | Window Management for the window that was in front: halves (pressed again: two thirds, then one third), thirds, fourths, sixths, quarters, moving to an edge, larger and smaller, other displays, restore, and layouts of your own; a gap between windows in Settings (Windows) |
 | Display Settings, Sound Settings…           | Pages of the system settings (Windows)                                                                                                        |
 
@@ -142,7 +148,13 @@ from GitHub: each with its README, commands, version and categories, to
 install, update when its version changes, or uninstall. Installing downloads
 exactly the files `store/index.json` names and checks each one's SHA-256
 before the extension replaces anything; installed extensions sit beside those
-installed from Git and ask for their permissions the same way.
+installed from Git and ask for their permissions the same way. Images in an
+extension's `metadata/` folder are shown as screenshots and not installed.
+
+A few seconds after it starts, and every six hours, the launcher asks the
+store whether what came from it has a newer version, and shows how many as
+the Extension Store command's subtitle; the store page lists them with Update
+All. Nothing is updated without you.
 
 The listing comes from `naaive/gpui-kit@main/examples/launcher/store` unless
 Launcher Settings (or `LAUNCHER_STORE`) names another: `owner/repo@branch/folder`
@@ -278,6 +290,12 @@ their settings: `%APPDATA%`, `~/Library/Application Support` or `~/.config`).
 can build the same paths. The permission prompt names the whole home or
 settings folder in bold.
 
+A program run with `process.run(command, args, { input, env })` (under an
+`fs.execute` grant) gets the variables that say where your folders are (home,
+app data, temp, `PATH`) and nothing else of the launcher's environment; `env`
+adds variables of the extension's own, such as one a program reads a password
+from, and `input` is written to its standard input.
+
 ### Packages
 
 `gpui-shell.json` lists JavaScript packages under `dependencies`, each a Git
@@ -349,6 +367,7 @@ boolean may be called without one to mean `true`.
 | `showing_detail(bool?)`                        | Shows the selected item's `detail` beside the list                                        |
 | `grid(columns)`                                | Lays the items out in square cells, 1 to 12 per row                                       |
 | `selected_item(id)`                            | Selects an item by id                                                                     |
+| `search_text(text)`                            | Puts text in the search field as if typed, once per different text, such as the selected text a command starts from |
 | `dropdown(ListDropdown)`                       | A filter beside the search field                                                          |
 | `on_query_change((text, cx) => …)`             | Called as the user types; the command searches by itself                                  |
 | `on_selection_change((id, cx) => …)`           | Called when another item is selected                                                      |
@@ -441,8 +460,11 @@ the primary one (`Enter`), the second the secondary one (`Cmd/Ctrl-Enter`), and
 | `pick_date((date, cx) => …, include_time?)`   | Asks for a date (and time), then calls back with it                                                   |
 
 and may add `icon(name)`, `shortcut(keys)` (such as `secondary-shift-c`, where
-`secondary` is Cmd on macOS and Ctrl elsewhere), `destructive()`, and
-`confirm(title, message?)` to ask first. Every effect but `run` and `submit` is
+`secondary` is Cmd on macOS and Ctrl elsewhere), `destructive()`,
+`concealed()` (for `copy` or `paste` of a secret: Clipboard History leaves it
+out and the clipboard is cleared after 30 seconds), and
+`confirm(title, message?)` to ask first. `open_preferences()` is an effect too:
+it opens the extension's and command's preferences, such as for a token. Every effect but `run` and `submit` is
 carried out by the launcher without running extension code. A shortcut the
 search field already uses (such as `ctrl-x`, Cut, on Linux) never reaches an
 action; prefer `secondary-shift-…` combinations.
@@ -460,7 +482,8 @@ action; prefer `secondary-shift-…` combinations.
 | `selected_text()`                                                               | The text selected in the application in front when the launcher was summoned, or `null`                                      |
 | `selected_files()`                                                              | A promise of the files selected in the file manager window in front (Explorer, Finder)                                       |
 | `frontmost_application()`, `applications()`                                    | The application that was in front (`{ name, path }`, or `null`), and a promise of every installed one                         |
-| `copy(text)`, `paste(text)`                                                     | Copies, or pastes into the frontmost application                                                                             |
+| `copy(text, { concealed? })`, `paste(text, { concealed? })`                     | Copies, or pastes into the frontmost application; `concealed` keeps a secret out of Clipboard History and clears it after 30 seconds |
+| `open_extension_preferences()`                                                  | Opens this extension's and command's preferences                                                                             |
 | `launch_command(name, arguments?, context?)`                                    | Opens another command, as `Action.launch` does; it reads any JSON `context` as `launch().context`                            |
 | `environment()`                                                                 | `{ appearance, locale, launcher_version, development, assets_path, support_path, home_path, config_path, platform }` |
 | `cache_get(key)`, `cache_set(key, value)`, `cache_remove(key)`, `cache_clear()` | This extension's JSON cache, up to 10 MB                                                                                     |

@@ -21,6 +21,8 @@ pub struct Entry {
     /// The last selection the page asked for, so a request is honored once
     /// and the user's own selection wins until the page asks for another.
     requested: Option<ItemId>,
+    /// The last search text the page asked for; see [`Self::request_search_text`].
+    requested_text: Option<SharedString>,
     /// The last selection reported to the page's `on_selection_change`.
     reported: Option<ItemId>,
     /// The item count when `on_load_more` last fired; it fires again only
@@ -37,6 +39,7 @@ impl Entry {
             query: SharedString::default(),
             selected: None,
             requested: None,
+            requested_text: None,
             reported: None,
             loaded_more_at: None,
             _subscription: subscription,
@@ -65,6 +68,19 @@ impl Entry {
 
     pub fn set_selected(&mut self, selected: Option<ItemId>) {
         self.selected = selected;
+    }
+
+    /// The search text a page asks for, when it asks for a different one
+    /// than last time; the user's typing wins until then.
+    pub fn request_search_text(
+        &mut self,
+        requested: Option<&SharedString>,
+    ) -> Option<SharedString> {
+        if requested == self.requested_text.as_ref() {
+            return None;
+        }
+        self.requested_text = requested.cloned();
+        requested.filter(|text| **text != self.query).cloned()
     }
 
     /// Adopts the selection a page asks for when it asks for a different one

@@ -249,12 +249,12 @@ impl GitDependencyStore {
     fn relink(&self, link: &Path, name: &str, dependency: &MaterializedDependency) -> Result<bool> {
         match std::fs::symlink_metadata(link) {
             Ok(metadata) if metadata.file_type().is_symlink() => {
-                let current = std::fs::read_link(link)
-                    .with_context(|| format!("reading {}", link.display()))?;
-                if current == dependency.root {
+                let current =
+                    link_target(link).with_context(|| format!("reading {}", link.display()))?;
+                if current == comparable_path(&dependency.root) {
                     return Ok(false);
                 }
-                if !current.starts_with(&self.root) {
+                if !self.owns(&current) {
                     tracing::debug!(
                         "leaving {} alone: it already points outside the dependency cache",
                         link.display()
@@ -265,6 +265,9 @@ impl GitDependencyStore {
                     .with_context(|| format!("replacing {}", link.display()))?;
             }
             Ok(_) if is_editor_link_stub(link) => {
+                if editor_link_stub_target(link).as_deref() == Some(dependency.root.as_path()) {
+                    return Ok(false);
+                }
                 std::fs::remove_dir_all(link)
                     .with_context(|| format!("replacing {}", link.display()))?;
             }
@@ -283,10 +286,10 @@ impl GitDependencyStore {
 
         match symlink_directory(&dependency.root, link) {
             Ok(()) => Ok(true),
-            // Windows refuses a symlink to an unprivileged process unless
-            // developer mode is on. A package that re-exports the checkout by
-            // absolute path types the same way for a bare import; only a
-            // package-subpath import is left unresolved.
+            // Even a Windows junction can be refused (a checkout on a network
+            // share, a file system without reparse points). A package that
+            // re-exports the checkout by absolute path types the same way for
+            // a bare import; only a package-subpath import is left unresolved.
             Err(error) => {
                 tracing::debug!(
                     "linking dependency `{name}` failed ({error}); writing a re-export instead"
@@ -318,8 +321,7 @@ impl GitDependencyStore {
                     continue;
                 };
                 if file_type.is_symlink() {
-                    if std::fs::read_link(&path).is_ok_and(|target| target.starts_with(&self.root))
-                    {
+                    if link_target(&path).is_ok_and(|target| self.owns(&target)) {
                         let _ = remove_directory_link(&path);
                     }
                 } else if file_type.is_dir() {
@@ -334,6 +336,42 @@ impl GitDependencyStore {
     }
 }
 
+impl GitDependencyStore {
+    /// Whether `target` lies inside this store's cache.
+    fn owns(&self, target: &Path) -> bool {
+        target.starts_with(comparable_path(&self.root))
+    }
+}
+
+/// Where `link` points, spelled so it compares equal to the path it was
+/// created from.
+fn link_target(link: &Path) -> std::io::Result<PathBuf> {
+    std::fs::read_link(link).map(|target| comparable_path(&target))
+}
+
+/// Drops the `\\?\` verbatim prefix Windows puts on canonical paths and
+/// junction targets.
+///
+/// A checkout root is canonical, so it carries the prefix; the cache root and
+/// a link read back may or may not. `Path` compares the prefixed and plain
+/// spellings of one directory as different paths, so every comparison between
+/// them goes through this first.
+fn comparable_path(path: &Path) -> PathBuf {
+    #[cfg(windows)]
+    {
+        let text = path.to_string_lossy();
+        if let Some(share) = text.strip_prefix(r"\\?\UNC\") {
+            return PathBuf::from(format!(r"\\{share}"));
+        }
+        if let Some(local) = text.strip_prefix(r"\\?\")
+            && local.as_bytes().get(1) == Some(&b':')
+        {
+            return PathBuf::from(local);
+        }
+    }
+    path.to_path_buf()
+}
+
 /// Where an editor looks for a bare module specifier.
 const EDITOR_MODULE_DIRECTORY: &str = "node_modules";
 
@@ -346,6 +384,12 @@ const EDITOR_LINK_MARKER: &str = ".gpui-shell-link";
 
 fn is_editor_link_stub(link: &Path) -> bool {
     link.join(EDITOR_LINK_MARKER).is_file()
+}
+
+/// The checkout a stub re-exports, as its marker recorded it.
+fn editor_link_stub_target(link: &Path) -> Option<PathBuf> {
+    let marker = std::fs::read_to_string(link.join(EDITOR_LINK_MARKER)).ok()?;
+    Some(PathBuf::from(marker.strip_suffix('\n').unwrap_or(&marker)))
 }
 
 /// Writes the package that stands in for a symlink the platform refused.
@@ -390,9 +434,97 @@ fn symlink_directory(target: &Path, link: &Path) -> std::io::Result<()> {
     std::os::unix::fs::symlink(target, link)
 }
 
+/// Links `link` to the directory `target`.
+///
+/// Windows grants a symlink only to an elevated process or one running in
+/// developer mode. A directory junction needs no privilege and an editor
+/// follows it like a symlink, so it is the fallback before giving up on a
+/// real link.
 #[cfg(windows)]
 fn symlink_directory(target: &Path, link: &Path) -> std::io::Result<()> {
-    std::os::windows::fs::symlink_dir(target, link)
+    std::os::windows::fs::symlink_dir(target, link).or_else(|error| {
+        tracing::debug!(
+            "symlinking {} failed ({error}); trying a directory junction",
+            link.display()
+        );
+        junction_directory(target, link)
+    })
+}
+
+/// Creates `link` as a directory junction to the absolute local `target`.
+#[cfg(windows)]
+fn junction_directory(target: &Path, link: &Path) -> std::io::Result<()> {
+    use std::os::windows::{fs::OpenOptionsExt as _, io::AsRawHandle as _};
+    use windows::Win32::{
+        Foundation::HANDLE,
+        Storage::FileSystem::{FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT},
+        System::{IO::DeviceIoControl, Ioctl::FSCTL_SET_REPARSE_POINT},
+    };
+    const IO_REPARSE_TAG_MOUNT_POINT: u32 = 0xA000_0003;
+
+    fn invalid(message: &str) -> std::io::Error {
+        std::io::Error::new(std::io::ErrorKind::InvalidInput, message)
+    }
+
+    // A junction names a local drive path; it cannot reach a network share.
+    let target = comparable_path(target);
+    let print_name = target.to_string_lossy();
+    if !target.is_absolute() || print_name.as_bytes().get(1) != Some(&b':') {
+        return Err(invalid("a junction target must be an absolute drive path"));
+    }
+    let substitute: Vec<u16> = format!(r"\??\{print_name}").encode_utf16().collect();
+    let print: Vec<u16> = print_name.encode_utf16().collect();
+    let byte_length = |name: &[u16]| {
+        u16::try_from(name.len() * 2).map_err(|_| invalid("the junction target is too long"))
+    };
+    let substitute_length = byte_length(&substitute)?;
+    let print_length = byte_length(&print)?;
+    // The mount-point REPARSE_DATA_BUFFER: tag, data length, reserved, the
+    // four name offsets and lengths, then both names, each NUL-terminated.
+    let data_length = substitute_length
+        .checked_add(print_length)
+        .and_then(|names| names.checked_add(8 + 2 + 2))
+        .ok_or_else(|| invalid("the junction target is too long"))?;
+    let mut buffer = Vec::with_capacity(8 + usize::from(data_length));
+    buffer.extend_from_slice(&IO_REPARSE_TAG_MOUNT_POINT.to_le_bytes());
+    buffer.extend_from_slice(&data_length.to_le_bytes());
+    buffer.extend_from_slice(&0u16.to_le_bytes());
+    for field in [0, substitute_length, substitute_length + 2, print_length] {
+        buffer.extend_from_slice(&field.to_le_bytes());
+    }
+    for unit in substitute.iter().chain(&[0]).chain(&print).chain(&[0]) {
+        buffer.extend_from_slice(&unit.to_le_bytes());
+    }
+    let buffer_length = u32::try_from(buffer.len()).map_err(|_| invalid("oversized junction"))?;
+
+    std::fs::create_dir(link)?;
+    let result = std::fs::OpenOptions::new()
+        .write(true)
+        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT.0 | FILE_FLAG_BACKUP_SEMANTICS.0)
+        .open(link)
+        .and_then(|directory| {
+            let mut returned = 0u32;
+            // SAFETY: the handle stays open for the call, the input is a
+            // complete mount-point REPARSE_DATA_BUFFER of the length passed,
+            // and no output buffer is requested.
+            unsafe {
+                DeviceIoControl(
+                    HANDLE(directory.as_raw_handle()),
+                    FSCTL_SET_REPARSE_POINT,
+                    Some(buffer.as_ptr().cast()),
+                    buffer_length,
+                    None,
+                    0,
+                    Some(&mut returned),
+                    None,
+                )
+            }
+            .map_err(std::io::Error::from)
+        });
+    if result.is_err() {
+        let _ = std::fs::remove_dir(link);
+    }
+    result
 }
 
 /// Removes a symlink to a directory, which the two platforms spell differently.
@@ -474,6 +606,11 @@ const LOCK_TIMEOUT: Duration = Duration::from_secs(2 * 60);
 
 fn git_command() -> Command {
     let mut command = Command::new("git");
+    // A checkout sits several hashes deep in the cache, so its pack and object
+    // paths pass Windows' 260-character limit, which Git for Windows keeps
+    // unless told otherwise.
+    #[cfg(windows)]
+    command.args(["-c", "core.longpaths=true"]);
     command
         .env("GIT_TERMINAL_PROMPT", "0")
         .env("GCM_INTERACTIVE", "Never")
@@ -574,7 +711,11 @@ impl CacheLock {
         loop {
             match file.try_lock_exclusive() {
                 Ok(()) => return Ok(Self(file)),
-                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                // Windows reports a held lock as ERROR_LOCK_VIOLATION, which
+                // has no `ErrorKind` of its own; fs2 names each platform's code.
+                Err(error)
+                    if error.raw_os_error() == fs2::lock_contended_error().raw_os_error() =>
+                {
                     if started.elapsed() >= LOCK_TIMEOUT {
                         bail!(
                             "timed out waiting for another process to finish Git dependency `{name}`"
@@ -595,10 +736,23 @@ impl Drop for CacheLock {
 }
 
 #[cfg(test)]
+/// A `file://` URL for a local directory, which Windows spells with a
+/// third slash before the drive and forward slashes throughout.
+pub(crate) fn file_url(path: &Path) -> String {
+    let path = path.to_string_lossy().replace('\\', "/");
+    let path = path.strip_prefix("//?/").unwrap_or(&path);
+    if path.starts_with('/') {
+        format!("file://{path}")
+    } else {
+        format!("file:///{path}")
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::{
         EDITOR_LINK_MARKER, EDITOR_MODULE_DIRECTORY, GitDependencyStore, MaterializedDependency,
-        dependency_cache_root, digest,
+        dependency_cache_root, digest, file_url,
     };
     use crate::plugin::PluginManifest;
     use std::{
@@ -613,6 +767,13 @@ mod tests {
 
     static NEXT: AtomicU64 = AtomicU64::new(1);
 
+    /// `path` under the file system root, spelled absolutely for the platform
+    /// running the test: `/home/example` is relative on Windows.
+    fn absolute(path: &str) -> PathBuf {
+        let root = if cfg!(windows) { r"C:\" } else { "/" };
+        Path::new(root).join(path)
+    }
+
     #[test]
     fn a_user_dependency_cache_lives_in_the_shell_cache() {
         assert_eq!(
@@ -624,28 +785,28 @@ mod tests {
     #[test]
     fn for_user_wires_home_to_the_shell_cache_root() {
         let store = GitDependencyStore::for_user_with_environment(|variable| match variable {
-            "HOME" => Some(OsString::from("/home/example")),
+            "HOME" => Some(absolute("home/example").into_os_string()),
             _ => None,
         })
         .expect("an absolute HOME should select a private cache root");
 
         assert_eq!(
             store.root,
-            PathBuf::from("/home/example/.gpui-shell/cache/dependencies")
+            absolute("home/example/.gpui-shell/cache/dependencies")
         );
     }
 
     #[test]
     fn for_user_uses_userprofile_when_home_is_missing() {
         let store = GitDependencyStore::for_user_with_environment(|variable| match variable {
-            "USERPROFILE" => Some(OsString::from("/profiles/example")),
+            "USERPROFILE" => Some(absolute("profiles/example").into_os_string()),
             _ => None,
         })
         .expect("an absolute USERPROFILE should select a private cache root");
 
         assert_eq!(
             store.root,
-            PathBuf::from("/profiles/example/.gpui-shell/cache/dependencies")
+            absolute("profiles/example/.gpui-shell/cache/dependencies")
         );
     }
 
@@ -653,14 +814,14 @@ mod tests {
     fn for_user_ignores_an_empty_home_before_userprofile() {
         let store = GitDependencyStore::for_user_with_environment(|variable| match variable {
             "HOME" => Some(OsString::new()),
-            "USERPROFILE" => Some(OsString::from("/profiles/example")),
+            "USERPROFILE" => Some(absolute("profiles/example").into_os_string()),
             _ => None,
         })
         .expect("an empty HOME should allow an absolute USERPROFILE");
 
         assert_eq!(
             store.root,
-            PathBuf::from("/profiles/example/.gpui-shell/cache/dependencies")
+            absolute("profiles/example/.gpui-shell/cache/dependencies")
         );
     }
 
@@ -685,7 +846,7 @@ mod tests {
     fn for_user_rejects_a_relative_selected_home() {
         let result = GitDependencyStore::for_user_with_environment(|variable| match variable {
             "HOME" => Some(OsString::from("relative/home")),
-            "USERPROFILE" => Some(OsString::from("/profiles/example")),
+            "USERPROFILE" => Some(absolute("profiles/example").into_os_string()),
             _ => None,
         });
         let error = result
@@ -758,7 +919,7 @@ mod tests {
         }
 
         fn package_dependency(&self, reference: Option<&str>) -> crate::plugin::GitDependency {
-            let remote = format!("file://{}", self.remote.display());
+            let remote = file_url(&self.remote);
             let source = match reference {
                 Some(reference) => format!("{remote}#{reference}"),
                 None => remote,
@@ -1120,6 +1281,18 @@ mod tests {
         }
     }
 
+    fn canonical(path: &Path) -> PathBuf {
+        std::fs::canonicalize(path).expect("the path exists")
+    }
+
+    /// The directory `link` names, which must be a link rather than a copy.
+    ///
+    /// Canonical on both sides because Windows reads a junction back with a
+    /// `\\?\` prefix the checkout path was not given.
+    fn link_destination(link: &Path) -> PathBuf {
+        canonical(&std::fs::read_link(link).expect("a link"))
+    }
+
     #[test]
     fn linking_points_an_editor_at_the_checkout_the_runtime_will_load() {
         let fixture = LinkFixture::new();
@@ -1154,8 +1327,8 @@ mod tests {
         assert_eq!(fixture.link_all(&[("omarchy-ui", &after)]).len(), 1);
 
         assert_eq!(
-            std::fs::read_link(fixture.link("omarchy-ui")).expect("a link"),
-            after.root
+            link_destination(&fixture.link("omarchy-ui")),
+            canonical(&after.root)
         );
     }
 
@@ -1198,8 +1371,8 @@ mod tests {
         fixture.link_all(&[("@omarchy/ui", &dependency)]);
 
         assert_eq!(
-            std::fs::read_link(fixture.link("@omarchy/ui")).expect("a nested link"),
-            dependency.root
+            link_destination(&fixture.link("@omarchy/ui")),
+            canonical(&dependency.root)
         );
     }
 }

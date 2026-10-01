@@ -167,6 +167,12 @@ impl StoreSource {
         }
     }
 
+    /// Where a picture of the store is read from, for Markdown: a web
+    /// address on GitHub, a file path in a folder.
+    pub fn picture_url(&self, path: &str) -> String {
+        self.raw_url(path).replace('\\', "/")
+    }
+
     /// Downloads and parses `index.json`. Blocking.
     pub fn index(&self) -> Result<StoreIndex> {
         let bytes = self.read(INDEX)?;
@@ -243,6 +249,10 @@ pub struct Listing {
     pub files: Vec<ListedFile>,
 }
 
+/// Where an extension keeps its screenshots: shown by the store, never
+/// installed.
+const METADATA: &str = "metadata/";
+
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct ListedCommand {
     pub name: String,
@@ -262,6 +272,20 @@ pub struct ListedFile {
 }
 
 impl Listing {
+    /// The screenshots in its `metadata` folder, by path inside the
+    /// extension.
+    pub fn screenshots(&self) -> impl Iterator<Item = &str> {
+        self.files
+            .iter()
+            .map(|file| file.path.as_str())
+            .filter(|path| {
+                path.starts_with(METADATA)
+                    && [".png", ".jpg", ".jpeg", ".webp", ".gif"]
+                        .iter()
+                        .any(|extension| path.to_ascii_lowercase().ends_with(extension))
+            })
+    }
+
     /// The README, when the extension has one.
     pub fn readme(&self) -> Option<&ListedFile> {
         self.files
@@ -295,6 +319,21 @@ pub fn forget(data: &DataDirectory, id: &str) -> Result<()> {
     Ok(())
 }
 
+/// The extensions installed from the store that the index has a newer
+/// version of.
+pub fn updates<'a>(data: &DataDirectory, index: &'a StoreIndex) -> Vec<&'a Listing> {
+    let records = records(data).unwrap_or_default();
+    index
+        .extensions
+        .iter()
+        .filter(|listing| {
+            records
+                .get(&listing.id)
+                .is_some_and(|record| record.version != listing.version)
+        })
+        .collect()
+}
+
 /// Downloads `listing`'s files, checks them against the index, and
 /// installs the extension, replacing an earlier copy from the store.
 /// Blocking.
@@ -316,7 +355,11 @@ pub fn install(
     }
     let folder = contained(&listing.path)?;
     let staging = install::Staging::new(data)?;
-    for file in &listing.files {
+    for file in listing
+        .files
+        .iter()
+        .filter(|file| !file.path.starts_with(METADATA))
+    {
         let relative = contained(&file.path)?;
         let bytes = source.read(&format!("{folder}/{relative}"))?;
         if hex(&Sha256::digest(&bytes)) != file.sha256 {
@@ -543,6 +586,11 @@ mod tests {
                 .is_file(),
             "a failed update leaves the installed copy"
         );
+
+        let mut newer = index.clone();
+        newer.extensions[0].version = "1.3.0".into();
+        assert_eq!(updates(&data, &index).len(), 0);
+        assert_eq!(updates(&data, &newer).len(), 1);
 
         forget(&data, "com.example.hello").unwrap();
         let error = install(&data, &source, listing).unwrap_err();

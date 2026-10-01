@@ -3718,7 +3718,13 @@ declare module "console" {
 }
 declare module "process" {
   export interface CommandOutput { code: number; stdout: string; stderr: string; }
-  export function run(command: string, args?: string[]): Promise<CommandOutput>;
+  export interface RunOptions {
+    /** Written to the program's standard input, which is then closed; how a secret reaches a program without appearing in its arguments. */
+    input?: string;
+    /** Variables to set for the program, such as one it reads a secret from. The host's own environment is never passed, apart from the folders and search path a program needs. */
+    env?: { [name: string]: string };
+  }
+  export function run(command: string, args?: string[], options?: RunOptions): Promise<CommandOutput>;
   export function exit(code?: number): void;
   export function nextTick(callback: (...args: unknown[]) => void, ...args: unknown[]): void;
   export const platform: string;

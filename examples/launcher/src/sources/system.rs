@@ -348,6 +348,11 @@ fn feature_commands() -> Vec<Item> {
                 )),
         );
     }
+    commands.extend(crate::media::commands());
+    commands.extend(crate::keep_awake::commands());
+    commands.extend(crate::radios::commands());
+    commands.extend(crate::timers::commands());
+    commands.extend(crate::drives::commands());
     commands
 }
 
@@ -478,7 +483,7 @@ fn settings_pages() -> Vec<Item> {
         .collect()
 }
 
-fn command_item(id: &'static str, title: &'static str, icon: &'static str) -> Item {
+pub(crate) fn command_item(id: &'static str, title: &'static str, icon: &'static str) -> Item {
     Item::new(ItemId::new(id), title)
         .with_icon(icon)
         .with_accessory(Accessory::text("Command"))

@@ -3,7 +3,7 @@
 // shown while no token is set.
 import { createHash } from "crypto";
 import { Action, ActionPanel, ListItem } from "launcher";
-import { environment, launch } from "launcher/api";
+import { launch } from "launcher/api";
 
 const API = "https://api.github.com";
 const TOKEN_URL =
@@ -72,29 +72,21 @@ export function messageOf(error) {
   return String(error?.message ?? error);
 }
 
-/** How the root search's Configure Extension shortcut is written here. */
-function configureShortcut() {
-  return environment().platform === "macos" ? "⌘⇧," : "Ctrl+Shift+,";
-}
-
 /** The page's empty state while no token is set. */
 export const NO_TOKEN = {
   title: "Add a token in preferences",
   description: "This command reads your GitHub account with a personal access token.",
 };
 
-/**
- * The one row shown while no token is set. `Action.launch` cannot open the
- * preferences, so it says how: Configure Extension in the root search.
- */
+/** The one row shown while no token is set: create one, then add it. */
 export function noTokenItem() {
   return new ListItem("add-token", "Add a Token in Preferences")
     .icon("key-round")
-    .subtitle(`Select a GitHub command in the root search, then Configure Extension (${configureShortcut()})`)
+    .subtitle("Create a token on GitHub, then paste it into the preferences")
     .actions(
       new ActionPanel().children([
+        new Action("Open Preferences").icon("settings").open_preferences(),
         new Action("Create Token on GitHub").icon("external-link").open_url(TOKEN_URL),
-        new Action("Back to Root Search").icon("github").pop_to_root(),
       ]),
     );
 }

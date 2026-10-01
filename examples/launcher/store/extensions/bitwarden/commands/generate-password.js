@@ -76,9 +76,9 @@ export default class GeneratePassword extends View {
       try {
         const secret = await generate(options);
         if (how === "paste") {
-          paste(secret);
+          paste(secret, { concealed: true });
         } else {
-          copy(secret);
+          copy(secret, { concealed: true });
           show_hud(options.kind === "passphrase" ? "Copied Passphrase" : "Copied Password");
         }
       } catch (error) {

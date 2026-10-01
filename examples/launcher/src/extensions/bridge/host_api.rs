@@ -154,10 +154,15 @@ export function pop(): void;
 export function pop_to_root(): void;
 /** Opens a URL, file or folder with its default application, or with `application` (a path or a name). */
 export function open(target: string, application?: string): void;
+export interface CopyOptions {
+  /** A secret, such as a password: Clipboard History leaves it out, and the clipboard is cleared after 30 seconds. */
+  concealed?: boolean;
+}
+
 /** Copies text to the clipboard. */
-export function copy(text: string): void;
+export function copy(text: string, options?: CopyOptions): void;
 /** Pastes text into the application that was frontmost, then hides the launcher. */
-export function paste(text: string): void;
+export function paste(text: string, options?: CopyOptions): void;
 /** Opens another command of this extension, or `extension-id/command` of another, with arguments and any JSON `context`. */
 export function launch_command(
   name: string,
@@ -178,6 +183,8 @@ export function oauth_authorize(client: OAuthClient): Promise<OAuthTokens>;
 export function oauth_tokens(provider: string): OAuthTokens | null;
 /** Exchanges the refresh token for new tokens, and keeps them. */
 export function oauth_refresh(client: OAuthClient): Promise<OAuthTokens>;
+/** Opens the preferences of this extension and command, such as for a token the command needs. */
+export function open_extension_preferences(): void;
 /** Forgets the tokens of `provider`: signing out. */
 export function oauth_remove_tokens(provider: string): void;
 /**
@@ -412,7 +419,7 @@ impl ExtensionContext {
             launch_type,
             context: request.context().cloned(),
         });
-        super::note_launched(&self.0.extension);
+        super::note_launched(&self.0.extension, request.command().command());
     }
 
     pub fn extension(&self) -> &SharedString {
@@ -954,6 +961,16 @@ fn module(context: ContextSource) -> HostModule {
                 Ok(HostValue::Null)
             }
         }),
+        function("open_extension_preferences", |context, _| {
+            let command = context.command().ok_or_else(|| {
+                HostError::new("open_extension_preferences() is only available to a command")
+            })?;
+            context.request(Effect::OpenPreferences(CommandId::new(
+                context.extension().clone(),
+                command,
+            )));
+            Ok(HostValue::Null)
+        }),
         function("oauth_tokens", |context, arguments| {
             Ok(context
                 .stored_tokens(arguments.string(0)?)?
@@ -968,11 +985,19 @@ fn module(context: ContextSource) -> HostModule {
             Ok(HostValue::Null)
         }),
         function("copy", |context, arguments| {
-            context.request(Effect::Copy(arguments.string(0)?.to_owned().into()));
+            let text = arguments.string(0)?.to_owned().into();
+            context.request(match is_concealed(arguments)? {
+                true => Effect::CopyConcealed(text),
+                false => Effect::Copy(text),
+            });
             Ok(HostValue::Null)
         }),
         function("paste", |context, arguments| {
-            context.request(Effect::Paste(arguments.string(0)?.to_owned().into()));
+            let text = arguments.string(0)?.to_owned().into();
+            context.request(match is_concealed(arguments)? {
+                true => Effect::PasteConcealed(text),
+                false => Effect::Paste(text),
+            });
             Ok(HostValue::Null)
         }),
         function("launch_command", |context, arguments| {
@@ -1016,6 +1041,21 @@ fn module(context: ContextSource) -> HostModule {
     .into_iter()
     .fold(module, |module, (name, body)| module.function(name, body))
     .declarations(DECLARATIONS)
+}
+
+/// The `{ concealed }` option of `copy` and `paste`.
+fn is_concealed(arguments: &HostArguments) -> Result<bool, HostError> {
+    match arguments.get(1) {
+        None | Some(HostValue::Null) => Ok(false),
+        Some(options) => match options.get("concealed") {
+            None | Some(HostValue::Null) => Ok(false),
+            Some(HostValue::Bool(concealed)) => Ok(*concealed),
+            Some(other) => Err(HostError::new(format!(
+                "`concealed` must be a boolean, not {}",
+                other.describe()
+            ))),
+        },
+    }
 }
 
 /// `confirm_alert({ title, message?, primary_action?, destructive? })`.

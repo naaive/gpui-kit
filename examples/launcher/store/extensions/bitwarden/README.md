@@ -25,13 +25,6 @@ Bitwarden CLI (`bw`).
    `npm install -g @bitwarden/cli`. `bw` must be on your `PATH`.
 2. Log in once in a terminal: `bw login` (for a self-hosted server, run
    `bw config server https://your.server` first).
-3. Make `bw` portable. The launcher starts programs **without environment
-   variables**, so `bw` cannot find the data folder `bw login` wrote
-   (`%APPDATA%\Bitwarden CLI`, `~/.config/Bitwarden CLI`) and reports itself
-   logged out. Create a folder named `bw-data` next to the `bw` executable
-   (next to `node.exe` / `node` for an npm install) — bw then keeps its data
-   there whatever the environment — and run `bw login` once more in a
-   terminal.
 
 ## How secrets are handled
 
@@ -41,20 +34,18 @@ Bitwarden CLI (`bw`).
 - Rows and the detail pane show names, usernames, websites and whether a
   password or TOTP exists, never a secret. A password, TOTP, card number or
   note is fetched from `bw` only when you copy or paste it.
-- A copied secret is cleared from the clipboard after 30 seconds if the
-  clipboard still holds it and the Search page is still open.
+- Secrets are copied and pasted concealed: the launcher's Clipboard History
+  leaves them out, and the launcher clears the clipboard after 30 seconds if
+  it still holds the secret, even after the page has closed.
 - Nothing `bw` prints is logged.
 
-Known limits: the master password is passed to `bw unlock` as an argument (the
-launcher cannot give a program standard input or environment variables), so
-it is briefly visible to other programs that list process command lines. A
-copied secret may be recorded by clipboard history (the launcher's, or the
-system's) because the launcher's copy cannot mark it private.
+The master password reaches `bw unlock` through an environment variable
+(`--passwordenv`), never as an argument, so other programs listing command
+lines do not see it. Clipboard managers other than the launcher's may still
+record a copied secret.
 
 ## Permissions
 
 - **Run `bw`** — the only program it runs.
-- **Clipboard read and write** — to clear a copied secret after 30 seconds,
-  only if the clipboard still holds it.
 
 No network or file access is requested; `bw` talks to Bitwarden itself.

@@ -98,9 +98,24 @@ const LOCATION_VARIABLES: &[&str] = &[
     "LC_ALL",
 ];
 
+#[cfg(test)]
 pub(crate) fn run_bounded(
     command: &str,
     args: &[String],
+    limits: Limits,
+    cancellation: Cancellation,
+) -> Result<Output, String> {
+    run_bounded_with_input(command, args, None, &[], limits, cancellation)
+}
+
+/// [`run_bounded`], writing `input` to the program's standard input and
+/// then closing it: how a secret reaches a program without appearing in its
+/// arguments, which other processes can read.
+pub(crate) fn run_bounded_with_input(
+    command: &str,
+    args: &[String],
+    input: Option<String>,
+    env: &[(String, String)],
     limits: Limits,
     cancellation: Cancellation,
 ) -> Result<Output, String> {
@@ -117,8 +132,14 @@ pub(crate) fn run_bounded(
                 .iter()
                 .filter_map(|name| std::env::var_os(name).map(|value| (*name, value))),
         )
+        // What the script sets itself, such as a variable a program reads a
+        // secret from: the script already holds it, so nothing is lent.
+        .envs(env.iter().map(|(name, value)| (name, value)))
         .args(args)
-        .stdin(Stdio::null())
+        .stdin(match input {
+            Some(_) => Stdio::piped(),
+            None => Stdio::null(),
+        })
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     configure_process_tree(&mut command_builder);
@@ -134,6 +155,14 @@ pub(crate) fn run_bounded(
         ));
     }
 
+    if let (Some(input), Some(mut stdin)) = (input, child.stdin.take()) {
+        // On a thread of its own: a program that writes before it reads would
+        // otherwise wait on this write while this waits on it.
+        std::thread::spawn(move || {
+            use std::io::Write as _;
+            stdin.write_all(input.as_bytes()).ok();
+        });
+    }
     let stdout = child.stdout.take().expect("piped stdout");
     let stderr = child.stderr.take().expect("piped stderr");
     let exceeded = Arc::new(AtomicU8::new(0));
@@ -474,6 +503,30 @@ mod tests {
     use super::*;
     use std::time::Duration;
 
+    #[test]
+    fn writes_input_to_the_program() {
+        let (command, args): (&str, Vec<String>) = if cfg!(windows) {
+            ("findstr", vec!["x".into()])
+        } else {
+            ("cat", Vec::new())
+        };
+        let output = run_bounded_with_input(
+            command,
+            &args,
+            Some(
+                "hex
+nope
+"
+                .into(),
+            ),
+            &[],
+            Limits::for_test(Duration::from_secs(10), 1024),
+            Cancellation::new(),
+        )
+        .expect("the program reads its input");
+        assert!(output.stdout.contains("hex"), "{output:?}");
+    }
+
     /// A program finds its settings through the folders the environment
     /// names, and sees nothing else of the host's environment.
     #[test]
@@ -485,9 +538,11 @@ mod tests {
         } else {
             ("env", Vec::new())
         };
-        let output = run_bounded(
+        let output = run_bounded_with_input(
             command,
             &args,
+            None,
+            &[("GPUI_SHELL_GIVEN".into(), "yes".into())],
             Limits::for_test(Duration::from_secs(10), 64 * 1024),
             Cancellation::new(),
         )
@@ -499,6 +554,10 @@ mod tests {
             .collect();
         let home = if cfg!(windows) { "USERPROFILE" } else { "HOME" };
         assert!(names.iter().any(|name| name == home), "{names:?}");
+        assert!(
+            names.iter().any(|name| name == "GPUI_SHELL_GIVEN"),
+            "what the script sets is passed: {names:?}"
+        );
         assert!(
             !names.iter().any(|name| name == "GPUI_SHELL_TEST_SECRET"),
             "{names:?}"

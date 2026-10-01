@@ -10597,7 +10597,7 @@ export default class Panel extends View { render() { return div(); } }
         let generation = lease.generation();
         let view_type = runtime
             .load_source_with_lease(
-                &format!("{}/main.js?v={generation}", application.display()),
+                &format!("{}?v={generation}", application.join("main.js").display()),
                 "import { label } from 'omarchy-ui'; import { tone } from 'omarchy-ui/theme.js'; export default class Panel { static label() { return `${label}:${tone}`; } }",
                 Some(lease),
                 None,
@@ -10651,7 +10651,7 @@ export default class Panel extends View { render() { return div(); } }
         let generation = lease.generation();
         let error = runtime
             .load_source_with_lease(
-                &format!("{}/main.js?v={generation}", application.display()),
+                &format!("{}?v={generation}", application.join("main.js").display()),
                 "import 'third-party'; export default class Panel {}",
                 Some(lease),
                 None,
@@ -10711,7 +10711,7 @@ export default class Panel extends View { render() { return div(); } }
                     "entry": "main.js",
                     "dependencies": {{ "omarchy-ui": {} }}
                 }}"#,
-                serde_json::to_string(&format!("file://{}#main", remote.display()))
+                serde_json::to_string(&format!("{}#main", crate::dependencies::file_url(&remote)))
                     .expect("remote URL")
             ),
         )

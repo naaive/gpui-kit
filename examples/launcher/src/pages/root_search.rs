@@ -539,10 +539,13 @@ impl RootSearchPage {
         cx: &mut Context<Self>,
     ) {
         let id = command.to_string();
+        // An extension's command, or one of the launcher's own, such as the
+        // Extension Store saying it has updates.
         let Some(item) = self
             .extensions
             .items
             .iter_mut()
+            .chain(self.system.items.iter_mut())
             .find(|item| item.id().as_str() == id)
         else {
             return;

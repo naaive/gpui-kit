@@ -51,6 +51,7 @@ enum ListOp {
     ShowingDetail(bool),
     Grid(u8),
     SelectedItem(String),
+    SearchText(String),
     Dropdown(ComponentArgument),
     OnQueryChange(ComponentArgument),
     OnSelectionChange(ComponentArgument),
@@ -121,6 +122,12 @@ fn list() -> ComponentDescriptor {
                  wins afterwards, until a render asks for a different id.",
                 ListOp::SelectedItem,
             ),
+            string_method(
+                "search_text",
+                "Puts this text in the search field, once per different text, as if typed: \
+                 the selected text a command starts from, say.",
+                ListOp::SearchText,
+            ),
             element_method(
                 "dropdown",
                 "dropdown",
@@ -170,6 +177,7 @@ impl ComponentMaterializer for ListMaterializer {
                 ListOp::ShowingDetail(value) => list.with_showing_detail(value),
                 ListOp::Grid(columns) => list.with_layout(Layout::Grid { columns }),
                 ListOp::SelectedItem(id) => list.with_selected(ItemId::new(id)),
+                ListOp::SearchText(text) => list.with_search_text(text),
                 ListOp::Dropdown(argument) => list.with_dropdown(
                     resolved(&mut request, &argument, "a ListDropdown")
                         .map_err(|_| anyhow::anyhow!("List.dropdown expects a ListDropdown"))?,

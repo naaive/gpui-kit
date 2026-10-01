@@ -1750,3 +1750,82 @@ fn test_store_extensions_render_offline(cx: &mut TestAppContext) {
     std::fs::remove_dir_all(&data).ok();
     assert!(failures.is_empty(), "{failures:#?}");
 }
+
+/// Secrets copied concealed, the search text a page asks for, and opening
+/// the command's preferences.
+#[gpui::test]
+fn test_concealed_copies_search_text_and_preferences(cx: &mut TestAppContext) {
+    let mut mounted = mount(
+        cx,
+        "concealed",
+        &main_js(
+            r#"
+import { View } from "gpui-kit";
+import { Action, List, ListItem } from "launcher";
+import { copy, open_extension_preferences, paste } from "launcher/api";
+
+export default class Main extends View {
+  init() {
+    copy("hunter2", { concealed: true });
+    paste("hunter2", { concealed: true });
+    copy("plain");
+    open_extension_preferences();
+  }
+  render() {
+    return new List().search_text("selected words").child(
+      new ListItem("secret", "Secret")
+        .action(new Action("Copy Password").copy("hunter2").concealed())
+        .action(new Action("Paste Password").paste("hunter2").concealed())
+        .action(new Action("Configure").open_preferences()),
+    );
+  }
+}
+"#,
+        ),
+    );
+    let effects = mounted.effects();
+    assert!(matches!(&effects[0], Effect::CopyConcealed(text) if text.as_ref() == "hunter2"));
+    assert!(matches!(&effects[1], Effect::PasteConcealed(_)));
+    assert!(matches!(&effects[2], Effect::Copy(text) if text.as_ref() == "plain"));
+    assert!(matches!(
+        &effects[3],
+        Effect::OpenPreferences(command) if command == &CommandId::new(EXTENSION, "main")
+    ));
+
+    let list = mounted.list();
+    assert_eq!(
+        list.search_text().map(|text| text.as_ref()),
+        Some("selected words")
+    );
+    let actions: Vec<Effect> = list
+        .items()
+        .next()
+        .unwrap()
+        .actions()
+        .actions()
+        .map(|action| action.effect().clone())
+        .collect();
+    assert!(matches!(&actions[0], Effect::CopyConcealed(_)));
+    assert!(matches!(&actions[1], Effect::PasteConcealed(_)));
+    assert!(matches!(
+        &actions[2],
+        Effect::OpenPreferences(command) if command == &CommandId::new(EXTENSION, "main")
+    ));
+
+    mounted.remount(
+        "concealed-bad",
+        &main_js(
+            r#"
+import { View } from "gpui-kit";
+import { Action, List, ListItem } from "launcher";
+export default class Main extends View {
+  render() {
+    return new List().child(new ListItem("x", "X").action(new Action("Open").open_url("https://a.b").concealed()));
+  }
+}
+"#,
+        ),
+    );
+    let error = mounted.model().unwrap_err();
+    assert!(error.contains("only `copy` and `paste`"), "{error}");
+}

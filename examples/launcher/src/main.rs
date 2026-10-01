@@ -13,6 +13,7 @@ mod clipboard;
 mod colors;
 mod customizations;
 mod dictionary;
+mod drives;
 mod emoji;
 mod extensions;
 mod file_manager;
@@ -20,6 +21,8 @@ mod file_search;
 mod focus;
 mod format;
 mod hyper_key;
+mod keep_awake;
+mod media;
 mod menu_items;
 mod model;
 mod notes;
@@ -28,6 +31,7 @@ mod pages;
 mod placeholders;
 mod processes;
 mod quicklinks;
+mod radios;
 mod reminders;
 mod screenshots;
 mod script_commands;
@@ -40,6 +44,7 @@ mod sources;
 mod switch_windows;
 mod system_monitor;
 mod themes;
+mod timers;
 mod translate;
 mod ui;
 mod window_layout;
@@ -175,6 +180,11 @@ fn main() -> ExitCode {
         gpui_kit::init(cx);
         gpui_shell::init(cx);
         ui::init(cx);
+        // Pictures on the web: artwork, avatars, store screenshots.
+        match reqwest_client::ReqwestClient::user_agent("gpui-kit-launcher") {
+            Ok(client) => cx.set_http_client(std::sync::Arc::new(client)),
+            Err(error) => tracing::warn!("cannot load images from the web: {error:#}"),
+        }
 
         let extensions = match ExtensionHost::new(cx) {
             Ok(host) => Rc::new(host),

@@ -15,8 +15,8 @@ Search GitHub, and follow your pull requests, issues and notifications.
 
 Search works without a token. Everything else needs a personal access token: create a classic token at
 <https://github.com/settings/tokens/new?scopes=repo,notifications> with the `repo` and `notifications` scopes
-(fine-grained tokens cannot read notifications). Then select any GitHub command in the root search, choose
-Configure Extension (Ctrl+Shift+, or ⌘⇧,), and paste it into Personal Access Token. The token is kept in the
+(fine-grained tokens cannot read notifications). Then choose Open Preferences on the "Add a Token" row (or
+Configure Extension on any GitHub command in the root search) and paste it into Personal Access Token. The token is kept in the
 system keychain.
 
 ## Permissions

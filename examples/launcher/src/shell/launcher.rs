@@ -321,7 +321,9 @@ pub fn start(startup: Startup, cx: &mut App) {
     crate::calendar::start(cx);
     crate::focus::start(cx);
     crate::reminders::start(cx);
+    crate::timers::start(cx);
     super::background::start(cx);
+    check_store_updates(cx);
     super::platform::hide_dock_icon();
     show(cx);
 }
@@ -389,6 +391,66 @@ pub fn open_command(request: LaunchRequest, cx: &mut App) {
             view.update(cx, |view, cx| view.open_command(request, window, cx))
         });
     });
+}
+
+/// How often the launcher asks the Extension Store whether what came from
+/// it has a newer version.
+const STORE_CHECK_INTERVAL: std::time::Duration = std::time::Duration::from_secs(6 * 3600);
+
+/// Asks the store for updates now and then, and shows how many there are as
+/// the Extension Store command's subtitle. Nothing is installed without the
+/// user: the store page offers them.
+fn check_store_updates(cx: &mut App) {
+    let task = cx.spawn(async move |cx: &mut AsyncApp| {
+        // Not during start-up, which has enough to do.
+        cx.background_executor()
+            .timer(std::time::Duration::from_secs(15))
+            .await;
+        loop {
+            let work = cx.update(|cx| {
+                let launcher = cx.try_global::<Launcher>()?;
+                let data = launcher.extensions.data().clone();
+                let source = crate::extensions::store::StoreSource::configured(
+                    launcher.settings.store_source(),
+                )
+                .ok()?;
+                Some((data, source))
+            });
+            if let Some((data, source)) = work {
+                let count = cx
+                    .background_spawn(async move {
+                        let records = crate::extensions::store::records(&data).ok()?;
+                        if records.is_empty() {
+                            return Some(0);
+                        }
+                        let index = source.index().ok()?;
+                        Some(crate::extensions::store::updates(&data, &index).len())
+                    })
+                    .await;
+                if let Some(count) = count {
+                    cx.update(|cx| set_store_update_count(count, cx));
+                }
+            }
+            cx.background_executor().timer(STORE_CHECK_INTERVAL).await;
+        }
+    });
+    cx.global_mut::<Launcher>()._tasks.push(task);
+}
+
+/// Shows `count` available updates on the Extension Store command.
+pub fn set_store_update_count(count: usize, cx: &mut App) {
+    let Some(host) = cx
+        .try_global::<Launcher>()
+        .map(|launcher| launcher.extensions.clone())
+    else {
+        return;
+    };
+    let subtitle = match count {
+        0 => None,
+        1 => Some("1 update available".into()),
+        count => Some(format!("{count} updates available").into()),
+    };
+    host.set_command_subtitle(CommandId::new("system", "store"), subtitle, cx);
 }
 
 /// Loads an extension directory ahead of all others, as `launcher dev` asks.

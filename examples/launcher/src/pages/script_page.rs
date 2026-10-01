@@ -3,7 +3,7 @@ use gpui_shell::ScriptView;
 
 use super::Page;
 use crate::{
-    extensions::{LaunchRequest, render_for_extension, take_page_model},
+    extensions::{LaunchRequest, render_for_command, render_for_extension, take_page_model},
     model::PageModel,
 };
 
@@ -20,6 +20,8 @@ pub struct ScriptPage {
     model: Option<PageModel>,
     /// The request that opened the command, on its first page.
     request: Option<LaunchRequest>,
+    /// The command a pushed page belongs to.
+    command: Option<SharedString>,
     _observe: Subscription,
 }
 
@@ -34,8 +36,15 @@ impl ScriptPage {
             view,
             model: None,
             request: None,
+            command: None,
             _observe,
         }
+    }
+
+    /// The command a pushed page belongs to, for `open_preferences`.
+    pub fn with_command(mut self, command: SharedString) -> Self {
+        self.command = Some(command);
+        self
     }
 
     pub fn with_request(mut self, request: LaunchRequest) -> Self {
@@ -50,9 +59,16 @@ impl ScriptPage {
         // frame, so the view is asked for its description, never for its own
         // failure surface.
         let extension: SharedString = self.view.read(cx).policy().application().to_owned().into();
+        let command = self
+            .request
+            .as_ref()
+            .map(|request| request.command().command().clone())
+            .or_else(|| self.command.clone());
         let element = render_for_extension(&extension, || {
-            self.view
-                .update(cx, |view, cx| view.render_description(window, cx))
+            render_for_command(command.as_ref(), || {
+                self.view
+                    .update(cx, |view, cx| view.render_description(window, cx))
+            })
         });
         match element {
             Ok(mut element) => take_page_model(&mut element).unwrap_or_else(|reason| {

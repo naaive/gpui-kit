@@ -449,6 +449,10 @@ pub fn perform(effect: Effect, cx: &mut App) {
             cx.write_to_clipboard(ClipboardItem::new_string(text.to_string()));
             super::platform::show_hud("Copied to clipboard".into(), cx);
         }
+        Effect::CopyConcealed(text) => {
+            crate::clipboard::copy_concealed(&text, cx);
+            super::platform::show_hud("Copied to clipboard".into(), cx);
+        }
         Effect::CopyItem(item) => {
             cx.write_to_clipboard(item);
             super::platform::show_hud("Copied to clipboard".into(), cx);

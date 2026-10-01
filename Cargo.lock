@@ -6227,6 +6227,7 @@ dependencies = [
  "gpui-kit",
  "gpui-pre",
  "gpui-pre-reqwest",
+ "gpui-pre-reqwest-client",
  "gpui-shell",
  "icns",
  "imagesize 0.14.0",

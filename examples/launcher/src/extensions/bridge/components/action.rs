@@ -227,6 +227,7 @@ enum ActionOp {
     Icon(String),
     Shortcut(String),
     Destructive,
+    Concealed,
     Confirm {
         title: String,
         message: Option<String>,
@@ -262,8 +263,11 @@ enum EffectOp {
         callback: ComponentArgument,
         include_time: bool,
     },
+    OpenPreferences,
     Copy(String),
     Paste(String),
+    CopyConcealed(String),
+    PasteConcealed(String),
     Toast {
         title: String,
         style: ToastStyle,
@@ -294,8 +298,9 @@ impl EffectOp {
             Self::CreateQuicklink { .. } => "create_quicklink",
             Self::CreateSnippet { .. } => "create_snippet",
             Self::PickDate { .. } => "pick_date",
-            Self::Copy(_) => "copy",
-            Self::Paste(_) => "paste",
+            Self::OpenPreferences => "open_preferences",
+            Self::Copy(_) | Self::CopyConcealed(_) => "copy",
+            Self::Paste(_) | Self::PasteConcealed(_) => "paste",
             Self::Toast { .. } => "toast",
             Self::Hud(_) => "hud",
             Self::Run(_) => "run",
@@ -310,7 +315,7 @@ impl EffectOp {
 }
 
 const EFFECT_METHODS: &str = "open_url, open, reveal, open_with, trash, quick_look, \
-                              create_quicklink, create_snippet, pick_date, copy, paste, toast, \
+                              create_quicklink, create_snippet, pick_date, open_preferences, copy, paste, toast, \
                               hud, run, submit, push, launch, pop, pop_to_root or close_window";
 
 fn effect_string(
@@ -507,6 +512,12 @@ fn action() -> ComponentDescriptor {
                 "Asks for a date, then calls back with it as `YYYY-MM-DD`, or \
                  `YYYY-MM-DDTHH:MM` when `include_time` is true; for \"Snooze Until…\".",
             ),
+            unit_method(
+                "open_preferences",
+                "Opens the preferences of this extension and command, such as for a token the \
+                 command needs.",
+                ActionOp::Effect(EffectOp::OpenPreferences),
+            ),
             effect_string("copy", "Copies text to the clipboard.", EffectOp::Copy),
             effect_string(
                 "paste",
@@ -644,6 +655,12 @@ fn action() -> ComponentDescriptor {
                 "Marks the action as deleting or discarding something.",
                 ActionOp::Destructive,
             ),
+            unit_method(
+                "concealed",
+                "For `copy` and `paste` of a secret, such as a password: Clipboard History \
+                 leaves it out, and the clipboard is cleared after 30 seconds.",
+                ActionOp::Concealed,
+            ),
             MethodDescriptor::new(
                 "confirm",
                 vec![
@@ -694,6 +711,7 @@ impl ComponentMaterializer for ActionMaterializer {
         let mut icon = None;
         let mut shortcut = None;
         let mut destructive = false;
+        let mut concealed = false;
         let mut confirm = None;
         let mut arguments = Vec::new();
         let mut effect: Option<EffectOp> = None;
@@ -702,6 +720,7 @@ impl ComponentMaterializer for ActionMaterializer {
                 ActionOp::Icon(value) => icon = Some(Image::parse(&value)),
                 ActionOp::Shortcut(value) => shortcut = Some(value),
                 ActionOp::Destructive => destructive = true,
+                ActionOp::Concealed => concealed = true,
                 ActionOp::Confirm { title, message } => confirm = Some((title, message)),
                 ActionOp::Argument { name, value } => arguments.push((name, value)),
                 ActionOp::Effect(next) => {
@@ -723,6 +742,15 @@ impl ComponentMaterializer for ActionMaterializer {
             bail!("Action `{title}` passes arguments, which only `launch` takes");
         }
 
+        let effect = match (concealed, effect) {
+            (false, effect) => effect,
+            (true, EffectOp::Copy(text)) => EffectOp::CopyConcealed(text),
+            (true, EffectOp::Paste(text)) => EffectOp::PasteConcealed(text),
+            (true, other) => bail!(
+                "Action `{title}` is concealed, which only `copy` and `paste` can be, not `{}`",
+                other.method()
+            ),
+        };
         let effect = effect_model(effect, &title, arguments, &mut request)?;
         let effect = match confirm {
             Some((confirm_title, message)) => {
@@ -794,6 +822,8 @@ fn effect_model(
         }
         EffectOp::Copy(text) => Effect::Copy(text.into()),
         EffectOp::Paste(text) => Effect::Paste(text.into()),
+        EffectOp::CopyConcealed(text) => Effect::CopyConcealed(text.into()),
+        EffectOp::PasteConcealed(text) => Effect::PasteConcealed(text.into()),
         EffectOp::Toast {
             title,
             style,
@@ -839,6 +869,13 @@ fn effect_model(
                         request.with_argument(name, value)
                     }),
             )
+        }
+        EffectOp::OpenPreferences => {
+            let extension = current_extension()
+                .context("cannot tell whose preferences `open_preferences` means")?;
+            let command = super::super::current_command()
+                .context("`open_preferences` is only available to a command's page")?;
+            Effect::OpenPreferences(CommandId::new(extension, command))
         }
         EffectOp::Pop => Effect::Pop,
         EffectOp::PopToRoot => Effect::PopToRoot,

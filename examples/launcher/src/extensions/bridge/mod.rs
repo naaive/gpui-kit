@@ -132,10 +132,14 @@ fn module_declaration(module: &str, body: &str) -> String {
 thread_local! {
     /// The extension whose page is being rendered, when the host says so.
     static RENDERING: RefCell<Option<SharedString>> = const { RefCell::new(None) };
+    /// The command whose page is being rendered, when the host knows it.
+    static RENDERING_COMMAND: RefCell<Option<SharedString>> = const { RefCell::new(None) };
     /// The extension launched last, for tests that render a page without
     /// naming its extension.
     #[cfg(test)]
     static LAUNCHED: RefCell<Option<SharedString>> = const { RefCell::new(None) };
+    #[cfg(test)]
+    static LAUNCHED_COMMAND: RefCell<Option<SharedString>> = const { RefCell::new(None) };
 }
 
 /// Runs `render` knowing which extension it renders for.
@@ -152,8 +156,26 @@ pub fn render_for_extension<R>(extension: &SharedString, render: impl FnOnce() -
 }
 
 #[cfg(test)]
-pub(super) fn note_launched(extension: &SharedString) {
+pub(super) fn note_launched(extension: &SharedString, command: &SharedString) {
     LAUNCHED.with(|launched| launched.replace(Some(extension.clone())));
+    LAUNCHED_COMMAND.with(|launched| launched.replace(Some(command.clone())));
+}
+
+/// Runs `render` knowing which command of the extension it renders for, as
+/// [`render_for_extension`] does for the extension.
+pub fn render_for_command<R>(command: Option<&SharedString>, render: impl FnOnce() -> R) -> R {
+    let previous = RENDERING_COMMAND.with(|rendering| rendering.replace(command.cloned()));
+    let result = render();
+    RENDERING_COMMAND.with(|rendering| rendering.replace(previous));
+    result
+}
+
+pub(super) fn current_command() -> Option<SharedString> {
+    let rendering = RENDERING_COMMAND.with(|rendering| rendering.borrow().clone());
+    #[cfg(test)]
+    let rendering =
+        rendering.or_else(|| LAUNCHED_COMMAND.with(|launched| launched.borrow().clone()));
+    rendering
 }
 
 pub(super) fn current_extension() -> Option<SharedString> {

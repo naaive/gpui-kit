@@ -24,7 +24,9 @@ mod preferences;
 mod scaffold;
 pub mod store;
 
-pub use bridge::{render_for_extension, take_menu_bar, take_page_model, write_declarations};
+pub use bridge::{
+    render_for_command, render_for_extension, take_menu_bar, take_page_model, write_declarations,
+};
 pub use catalog::{Catalog, Extension, ExtensionCommand};
 pub use host::{ExtensionHost, Opened};
 #[cfg(test)]
