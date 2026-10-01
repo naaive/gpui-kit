@@ -62,10 +62,11 @@ pub struct PinWindow {
 }
 
 impl PinWindow {
-    /// A pin of `image`; a `scale` of zero takes the window's own.
+    /// A pin of `image` at `zoom`; a `scale` of zero takes the window's own.
     pub fn new(
         image: Arc<RgbaImage>,
         scale: f32,
+        zoom: f32,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -80,7 +81,7 @@ impl PinWindow {
             sprite: render_image(&image),
             image,
             scale,
-            zoom: 1.,
+            zoom: zoom.clamp(MIN_ZOOM, MAX_ZOOM),
             opacity: 1.,
             is_window_faded: false,
             quarter_turns: 0,
@@ -111,6 +112,23 @@ impl PinWindow {
     fn set_zoom(&mut self, zoom: f32, window: &mut Window, cx: &mut Context<Self>) {
         self.zoom = zoom.clamp(MIN_ZOOM, MAX_ZOOM);
         self.fit_window(window);
+        cx.notify();
+    }
+
+    /// Zooms keeping the image point under `anchor` (window-local) still.
+    fn zoom_around(
+        &mut self,
+        zoom: f32,
+        anchor: gpui_kit::Point<Pixels>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let from = self.logical_size();
+        self.zoom = zoom.clamp(MIN_ZOOM, MAX_ZOOM);
+        let to = self.logical_size();
+        if !crate::shell::platform::resize_window_around(window, anchor, from, to, cx) {
+            self.fit_window(window);
+        }
         cx.notify();
     }
 
@@ -175,7 +193,7 @@ impl PinWindow {
             } else {
                 self.zoom / ZOOM_STEP
             };
-            self.set_zoom(zoom, window, cx);
+            self.zoom_around(zoom, event.position, window, cx);
         }
     }
 }

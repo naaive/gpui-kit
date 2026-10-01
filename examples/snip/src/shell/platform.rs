@@ -78,6 +78,73 @@ pub fn set_window_opacity(window: &gpui_kit::Window, opacity: f32) -> bool {
     }
 }
 
+/// Resizes the window from `from` to `to` (logical sizes) keeping the
+/// point `anchor` (window-local, logical) where it is on screen, as a pin
+/// zooms around the pointer. Returns false where the platform leaves the
+/// window to grow from its top-left corner.
+pub fn resize_window_around(
+    window: &gpui_kit::Window,
+    anchor: gpui_kit::Point<gpui_kit::Pixels>,
+    from: gpui_kit::Size<gpui_kit::Pixels>,
+    to: gpui_kit::Size<gpui_kit::Pixels>,
+    cx: &gpui_kit::App,
+) -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        use windows::Win32::{
+            Foundation::RECT,
+            UI::WindowsAndMessaging::{GetWindowRect, SWP_NOACTIVATE, SWP_NOZORDER, SetWindowPos},
+        };
+
+        let Some(hwnd) = hwnd(window) else {
+            return false;
+        };
+        let mut frame = RECT::default();
+        if unsafe { GetWindowRect(hwnd, &mut frame) }.is_err() {
+            return false;
+        }
+        let scale = window.scale_factor();
+        let (from_width, from_height) = (f32::from(from.width), f32::from(from.height));
+        if from_width <= 0. || from_height <= 0. {
+            return false;
+        }
+        let (x, y) = (f32::from(anchor.x), f32::from(anchor.y));
+        let (width, height) = (f32::from(to.width) * scale, f32::from(to.height) * scale);
+        // The anchor's place on screen, and the same share of the new size.
+        let left = frame.left as f32 + x * scale - x / from_width * width;
+        let top = frame.top as f32 + y * scale - y / from_height * height;
+        let (left, top, width, height) = (
+            left.round() as i32,
+            top.round() as i32,
+            width.round() as i32,
+            height.round() as i32,
+        );
+        // Deferred, as GPUI's own resize is: moving the window sends it
+        // messages that would re-enter GPUI while it is updating.
+        let hwnd = hwnd.0 as isize;
+        window
+            .spawn(cx, async move |_| unsafe {
+                SetWindowPos(
+                    windows::Win32::Foundation::HWND(hwnd as *mut std::ffi::c_void),
+                    None,
+                    left,
+                    top,
+                    width,
+                    height,
+                    SWP_NOZORDER | SWP_NOACTIVATE,
+                )
+                .ok();
+            })
+            .detach();
+        true
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = (window, anchor, from, to, cx);
+        false
+    }
+}
+
 #[cfg(target_os = "windows")]
 fn hwnd(window: &gpui_kit::Window) -> Option<windows::Win32::Foundation::HWND> {
     use raw_window_handle::RawWindowHandle;

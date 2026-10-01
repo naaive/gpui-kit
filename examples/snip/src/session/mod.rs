@@ -15,7 +15,7 @@ mod toolbar;
 
 use std::{collections::HashMap, sync::Arc};
 
-use gpui_kit::component::input::{InputEvent, InputState};
+use gpui_kit::component::input::{InputEvent, TextareaState};
 use gpui_kit::{
     AnyWindowHandle, App, AppContext as _, Bounds, Context, DisplayId, Entity, Focusable as _,
     KeyBinding, NoAction, Pixels, Point, RenderImage, Subscription, Window, WindowBounds,
@@ -35,6 +35,8 @@ use crate::{
 };
 
 pub(crate) const CONTEXT: &str = "SnipOverlay";
+/// Lines the text field shows before it scrolls.
+const TEXT_MAX_ROWS: usize = 20;
 const TEXT_CONTEXT: &str = "SnipOverlay > Input";
 
 actions!(
@@ -51,10 +53,18 @@ actions!(
         SaveAs,
         /// Pins the selection to the screen and ends the session.
         Pin,
+        /// Copies the text in the selection and ends the session.
+        CopyText,
+        /// Scrolls what is under the selection and captures all of it.
+        ScrollCapture,
         Undo,
         Redo,
         /// Selects the whole display under the pointer.
         SelectDisplay,
+        /// Selects the region of an earlier capture, going back in time.
+        PreviousSelection,
+        /// Selects the region of a later capture again.
+        NextSelection,
         NudgeLeft,
         NudgeRight,
         NudgeUp,
@@ -84,6 +94,8 @@ actions!(
         UsePen,
         UseMarker,
         UseMosaic,
+        UseBlur,
+        UseSpotlight,
         UseText,
         UseStep,
     ]
@@ -99,6 +111,8 @@ pub(crate) fn tool_action(tool: Tool) -> (Box<dyn gpui_kit::Action>, &'static st
         Tool::Pen => (Box::new(UsePen), "p"),
         Tool::Marker => (Box::new(UseMarker), "m"),
         Tool::Mosaic => (Box::new(UseMosaic), "x"),
+        Tool::Blur => (Box::new(UseBlur), "b"),
+        Tool::Spotlight => (Box::new(UseSpotlight), "h"),
         Tool::Text => (Box::new(UseText), "t"),
         Tool::Step => (Box::new(UseStep), "n"),
     }
@@ -116,9 +130,13 @@ pub fn init(cx: &mut App) {
         KeyBinding::new("secondary-shift-s", SaveAs, context),
         KeyBinding::new("f3", Pin, context),
         KeyBinding::new("secondary-t", Pin, context),
+        KeyBinding::new("secondary-shift-c", CopyText, context),
+        KeyBinding::new("s", ScrollCapture, context),
         KeyBinding::new("secondary-z", Undo, context),
         KeyBinding::new("secondary-shift-z", Redo, context),
         KeyBinding::new("secondary-a", SelectDisplay, context),
+        KeyBinding::new(",", PreviousSelection, context),
+        KeyBinding::new(".", NextSelection, context),
         KeyBinding::new("left", NudgeLeft, context),
         KeyBinding::new("right", NudgeRight, context),
         KeyBinding::new("up", NudgeUp, context),
@@ -138,12 +156,15 @@ pub fn init(cx: &mut App) {
         KeyBinding::new("delete", DeleteAnnotation, context),
         KeyBinding::new("backspace", DeleteAnnotation, context),
         KeyBinding::new("escape", CommitText, text),
-        // The field's own Enter lets the key go on to Copy.
-        KeyBinding::new("enter", CommitText, text),
+        // Enter starts a new line in the field.
+        KeyBinding::new("secondary-enter", CommitText, text),
         KeyBinding::new("c", NoAction, text),
         KeyBinding::new("shift-c", NoAction, text),
         KeyBinding::new("]", NoAction, text),
         KeyBinding::new("[", NoAction, text),
+        KeyBinding::new(",", NoAction, text),
+        KeyBinding::new("s", NoAction, text),
+        KeyBinding::new(".", NoAction, text),
     ];
     #[cfg(not(target_os = "macos"))]
     bindings.push(KeyBinding::new("ctrl-y", Redo, context));
@@ -155,6 +176,8 @@ pub fn init(cx: &mut App) {
         tool_binding(Tool::Pen, UsePen),
         tool_binding(Tool::Marker, UseMarker),
         tool_binding(Tool::Mosaic, UseMosaic),
+        tool_binding(Tool::Blur, UseBlur),
+        tool_binding(Tool::Spotlight, UseSpotlight),
         tool_binding(Tool::Text, UseText),
         tool_binding(Tool::Step, UseStep),
     ] {
@@ -171,6 +194,9 @@ fn tool_binding(tool: Tool, action: impl gpui_kit::Action) -> [KeyBinding; 2] {
         KeyBinding::new(key, NoAction, Some(TEXT_CONTEXT)),
     ]
 }
+
+/// How many of the frontmost windows are asked for their controls.
+const CONTROL_WINDOWS: usize = 6;
 
 /// Points per finished chunk of a freehand draft.
 const DRAFT_CHUNK_POINTS: usize = 24;
@@ -256,10 +282,12 @@ pub struct CaptureSession {
     /// frames aren't drawn by the overlays themselves.
     backdrops: Vec<AnyWindowHandle>,
     has_backdrops: bool,
-    text_input: Option<Entity<InputState>>,
+    text_input: Option<Entity<TextareaState>>,
     is_detecting_windows: bool,
     is_showing_magnifier: bool,
     is_finished: bool,
+    /// Finds the controls inside the windows after the overlays open.
+    _controls: Option<gpui_kit::Task<()>>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -268,7 +296,8 @@ impl CaptureSession {
         let settings = app::settings(cx);
         let displays = capture.frames().iter().map(Frame::area).collect();
         let mut state = SessionState::new(displays, capture.windows().to_vec())
-            .with_style(settings.annotation_style());
+            .with_style(settings.annotation_style())
+            .with_recent_selections(app::recent_selections(cx));
         if let Some(pointer) = capture.pointer() {
             state.pointer_move(
                 ScenePoint::new(pointer.x as f32 + 0.5, pointer.y as f32 + 0.5),
@@ -293,6 +322,7 @@ impl CaptureSession {
             is_detecting_windows: settings.is_detecting_windows(),
             is_showing_magnifier: settings.is_showing_magnifier(),
             is_finished: false,
+            _controls: None,
             _subscriptions: Vec::new(),
         }
     }
@@ -314,7 +344,7 @@ impl CaptureSession {
         self.images.get(frame_ix)
     }
 
-    pub(crate) fn text_input(&self) -> Option<&Entity<InputState>> {
+    pub(crate) fn text_input(&self) -> Option<&Entity<TextareaState>> {
         self.text_input.as_ref()
     }
 
@@ -425,13 +455,17 @@ impl CaptureSession {
         }
         let tail = match draft.shape() {
             Shape::Rectangle { .. } => return,
-            Shape::Pen { points } | Shape::Marker { points } | Shape::Mosaic { points } => {
+            Shape::Pen { points }
+            | Shape::Marker { points }
+            | Shape::Mosaic { points }
+            | Shape::Blur { points } => {
                 let points = points.clone();
                 let with_points = |slice: &[ScenePoint]| {
                     let points: Arc<[ScenePoint]> = slice.into();
                     draft.with_shape(match draft.shape() {
                         Shape::Pen { .. } => Shape::Pen { points },
                         Shape::Marker { .. } => Shape::Marker { points },
+                        Shape::Blur { .. } => Shape::Blur { points },
                         _ => Shape::Mosaic { points },
                     })
                 };
@@ -492,10 +526,18 @@ impl CaptureSession {
 
     fn begin_text(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         tracing::debug!("text editing begins at {:?}", self.state.text_draft());
-        let input = cx.new(|cx| InputState::new(window, cx));
+        // Enter starts a new line; the field grows with the text.
+        let input = cx.new(|cx| {
+            TextareaState::new(window, cx)
+                .auto_grow(1, TEXT_MAX_ROWS)
+                .soft_wrap(false)
+        });
         self._subscriptions.push(
             cx.subscribe_in(&input, window, |this, _, event, window, cx| {
-                if let InputEvent::PressEnter { .. } = event {
+                if let InputEvent::PressEnter {
+                    secondary: true, ..
+                } = event
+                {
                     this.commit_text(window, cx);
                 }
             }),
@@ -525,6 +567,11 @@ impl CaptureSession {
         }
         self.is_finished = true;
         app::remember_style(self.state.style(), cx);
+        if let Some(selection) = self.state.selection()
+            && outcome != Outcome::Cancel
+        {
+            app::remember_selection(selection, cx);
+        }
 
         let delivery = self.state.selection().and_then(|selection| {
             let frame = self.capture.frame_at(selection.origin())?.clone();
@@ -577,6 +624,48 @@ impl CaptureSession {
     pub(crate) fn color_at_pointer(&self) -> Option<Color> {
         let pointer = machine::physical(self.state.pointer()?);
         self.capture.frame_at(pointer)?.pixel(pointer)
+    }
+
+    /// Asks the frontmost windows for their controls, one window at a time
+    /// on a background thread, and makes each window's selectable as soon
+    /// as it is known. Stops when the session ends.
+    fn detect_controls(&mut self, cx: &mut Context<Self>) {
+        let windows: Vec<_> = self
+            .capture
+            .windows()
+            .iter()
+            .take(CONTROL_WINDOWS)
+            .cloned()
+            .collect();
+        if windows.is_empty() {
+            return;
+        }
+        let capturer = app::capturer(cx);
+        let (sender, receiver) = smol::channel::unbounded();
+        cx.background_spawn(async move {
+            for (ix, window) in windows.iter().enumerate() {
+                let parts = capturer.window_controls(window);
+                // The session ended and dropped the receiver.
+                if sender.send((ix, parts)).await.is_err() {
+                    break;
+                }
+            }
+        })
+        .detach();
+        self._controls = Some(cx.spawn(async move |this, cx| {
+            while let Ok((ix, parts)) = receiver.recv().await {
+                if parts.is_empty() {
+                    continue;
+                }
+                let updated = this.update(cx, |session, cx| {
+                    session.state.add_window_parts(ix, parts);
+                    cx.notify();
+                });
+                if updated.is_err() {
+                    break;
+                }
+            }
+        }));
     }
 
     pub(crate) fn set_tool(&mut self, tool: Tool, window: &mut Window, cx: &mut Context<Self>) {
@@ -638,6 +727,21 @@ pub fn start(cx: &mut App) {
         });
     });
     app::capture_started(task, cx);
+}
+
+/// Freezes the screen once `seconds` have passed, leaving time to open a
+/// menu or hover over something first.
+pub fn start_after(seconds: u32, cx: &mut App) {
+    let task = cx.spawn(async move |cx| {
+        cx.background_executor()
+            .timer(std::time::Duration::from_secs(seconds.into()))
+            .await;
+        cx.update(|cx| {
+            app::delayed_capture_due(cx);
+            start(cx);
+        });
+    });
+    app::delay_capture(task, cx);
 }
 
 /// The frozen frames as GPUI images, by frame index.
@@ -814,9 +918,10 @@ pub(crate) fn open_with(
     if overlays.is_empty() {
         anyhow::bail!("no display could show the capture");
     }
-    session.update(cx, |session, _| {
+    session.update(cx, |session, cx| {
         session.overlays = overlays;
         session.backdrops = backdrops;
+        session.detect_controls(cx);
     });
     Ok(())
 }

@@ -47,6 +47,10 @@ pub fn deliver(outcome: Outcome, delivery: Delivery, cx: &mut App) {
         scene,
         mut tiles,
     } = delivery;
+    if outcome == Outcome::ScrollCapture {
+        scroll_capture(selection, frame.area(), frame.native_id(), cx);
+        return;
+    }
     let area = frame.area();
     let native_id = frame.native_id();
     let composed = cx.background_spawn(async move {
@@ -62,6 +66,9 @@ pub fn deliver(outcome: Outcome, delivery: Delivery, cx: &mut App) {
         };
         let result = match outcome {
             Outcome::Copy => copy(&image, cx).await,
+            Outcome::CopyText => copy_text(image, cx).await,
+            // Handled before composing; see `deliver`.
+            Outcome::ScrollCapture => Ok(()),
             Outcome::Save => save(image, cx).await,
             Outcome::SaveAs => save_as(image, cx).await,
             Outcome::Pin => cx.update(|cx| {
@@ -90,6 +97,80 @@ async fn copy(image: &Arc<RgbaImage>, cx: &mut AsyncApp) -> Result<()> {
     let image = image.clone();
     cx.background_spawn(async move { clipboard.write_image(&image) })
         .await
+}
+
+/// Scrolls the content under `selection` and joins it, then copies the
+/// result and pins it, where it can be looked over and saved.
+fn scroll_capture(
+    selection: PhysRect,
+    area: crate::geometry::DisplayArea,
+    native_id: u64,
+    cx: &mut App,
+) {
+    let capturer = app::capturer(cx);
+    cx.spawn(async move |cx| {
+        let captured = cx
+            .background_spawn(async move { crate::scroll::capture(&*capturer, selection) })
+            .await;
+        let image = match captured {
+            Ok(image) => Arc::new(image),
+            Err(error) => {
+                report(cx, format!("{error:#}"));
+                return;
+            }
+        };
+        if let Err(error) = copy(&image, cx).await {
+            report(cx, format!("{error:#}"));
+        }
+        let (width, height) = image.dimensions();
+        let pinned = cx.update(|cx| {
+            pin::open(
+                image,
+                pin::Placement::new(selection.origin(), area, native_id),
+                cx,
+            )
+        });
+        match pinned {
+            Ok(()) => cx.update(|cx| hud::show(format!("Copied {width} × {height}"), cx)),
+            Err(error) => report(cx, format!("{error:#}")),
+        }
+    })
+    .detach();
+}
+
+/// Reads the text in the capture and copies it, saying what was found.
+async fn copy_text(image: Arc<RgbaImage>, cx: &mut AsyncApp) -> Result<()> {
+    let reading = cx
+        .background_spawn(async move { crate::recognize::read(&image) })
+        .await?;
+    let Some(text) = reading.text() else {
+        cx.update(|cx| hud::show("No text found", cx));
+        return Ok(());
+    };
+    let clipboard = cx.update(|cx| clipboard::clipboard(cx));
+    let copied = text.clone();
+    cx.background_spawn(async move { clipboard.write_text(&copied) })
+        .await?;
+    let message = match &reading {
+        crate::recognize::Reading::QrCodes(codes) if codes.len() > 1 => {
+            format!("Copied {} QR codes", codes.len())
+        }
+        crate::recognize::Reading::QrCodes(_) => format!("Copied QR code: {}", first_line(&text)),
+        _ => format!("Copied: {}", first_line(&text)),
+    };
+    cx.update(|cx| hud::show(message, cx));
+    Ok(())
+}
+
+/// The first line of `text`, marked when more follows.
+fn first_line(text: &str) -> String {
+    let mut lines = text.lines().filter(|line| !line.trim().is_empty());
+    let first = lines.next().unwrap_or_default().trim().to_owned();
+    if lines.next().is_some() {
+        format!("{first} …")
+    } else {
+        first
+    }
 }
 
 /// Saves to the save folder under a name from the template.

@@ -67,6 +67,7 @@ pub fn tile(annotation: &Annotation, frame: Option<&Frame>) -> Option<Tile> {
             step_tile(*number, *center, style.font_size(), style.color())
         }
         Shape::Mosaic { points } => mosaic_tile(points, mosaic_width(style.stroke_width()), frame?),
+        Shape::Blur { points } => blur_tile(points, mosaic_width(style.stroke_width()), frame?),
         _ => None,
     }
 }
@@ -300,24 +301,7 @@ fn mosaic_tile(points: &[ScenePoint], width: f32, frame: &Frame) -> Option<Tile>
     )
     .intersect(&frame.bounds())?;
 
-    let mut path = PathBuilder::new();
-    let (first, rest) = points.split_first()?;
-    path.move_to(first.x - area.x as f32, first.y - area.y as f32);
-    if rest.is_empty() {
-        path.line_to(first.x - area.x as f32 + 0.01, first.y - area.y as f32);
-    }
-    for point in rest {
-        path.line_to(point.x - area.x as f32, point.y - area.y as f32);
-    }
-    let stroke = Stroke {
-        width,
-        line_cap: tiny_skia::LineCap::Round,
-        line_join: tiny_skia::LineJoin::Round,
-        ..Stroke::default()
-    };
-    let outline = path.finish()?.stroke(&stroke, 1.)?;
-    let mut mask = Mask::new(area.width as u32, area.height as u32)?;
-    mask.fill_path(&outline, FillRule::Winding, true, Transform::identity());
+    let mask = brush_mask(points, width, &area)?;
 
     let mut image = RgbaImage::new(area.width as u32, area.height as u32);
     let bounds = frame.bounds();
@@ -352,6 +336,79 @@ fn mosaic_tile(points: &[ScenePoint], width: f32, frame: &Frame) -> Option<Tile>
         y: area.y,
         image: Arc::new(image),
     })
+}
+
+/// Blurs the frozen frame under a brush stroke `width` wide.
+fn blur_tile(points: &[ScenePoint], width: f32, frame: &Frame) -> Option<Tile> {
+    let radius = width / 2.;
+    let (min, max) = extent(points)?;
+    let area = PhysRect::from_edges(
+        (min.x - radius).floor() as i32,
+        (min.y - radius).floor() as i32,
+        (max.x + radius).ceil() as i32,
+        (max.y + radius).ceil() as i32,
+    )
+    .intersect(&frame.bounds())?;
+    let mask = brush_mask(points, width, &area)?;
+    // Blur a margin around the area too, so its edge draws on what lies
+    // beyond rather than fading to the cut.
+    let sigma = (width / 3.).max(4.);
+    let margin = (sigma * 3.).ceil() as i32;
+    let source_area = area.inflate(margin).intersect(&frame.bounds())?;
+    let source = frame.crop(source_area)?;
+    let blurred = image::imageops::fast_blur(&source, sigma);
+    let (dx, dy) = (
+        (area.x - source_area.x) as u32,
+        (area.y - source_area.y) as u32,
+    );
+    let mut image = RgbaImage::new(area.width as u32, area.height as u32);
+    for (x, y, pixel) in image.enumerate_pixels_mut() {
+        let coverage = mask.data()[(y * area.width as u32 + x) as usize];
+        if coverage > 0 {
+            let [r, g, b, _] = blurred.get_pixel(x + dx, y + dy).0;
+            *pixel = image::Rgba([r, g, b, coverage]);
+        }
+    }
+    Some(Tile {
+        x: area.x,
+        y: area.y,
+        image: Arc::new(image),
+    })
+}
+
+/// The least and greatest corners of `points`.
+fn extent(points: &[ScenePoint]) -> Option<(ScenePoint, ScenePoint)> {
+    let (first, rest) = points.split_first()?;
+    Some(rest.iter().fold((*first, *first), |(min, max), point| {
+        (
+            ScenePoint::new(min.x.min(point.x), min.y.min(point.y)),
+            ScenePoint::new(max.x.max(point.x), max.y.max(point.y)),
+        )
+    }))
+}
+
+/// The coverage of a round brush stroke `width` wide along `points`, over
+/// the desktop rectangle `area`.
+fn brush_mask(points: &[ScenePoint], width: f32, area: &PhysRect) -> Option<Mask> {
+    let mut path = PathBuilder::new();
+    let (first, rest) = points.split_first()?;
+    path.move_to(first.x - area.x as f32, first.y - area.y as f32);
+    if rest.is_empty() {
+        path.line_to(first.x - area.x as f32 + 0.01, first.y - area.y as f32);
+    }
+    for point in rest {
+        path.line_to(point.x - area.x as f32, point.y - area.y as f32);
+    }
+    let stroke = Stroke {
+        width,
+        line_cap: tiny_skia::LineCap::Round,
+        line_join: tiny_skia::LineJoin::Round,
+        ..Stroke::default()
+    };
+    let outline = path.finish()?.stroke(&stroke, 1.)?;
+    let mut mask = Mask::new(area.width as u32, area.height as u32)?;
+    mask.fill_path(&outline, FillRule::Winding, true, Transform::identity());
+    Some(mask)
 }
 
 /// The mean color of `cell`, a desktop rectangle inside the frame `bounds`.
@@ -389,6 +446,31 @@ mod tests {
             }
         }
         Frame::new(DisplayArea::new(bounds, 1.), 0, pixels).unwrap()
+    }
+
+    #[test]
+    fn test_blur_softens_an_edge_under_the_brush_only() {
+        let frame = halves(PhysRect::new(0, 0, 64, 64));
+        let points = [ScenePoint::new(16., 32.), ScenePoint::new(48., 32.)];
+        let tile = blur_tile(&points, 16., &frame).unwrap();
+        let image = tile.image();
+        let at = |x: i32, y: i32| {
+            image
+                .get_pixel((x - tile.x()) as u32, (y - tile.y()) as u32)
+                .0
+        };
+        let [value, _, _, alpha] = at(32, 32);
+        assert_eq!(alpha, 255, "covered on the stroke");
+        assert!(
+            value > 40 && value < 215,
+            "the black-white edge is blurred to grey, got {value}"
+        );
+        assert_eq!(at(16, 26)[3], 255);
+        assert_eq!(
+            at(tile.x(), tile.y())[3],
+            0,
+            "the tile's corner is outside the round brush"
+        );
     }
 
     #[test]

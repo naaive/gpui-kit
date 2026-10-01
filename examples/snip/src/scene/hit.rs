@@ -20,15 +20,7 @@ pub fn hits(annotation: &Annotation, point: ScenePoint, tolerance: f32) -> bool 
             if style.is_filled() {
                 return inside_by(point, min, max, reach);
             }
-            let edge = [
-                distance_to_segment(point, min, ScenePoint::new(max.x, min.y)),
-                distance_to_segment(point, ScenePoint::new(max.x, min.y), max),
-                distance_to_segment(point, max, ScenePoint::new(min.x, max.y)),
-                distance_to_segment(point, ScenePoint::new(min.x, max.y), min),
-            ]
-            .into_iter()
-            .fold(f32::MAX, f32::min);
-            edge <= reach
+            near_box_edge(point, min, max, reach)
         }
         Shape::Ellipse { from, to } => {
             let (min, max) = corners(*from, *to);
@@ -55,11 +47,16 @@ pub fn hits(annotation: &Annotation, point: ScenePoint, tolerance: f32) -> bool 
             points,
             marker_width(style.stroke_width()) / 2. + tolerance,
         ),
-        Shape::Mosaic { points } => near_polyline(
+        Shape::Mosaic { points } | Shape::Blur { points } => near_polyline(
             point,
             points,
             mosaic_width(style.stroke_width()) / 2. + tolerance,
         ),
+        // On the edge between bright and dim, so drawing inside still works.
+        Shape::Spotlight { from, to } => {
+            let (min, max) = corners(*from, *to);
+            near_box_edge(point, min, max, tolerance.max(2.))
+        }
         Shape::Text { .. } => {
             let (min, max) = bounds(annotation);
             inside_by(point, min, max, tolerance)
@@ -68,6 +65,19 @@ pub fn hits(annotation: &Annotation, point: ScenePoint, tolerance: f32) -> bool 
             center.distance(point) <= step_radius(style.font_size()) + tolerance
         }
     }
+}
+
+/// Whether `point` is within `reach` of the edge of the box `min`–`max`.
+fn near_box_edge(point: ScenePoint, min: ScenePoint, max: ScenePoint, reach: f32) -> bool {
+    [
+        distance_to_segment(point, min, ScenePoint::new(max.x, min.y)),
+        distance_to_segment(point, ScenePoint::new(max.x, min.y), max),
+        distance_to_segment(point, max, ScenePoint::new(min.x, max.y)),
+        distance_to_segment(point, ScenePoint::new(min.x, max.y), min),
+    ]
+    .into_iter()
+    .fold(f32::MAX, f32::min)
+        <= reach
 }
 
 /// The frontmost annotation under `point`.
@@ -115,7 +125,10 @@ pub fn bounds(annotation: &Annotation) -> (ScenePoint, ScenePoint) {
         Shape::Arrow { from, to } => of_points(&arrow_polygon(*from, *to, style.stroke_width())),
         Shape::Pen { points } => pad(of_points(points), half),
         Shape::Marker { points } => pad(of_points(points), marker_width(style.stroke_width()) / 2.),
-        Shape::Mosaic { points } => pad(of_points(points), mosaic_width(style.stroke_width()) / 2.),
+        Shape::Mosaic { points } | Shape::Blur { points } => {
+            pad(of_points(points), mosaic_width(style.stroke_width()) / 2.)
+        }
+        Shape::Spotlight { from, to } => corners(*from, *to),
         Shape::Text { origin, content } => {
             let size = style.font_size();
             let lines = content.lines().count().max(1) as f32;

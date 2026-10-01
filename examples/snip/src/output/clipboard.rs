@@ -44,22 +44,35 @@ pub struct SystemClipboard {
     handle: Mutex<Option<arboard::Clipboard>>,
 }
 
+/// Tries at a busy clipboard before giving up: another application
+/// (a clipboard manager, a remote desktop) can hold it open for a moment.
+const ATTEMPTS: usize = 5;
+const RETRY_DELAY: std::time::Duration = std::time::Duration::from_millis(60);
+
 impl SystemClipboard {
-    fn with<T>(&self, f: impl FnOnce(&mut arboard::Clipboard) -> Result<T>) -> Result<T> {
+    fn with<T>(&self, f: impl Fn(&mut arboard::Clipboard) -> Result<T>) -> Result<T> {
         let mut handle = self
             .handle
             .lock()
             .map_err(|_| anyhow!("the clipboard is unavailable"))?;
-        if handle.is_none() {
-            *handle = Some(arboard::Clipboard::new().context("cannot open the clipboard")?);
-        }
-        let result = f(handle.as_mut().expect("opened above"));
-        if result.is_err() {
+        let mut attempt = 1;
+        loop {
+            if handle.is_none() {
+                *handle = Some(arboard::Clipboard::new().context("cannot open the clipboard")?);
+            }
+            let result = f(handle.as_mut().expect("opened above"));
+            if result.is_ok() {
+                return result;
+            }
             // A broken connection (a restarted X server, say) is reopened
-            // on the next use.
+            // on the next try.
             *handle = None;
+            if attempt == ATTEMPTS {
+                return result;
+            }
+            attempt += 1;
+            std::thread::sleep(RETRY_DELAY);
         }
-        result
     }
 }
 

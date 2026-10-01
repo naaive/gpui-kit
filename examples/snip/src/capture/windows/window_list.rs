@@ -36,7 +36,11 @@ pub fn snapshots() -> Vec<WindowSnapshot> {
         .filter(|window| is_selectable(*window))
         .filter_map(|window| {
             let frame = visible_frame(window)?;
-            Some(WindowSnapshot::new(frame).with_parts(parts(window, &frame)))
+            Some(
+                WindowSnapshot::new(frame)
+                    .with_parts(parts(window, &frame))
+                    .with_native_id(window.0 as u64),
+            )
         })
         .collect()
 }

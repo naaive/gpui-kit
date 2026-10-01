@@ -180,6 +180,14 @@ pub trait Capturer: Send + Sync {
     fn pointer(&self) -> Option<PhysPoint> {
         None
     }
+
+    /// The controls of `window` that can be selected on their own, within
+    /// its frame. Slow (it asks the window's application), so it runs after
+    /// the overlays open; empty where the platform can't tell.
+    fn window_controls(&self, window: &WindowSnapshot) -> Vec<PhysRect> {
+        let _ = window;
+        Vec::new()
+    }
 }
 
 /// Freezes every display and, with `detect_windows`, records the windows.

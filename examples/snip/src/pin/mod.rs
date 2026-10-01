@@ -102,6 +102,7 @@ pub fn open(image: Arc<RgbaImage>, placement: Placement, cx: &mut App) -> Result
         }
         Placement::Centered => centered(width, height, cx),
     };
+    let (bounds, zoom) = fit_to_display(bounds, display_id, cx);
     let is_linux = cfg!(target_os = "linux");
     let is_visible = !crate::app::is_offscreen(cx);
     let options = WindowOptions {
@@ -124,7 +125,7 @@ pub fn open(image: Arc<RgbaImage>, placement: Placement, cx: &mut App) -> Result
         ..Default::default()
     };
     let (handle, _) = gpui_kit::open_window(options, cx, move |window, cx| {
-        cx.new(|cx| PinWindow::new(image, scale, window, cx))
+        cx.new(|cx| PinWindow::new(image, scale, zoom, window, cx))
     })?;
     if is_visible {
         handle
@@ -136,6 +137,40 @@ pub fn open(image: Arc<RgbaImage>, placement: Placement, cx: &mut App) -> Result
     }
     cx.global_mut::<Pins>().0.push(handle);
     Ok(())
+}
+
+/// The most of its display a pin covers when it opens.
+const MAX_DISPLAY_SHARE: f32 = 0.9;
+
+/// Shrinks a pin larger than its display, such as a scrolling capture, to
+/// fit, and moves it onto the display. Returns the bounds and the zoom.
+fn fit_to_display(
+    bounds: Bounds<gpui_kit::Pixels>,
+    display_id: Option<gpui_kit::DisplayId>,
+    cx: &App,
+) -> (Bounds<gpui_kit::Pixels>, f32) {
+    let display = display_id
+        .and_then(|id| cx.find_display(id))
+        .or_else(|| cx.primary_display());
+    let Some(display) = display.map(|display| display.bounds()) else {
+        return (bounds, 1.);
+    };
+    let zoom = (f32::from(display.size.width) * MAX_DISPLAY_SHARE / f32::from(bounds.size.width))
+        .min(f32::from(display.size.height) * MAX_DISPLAY_SHARE / f32::from(bounds.size.height))
+        .min(1.);
+    if zoom >= 1. {
+        return (bounds, 1.);
+    }
+    let fitted = size(bounds.size.width * zoom, bounds.size.height * zoom);
+    let x = bounds
+        .origin
+        .x
+        .clamp(display.left(), display.right() - fitted.width);
+    let y = bounds
+        .origin
+        .y
+        .clamp(display.top(), display.bottom() - fitted.height);
+    (Bounds::new(point(x, y), fitted), zoom)
 }
 
 /// Centred on the primary display, at that display's scale once open.

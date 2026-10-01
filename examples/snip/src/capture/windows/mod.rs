@@ -5,6 +5,7 @@
 //! it can't duplicate (remote sessions, some hybrid-GPU laptops, protected
 //! content changes) fall back to a GDI copy of that monitor.
 
+mod controls;
 mod dxgi;
 mod gdi;
 mod hdr;
@@ -71,6 +72,13 @@ impl Capturer for WindowsCapturer {
         let mut point = POINT::default();
         unsafe { GetCursorPos(&mut point) }.ok()?;
         Some(PhysPoint::new(point.x, point.y))
+    }
+
+    fn window_controls(&self, window: &WindowSnapshot) -> Vec<PhysRect> {
+        if window.native_id() == 0 {
+            return Vec::new();
+        }
+        controls::controls(window.native_id(), window.frame())
     }
 }
 

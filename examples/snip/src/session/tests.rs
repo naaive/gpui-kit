@@ -234,3 +234,61 @@ fn test_right_click_steps_back(cx: &mut TestAppContext) {
         "then the session ends"
     );
 }
+
+fn selection(cx: &mut TestAppContext) -> Option<PhysRect> {
+    cx.update(|cx| app::session(cx).and_then(|session| session.read(cx).state().selection()))
+}
+
+#[gpui_kit::test]
+fn test_text_takes_several_lines(cx: &mut TestAppContext) {
+    let (overlay, _) = open_session(cx);
+    with_overlay(overlay, cx, |window, cx| {
+        window.drag(at(100., 100.), at(500., 400.), cx);
+        window.press("t", cx);
+        window.drag(at(150., 150.), at(150., 150.), cx);
+        window.input("first", cx);
+        window.press("enter", cx);
+        window.input("second", cx);
+    });
+    assert_eq!(annotation_count(cx), 0, "Enter starts a new line");
+    with_overlay(overlay, cx, |window, cx| {
+        window.press("secondary-enter", cx)
+    });
+    let content = cx.update(|cx| {
+        let session = app::session(cx).expect("the session stays open");
+        let annotations = session
+            .read(cx)
+            .state()
+            .history()
+            .current()
+            .annotations()
+            .to_vec();
+        match annotations
+            .first()
+            .map(|annotation| annotation.shape().clone())
+        {
+            Some(crate::scene::Shape::Text { content, .. }) => content.to_string(),
+            other => panic!("expected a text annotation, got {other:?}"),
+        }
+    });
+    assert_eq!(content, "first\nsecond");
+}
+
+#[gpui_kit::test]
+fn test_recalls_the_last_selection(cx: &mut TestAppContext) {
+    let (overlay, _) = open_session(cx);
+    with_overlay(overlay, cx, |window, cx| {
+        window.drag(at(100., 50.), at(420., 290.), cx);
+        window.press("enter", cx);
+    });
+    cx.update(|cx| session::start(cx));
+    cx.run_until_parked();
+    let overlay = cx
+        .update(|cx| session::overlay_windows(cx))
+        .first()
+        .copied()
+        .expect("a second session opens");
+    assert_eq!(selection(cx), None);
+    with_overlay(overlay, cx, |window, cx| window.press(",", cx));
+    assert_eq!(selection(cx), Some(PhysRect::new(100, 50, 320, 240)));
+}

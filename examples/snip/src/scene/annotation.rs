@@ -81,12 +81,14 @@ pub enum Tool {
     Pen,
     Marker,
     Mosaic,
+    Blur,
+    Spotlight,
     Text,
     Step,
 }
 
 impl Tool {
-    pub const ALL: [Self; 9] = [
+    pub const ALL: [Self; 11] = [
         Self::Rectangle,
         Self::Ellipse,
         Self::Arrow,
@@ -94,6 +96,8 @@ impl Tool {
         Self::Pen,
         Self::Marker,
         Self::Mosaic,
+        Self::Blur,
+        Self::Spotlight,
         Self::Text,
         Self::Step,
     ];
@@ -107,6 +111,8 @@ impl Tool {
             Self::Pen => "Pen",
             Self::Marker => "Marker",
             Self::Mosaic => "Mosaic",
+            Self::Blur => "Blur",
+            Self::Spotlight => "Spotlight",
             Self::Text => "Text",
             Self::Step => "Step number",
         }
@@ -120,7 +126,18 @@ impl Tool {
     /// Whether the stroke width setting applies; text and step markers size
     /// by font size instead.
     pub fn has_stroke(self) -> bool {
-        !matches!(self, Self::Text | Self::Step)
+        !matches!(self, Self::Text | Self::Step | Self::Spotlight)
+    }
+
+    /// Whether the color setting applies: mosaic and blur show the capture
+    /// itself, and a spotlight dims around a box.
+    pub fn has_color(self) -> bool {
+        !matches!(self, Self::Mosaic | Self::Blur | Self::Spotlight)
+    }
+
+    /// Whether the tool has any style to choose.
+    pub fn has_style(self) -> bool {
+        self != Self::Spotlight
     }
 }
 
@@ -241,6 +258,16 @@ pub enum Shape {
     Mosaic {
         points: Arc<[ScenePoint]>,
     },
+    /// Blurs the frozen frame along a brush stroke.
+    Blur {
+        points: Arc<[ScenePoint]>,
+    },
+    /// Keeps a box bright and dims the rest of the capture around it; with
+    /// several, everything outside all of them is dimmed once.
+    Spotlight {
+        from: ScenePoint,
+        to: ScenePoint,
+    },
     /// `origin` is the top-left of the first line.
     Text {
         origin: ScenePoint,
@@ -278,6 +305,11 @@ impl Shape {
             Tool::Pen => Shape::Pen { points: points() },
             Tool::Marker => Shape::Marker { points: points() },
             Tool::Mosaic => Shape::Mosaic { points: points() },
+            Tool::Blur => Shape::Blur { points: points() },
+            Tool::Spotlight => Shape::Spotlight {
+                from: point,
+                to: point,
+            },
             Tool::Text | Tool::Step => return None,
         })
     }
@@ -340,6 +372,13 @@ impl Shape {
             Shape::Mosaic { points } => Shape::Mosaic {
                 points: append(points),
             },
+            Shape::Blur { points } => Shape::Blur {
+                points: append(points),
+            },
+            Shape::Spotlight { from, .. } => Shape::Spotlight {
+                from: *from,
+                to: constrain_box(*from),
+            },
             Shape::Text { .. } | Shape::Step { .. } => self.clone(),
         }
     }
@@ -352,9 +391,13 @@ impl Shape {
             | Shape::Ellipse { from, to }
             | Shape::Arrow { from, to }
             | Shape::Line { from, to } => from.distance(*to) >= 2.,
-            Shape::Pen { points } | Shape::Marker { points } | Shape::Mosaic { points } => {
-                !points.is_empty()
+            Shape::Spotlight { from, to } => {
+                (from.x - to.x).abs() >= 2. && (from.y - to.y).abs() >= 2.
             }
+            Shape::Pen { points }
+            | Shape::Marker { points }
+            | Shape::Mosaic { points }
+            | Shape::Blur { points } => !points.is_empty(),
             Shape::Text { content, .. } => !content.trim().is_empty(),
             Shape::Step { .. } => true,
         }
@@ -389,6 +432,13 @@ impl Shape {
             },
             Shape::Mosaic { points } => Shape::Mosaic {
                 points: all(points),
+            },
+            Shape::Blur { points } => Shape::Blur {
+                points: all(points),
+            },
+            Shape::Spotlight { from, to } => Shape::Spotlight {
+                from: at(from),
+                to: at(to),
             },
             Shape::Text { origin, content } => Shape::Text {
                 origin: at(origin),

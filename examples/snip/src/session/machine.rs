@@ -17,8 +17,12 @@
 //!
 //! Escape steps back one layer at a time: a text being edited is committed,
 //! a gesture in progress is cancelled, a selected annotation is deselected,
-//! an active tool is put down, and only then is the session cancelled. A secondary click steps from Adjusting
-//! back to Selecting, and from Selecting out of the session.
+//! an active tool is put down, and only then is the session cancelled. A
+//! secondary click steps from Adjusting back to Selecting, and from
+//! Selecting out of the session.
+//!
+//! The selections of earlier captures can be recalled, newest first, while
+//! nothing has been drawn, to capture the same region again.
 
 use std::sync::Arc;
 
@@ -36,6 +40,10 @@ pub enum Outcome {
     /// Ask where to save.
     SaveAs,
     Pin,
+    /// Copy the text in the capture: QR code contents, or recognized words.
+    CopyText,
+    /// Scroll the content under the selection and join it into one image.
+    ScrollCapture,
     Cancel,
 }
 
@@ -114,6 +122,10 @@ pub struct SessionState {
     /// The annotation picked for moving, deleting or restyling.
     selected: Option<AnnotationId>,
     next_id: u64,
+    /// Selections of earlier captures, newest first.
+    recent: Vec<PhysRect>,
+    /// Which of `recent` the selection was recalled from.
+    recalled: Option<usize>,
 }
 
 impl SessionState {
@@ -133,11 +145,29 @@ impl SessionState {
             text: None,
             selected: None,
             next_id: 1,
+            recent: Vec::new(),
+            recalled: None,
         }
     }
 
     pub fn with_style(mut self, style: Style) -> Self {
         self.style = style;
+        self
+    }
+
+    /// The selections of earlier captures, newest first, to recall. Those
+    /// on no display are dropped; the rest are cut to their display.
+    pub fn with_recent_selections(mut self, recent: Vec<PhysRect>) -> Self {
+        self.recent = recent
+            .into_iter()
+            .filter_map(|rect| {
+                let display = self
+                    .displays
+                    .iter()
+                    .find(|display| display.bounds().contains(rect.origin()))?;
+                rect.intersect(&display.bounds())
+            })
+            .collect();
         self
     }
 
@@ -635,6 +665,41 @@ impl SessionState {
         }
     }
 
+    /// Adds the controls found in the window at `window_ix` (in the order
+    /// the session was given), and updates what the pointer highlights.
+    pub fn add_window_parts(&mut self, window_ix: usize, parts: Vec<PhysRect>) {
+        let Some(window) = self.windows.get_mut(window_ix) else {
+            return;
+        };
+        window.add_parts(parts);
+        if self.selection.is_none()
+            && self.gesture.is_none()
+            && let Some(pointer) = self.pointer
+        {
+            self.hover = self.region_under(physical(pointer), true);
+        }
+    }
+
+    /// Selects the region of an earlier capture: an older one, or a newer
+    /// one again. Only while nothing has been drawn on the selection.
+    pub fn recall_selection(&mut self, older: bool) {
+        if self.gesture.is_some() || self.text.is_some() || !self.history.current().is_empty() {
+            return;
+        }
+        let ix = match (self.recalled, older) {
+            (None, true) => 0,
+            (Some(ix), true) => ix + 1,
+            (Some(ix), false) if ix > 0 => ix - 1,
+            _ => return,
+        };
+        let Some(rect) = self.recent.get(ix) else {
+            return;
+        };
+        self.selection = Some(*rect);
+        self.recalled = Some(ix);
+        self.hover = None;
+    }
+
     pub fn undo(&mut self) {
         if self.gesture.is_none() && self.text.is_none() {
             self.history.undo();
@@ -967,6 +1032,53 @@ mod tests {
         state.pointer_move(at(1500., 10.), false, true);
         state.select_display();
         assert_eq!(state.selection(), Some(SECOND));
+    }
+
+    #[test]
+    fn test_controls_found_later_are_highlighted() {
+        let mut state = state();
+        state.pointer_move(at(150., 150.), false, true);
+        assert_eq!(state.hover(), Some(PhysRect::new(100, 100, 300, 200)));
+        state.add_window_parts(0, vec![PhysRect::new(140, 140, 40, 20)]);
+        assert_eq!(
+            state.hover(),
+            Some(PhysRect::new(140, 140, 40, 20)),
+            "the control under the pointer is highlighted at once"
+        );
+        state.add_window_parts(7, vec![PhysRect::new(0, 0, 10, 10)]);
+    }
+
+    #[test]
+    fn test_recall_selection() {
+        let recent = vec![
+            PhysRect::new(20, 20, 50, 50),
+            PhysRect::new(5000, 0, 10, 10),
+            PhysRect::new(1900, 1500, 500, 500),
+        ];
+        let mut state = state().with_recent_selections(recent);
+        state.recall_selection(false);
+        assert_eq!(state.selection(), None, "nothing newer than none");
+        state.recall_selection(true);
+        assert_eq!(state.selection(), Some(PhysRect::new(20, 20, 50, 50)));
+        state.recall_selection(true);
+        assert_eq!(
+            state.selection(),
+            Some(PhysRect::new(1900, 1500, 500, 100)),
+            "skips a region off every display and cuts one to its display"
+        );
+        state.recall_selection(true);
+        assert_eq!(state.selection(), Some(PhysRect::new(1900, 1500, 500, 100)));
+        state.recall_selection(false);
+        assert_eq!(state.selection(), Some(PhysRect::new(20, 20, 50, 50)));
+
+        state.toggle_tool(Tool::Rectangle);
+        drag(&mut state, (25., 25.), (60., 60.));
+        state.recall_selection(true);
+        assert_eq!(
+            state.selection(),
+            Some(PhysRect::new(20, 20, 50, 50)),
+            "a marked selection is kept"
+        );
     }
 
     #[test]

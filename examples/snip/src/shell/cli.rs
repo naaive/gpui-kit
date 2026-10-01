@@ -16,6 +16,7 @@ Usage: snip [COMMAND]
 Commands:
   (none)          Start Snip in the background, with its tray icon
   capture         Freeze the screen and select an area
+                  --delay SECONDS waits first, to open a menu or hover
   pin-clipboard   Pin the image or text on the clipboard to the screen
   settings        Open the settings window
   quit            Quit the running instance
@@ -28,6 +29,8 @@ Options:
 pub enum Command {
     Start,
     Capture,
+    /// Capture after this many seconds.
+    CaptureAfter(u32),
     PinClipboard,
     Settings,
     Quit,
@@ -40,6 +43,7 @@ impl Command {
         Some(match self {
             Self::Start => Message::Start,
             Self::Capture => Message::Capture,
+            Self::CaptureAfter(seconds) => Message::CaptureAfter { seconds },
             Self::PinClipboard => Message::PinClipboard,
             Self::Settings => Message::Settings,
             Self::Quit => Message::Quit,
@@ -60,12 +64,29 @@ impl fmt::Display for UsageError {
 
 impl std::error::Error for UsageError {}
 
+/// The longest delay `capture --delay` accepts, in seconds.
+const MAX_DELAY: u32 = 60;
+
 /// Parses the arguments after the program name.
 pub fn parse(arguments: impl IntoIterator<Item = String>) -> Result<Command, UsageError> {
-    let mut arguments = arguments.into_iter();
+    let mut arguments = arguments.into_iter().peekable();
     let command = match arguments.next().as_deref() {
         None => Command::Start,
         Some("-h" | "--help" | "help") => Command::Help,
+        Some("capture") if arguments.peek().is_some_and(|word| word == "--delay") => {
+            arguments.next();
+            let seconds = arguments
+                .next()
+                .and_then(|word| word.parse::<u32>().ok())
+                .filter(|seconds| *seconds <= MAX_DELAY)
+                .ok_or_else(|| {
+                    UsageError(format!("--delay takes whole seconds, up to {MAX_DELAY}"))
+                })?;
+            match seconds {
+                0 => Command::Capture,
+                seconds => Command::CaptureAfter(seconds),
+            }
+        }
         Some("capture") => Command::Capture,
         Some("pin-clipboard") => Command::PinClipboard,
         Some("settings") => Command::Settings,
@@ -94,6 +115,17 @@ mod tests {
         assert_eq!(parse_words(&["--help"]), Ok(Command::Help));
         assert!(parse_words(&["shoot"]).is_err());
         assert!(parse_words(&["capture", "now"]).is_err());
+        assert_eq!(
+            parse_words(&["capture", "--delay", "3"]),
+            Ok(Command::CaptureAfter(3))
+        );
+        assert_eq!(
+            parse_words(&["capture", "--delay", "0"]),
+            Ok(Command::Capture)
+        );
+        assert!(parse_words(&["capture", "--delay"]).is_err());
+        assert!(parse_words(&["capture", "--delay", "soon"]).is_err());
+        assert!(parse_words(&["capture", "--delay", "600"]).is_err());
     }
 
     #[test]

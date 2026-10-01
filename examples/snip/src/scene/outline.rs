@@ -121,7 +121,10 @@ pub fn outline(annotation: &Annotation) -> Vec<Figure> {
                 ScenePoint::new(center.x + radius, center.y + radius),
             ))]
         }
-        Shape::Mosaic { .. } | Shape::Text { .. } => Vec::new(),
+        Shape::Mosaic { .. }
+        | Shape::Blur { .. }
+        | Shape::Spotlight { .. }
+        | Shape::Text { .. } => Vec::new(),
     }
 }
 

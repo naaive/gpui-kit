@@ -15,7 +15,9 @@ mod pin;
 #[cfg(feature = "preview")]
 mod preview;
 mod raster;
+mod recognize;
 mod scene;
+mod scroll;
 mod session;
 mod settings_window;
 mod shell;

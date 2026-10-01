@@ -94,6 +94,16 @@ impl PhysRect {
         (right > x && bottom > y).then(|| PhysRect::new(x, y, right - x, bottom - y))
     }
 
+    /// The rectangle grown by `by` pixels on every side.
+    pub const fn inflate(&self, by: i32) -> PhysRect {
+        PhysRect::new(
+            self.x - by,
+            self.y - by,
+            self.width + by * 2,
+            self.height + by * 2,
+        )
+    }
+
     pub const fn translate(&self, dx: i32, dy: i32) -> PhysRect {
         PhysRect::new(self.x + dx, self.y + dy, self.width, self.height)
     }

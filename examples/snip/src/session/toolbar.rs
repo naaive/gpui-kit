@@ -17,9 +17,9 @@ use gpui_kit::{
 use super::{CONTEXT, CaptureSession, tool_action};
 use crate::scene::{FONT_SIZES, PALETTE, STROKE_WIDTHS, Style, Tool};
 
-/// The toolbar's width, for placing it before it has been laid out: fifteen
-/// small buttons, two separators and padding.
-const ESTIMATED_WIDTH: f32 = 470.;
+/// The toolbar's width, for placing it before it has been laid out:
+/// nineteen small buttons, two separators and padding.
+const ESTIMATED_WIDTH: f32 = 590.;
 const ROW_HEIGHT: f32 = 36.;
 const GAP: f32 = 8.;
 
@@ -32,6 +32,8 @@ fn icon(tool: Tool) -> IconName {
         Tool::Pen => IconName::Pencil,
         Tool::Marker => IconName::Highlighter,
         Tool::Mosaic => IconName::Grid3x3,
+        Tool::Blur => IconName::Droplet,
+        Tool::Spotlight => IconName::Spotlight,
         Tool::Text => IconName::Type,
         Tool::Step => IconName::ListOrdered,
     }
@@ -49,7 +51,8 @@ pub fn render(
     let state = session.state();
     let tool = state.tool();
     let history = state.history();
-    let rows = if tool.is_some() { 2. } else { 1. };
+    let style_tool = tool.filter(|tool| tool.has_style());
+    let rows = if style_tool.is_some() { 2. } else { 1. };
     let height = px(ROW_HEIGHT * rows + GAP * (rows - 1.));
     let gap = px(GAP);
 
@@ -89,6 +92,20 @@ pub fn render(
     let output = ToolbarGroup::new("output")
         .label("Output")
         .gap_0p5()
+        .child(command_button(
+            "scroll-capture",
+            IconName::UnfoldVertical,
+            "Scrolling capture",
+            Box::new(super::ScrollCapture),
+            false,
+        ))
+        .child(command_button(
+            "copy-text",
+            IconName::ScanText,
+            "Copy text",
+            Box::new(super::CopyText),
+            false,
+        ))
         .child(command_button(
             "pin",
             IconName::Pin,
@@ -154,7 +171,7 @@ pub fn render(
             }
         })
         .child(surface(main_row, cx))
-        .when_some(tool, |this, tool| {
+        .when_some(style_tool, |this, tool| {
             this.child(surface(style_row(tool, state.style(), cx), cx))
         })
         .text_color(theme.popover_foreground)
@@ -248,8 +265,9 @@ fn style_row(tool: Tool, style: &Style, cx: &App) -> impl IntoElement {
     Toolbar::new("style-toolbar")
         .gap_1()
         .p_1()
-        .child(colors)
-        .content(Separator::vertical().h_5())
+        .when(tool.has_color(), |this| {
+            this.child(colors).content(Separator::vertical().h_5())
+        })
         .child(sizes)
         .when(tool.can_fill(), |this| {
             this.content(Separator::vertical().h_5()).child(

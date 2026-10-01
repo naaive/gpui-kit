@@ -1,7 +1,7 @@
 //! One display's overlay: its frozen frame, the selection, the annotations
 //! and the toolbar, in a borderless window covering the display.
 
-use gpui_kit::component::{ActiveTheme as _, h_flex, input::Input, v_flex};
+use gpui_kit::component::{ActiveTheme as _, h_flex, input::Textarea, v_flex};
 use gpui_kit::{
     App, BorderStyle, Bounds, ContentMask, Context, CursorStyle, DispatchPhase, Entity,
     FocusHandle, Focusable, Hsla, InteractiveElement as _, IntoElement, MouseButton,
@@ -283,6 +283,32 @@ impl Render for Overlay {
             Bounds::from_corners(min, max)
         });
         let draft = state.draft().cloned();
+        // The capture dimmed around spotlights, the one being drawn included.
+        let spotlight_shade: Vec<Bounds<Pixels>> = match selection {
+            Some(selection) => {
+                let mut holes = crate::scene::spotlights(
+                    state
+                        .history()
+                        .current()
+                        .annotations()
+                        .iter()
+                        .map(|annotation| &**annotation),
+                );
+                holes.extend(crate::scene::spotlights(state.draft()));
+                let min = ScenePoint::new(selection.x as f32, selection.y as f32);
+                let max = ScenePoint::new(selection.right() as f32, selection.bottom() as f32);
+                crate::scene::shaded(min, max, &holes)
+                    .into_iter()
+                    .map(|(min, max)| {
+                        Bounds::from_corners(
+                            super::logical_point(&area, min),
+                            super::logical_point(&area, max),
+                        )
+                    })
+                    .collect()
+            }
+            None => Vec::new(),
+        };
         let sprites: Vec<_> = session
             .sprites()
             .map(|(sprite, shift)| (sprite.clone(), shift))
@@ -332,7 +358,7 @@ impl Render for Overlay {
                     // elsewhere commit the text.
                     .occlude()
                     .child(
-                        Input::new(&input)
+                        Textarea::new(&input)
                             .appearance(false)
                             // Typed text sits where the committed text will.
                             .p_0()
@@ -377,6 +403,12 @@ impl Render for Overlay {
             .on_action(cx.listener(|this, _: &super::Pin, window, cx| {
                 this.finish(Outcome::Pin, window, cx);
             }))
+            .on_action(cx.listener(|this, _: &super::CopyText, window, cx| {
+                this.finish(Outcome::CopyText, window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &super::ScrollCapture, window, cx| {
+                this.finish(Outcome::ScrollCapture, window, cx);
+            }))
             .on_action(cx.listener(|this, _: &super::Undo, window, cx| {
                 this.change(window, cx, |state, _| {
                     state.undo();
@@ -392,6 +424,20 @@ impl Render for Overlay {
             .on_action(cx.listener(|this, _: &super::SelectDisplay, window, cx| {
                 this.change(window, cx, |state, _| {
                     state.select_display();
+                    Effect::None
+                });
+            }))
+            .on_action(
+                cx.listener(|this, _: &super::PreviousSelection, window, cx| {
+                    this.change(window, cx, |state, _| {
+                        state.recall_selection(true);
+                        Effect::None
+                    });
+                }),
+            )
+            .on_action(cx.listener(|this, _: &super::NextSelection, window, cx| {
+                this.change(window, cx, |state, _| {
+                    state.recall_selection(false);
                     Effect::None
                 });
             }))
@@ -476,6 +522,12 @@ impl Render for Overlay {
             .on_action(cx.listener(|this, _: &super::UseMosaic, window, cx| {
                 this.set_tool(Tool::Mosaic, window, cx)
             }))
+            .on_action(cx.listener(|this, _: &super::UseBlur, window, cx| {
+                this.set_tool(Tool::Blur, window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &super::UseSpotlight, window, cx| {
+                this.set_tool(Tool::Spotlight, window, cx)
+            }))
             .on_action(cx.listener(|this, _: &super::UseText, window, cx| {
                 this.set_tool(Tool::Text, window, cx)
             }))
@@ -543,6 +595,15 @@ impl Render for Overlay {
                                     );
                                 });
                             }
+                        }
+                        // Spotlights dim the marks around them too, as in export.
+                        if !spotlight_shade.is_empty() {
+                            let shade = annotation_color(crate::scene::SPOTLIGHT_SHADE);
+                            window.paint_layer(bounds, |window| {
+                                for shaded in &spotlight_shade {
+                                    window.paint_quad(fill(offset(*shaded), shade));
+                                }
+                            });
                         }
                         window.paint_layer(bounds, |window| {
                             if let Some(local) = local_selection.map(offset) {

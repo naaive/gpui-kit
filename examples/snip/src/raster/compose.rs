@@ -14,7 +14,10 @@ use super::tiles::{self, Tile, TileCache};
 use crate::{
     capture::Frame,
     geometry::PhysRect,
-    scene::{Annotation, Figure, Paint, PathOp, Scene, bounds, outline},
+    scene::{
+        Annotation, Figure, Paint, PathOp, SPOTLIGHT_SHADE, Scene, ScenePoint, bounds, outline,
+        shaded, spotlights,
+    },
 };
 
 /// Renders `selection` of `frame` with `scene` on top.
@@ -53,6 +56,29 @@ pub fn compose(
                 Transform::identity(),
                 None,
             );
+        }
+    }
+
+    // Spotlights dim everything around them, marks included: mosaic and
+    // blur show the frame as captured, and would stand out undimmed.
+    let holes = spotlights(scene.annotations().iter().map(|annotation| &**annotation));
+    let selection_min = ScenePoint::new(selection.x as f32, selection.y as f32);
+    let selection_max = ScenePoint::new(selection.right() as f32, selection.bottom() as f32);
+    // Neighboring boxes share edges; without antialiasing each pixel is
+    // dimmed exactly once, with no seam between them.
+    let mut shade = SkiaPaint {
+        anti_alias: false,
+        ..SkiaPaint::default()
+    };
+    shade.set_color_rgba8(
+        SPOTLIGHT_SHADE.r,
+        SPOTLIGHT_SHADE.g,
+        SPOTLIGHT_SHADE.b,
+        SPOTLIGHT_SHADE.a,
+    );
+    for (min, max) in shaded(selection_min, selection_max, &holes) {
+        if let Some(rect) = tiny_skia::Rect::from_ltrb(min.x, min.y, max.x, max.y) {
+            pixmap.fill_rect(rect, &shade, to_selection, None);
         }
     }
 
@@ -206,6 +232,38 @@ mod tests {
 
     fn scene(shape: Shape, style: Style) -> Scene {
         Scene::default().with(Annotation::new(AnnotationId(1), shape, style))
+    }
+
+    #[test]
+    fn test_spotlight_dims_around_its_box() {
+        let scene = scene(
+            Shape::Spotlight {
+                from: ScenePoint::new(130., 130.),
+                to: ScenePoint::new(120.4, 120.4),
+            },
+            Style::default(),
+        );
+        let image = compose(
+            &frame(),
+            PhysRect::new(110, 110, 30, 30),
+            &scene,
+            &mut TileCache::default(),
+        )
+        .unwrap();
+        assert_eq!(
+            image.get_pixel(15, 15).0,
+            [255, 255, 255, 255],
+            "inside is bright"
+        );
+        let dimmed = image.get_pixel(2, 2).0;
+        assert!(dimmed[0] < 160, "outside is dimmed, got {dimmed:?}");
+        for (x, y) in [(5, 15), (25, 15), (15, 5), (15, 25), (25, 25)] {
+            assert_eq!(
+                image.get_pixel(x, y).0,
+                dimmed,
+                "dimmed evenly, without seams, at {x},{y}"
+            );
+        }
     }
 
     #[test]

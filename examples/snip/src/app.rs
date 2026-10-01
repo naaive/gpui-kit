@@ -9,6 +9,7 @@ use gpui_kit::{App, AppContext as _, Entity, Global, Task, Window, actions};
 
 use crate::{
     capture::{self, Capturer},
+    geometry::PhysRect,
     output::clipboard::{GlobalClipboard, ImageClipboard},
     pin,
     scene::Style,
@@ -45,6 +46,10 @@ pub struct Snip {
     session: Option<Entity<CaptureSession>>,
     /// The capture being taken, before its session opens.
     capturing: Option<Task<()>>,
+    /// A capture waiting for its delay to pass.
+    delayed_capture: Option<Task<()>>,
+    /// Selections of finished captures, newest first, for recalling.
+    recent_selections: Vec<PhysRect>,
     /// Windows open hidden, for `--render-preview`.
     is_offscreen: bool,
     _tray: Option<tray::Tray>,
@@ -136,6 +141,8 @@ pub fn start(startup: Startup, cx: &mut App) {
         hotkeys: None,
         session: None,
         capturing: None,
+        delayed_capture: None,
+        recent_selections: Vec::new(),
         is_offscreen: startup.is_offscreen,
         _tray: None,
         _inputs: Vec::new(),
@@ -191,6 +198,9 @@ pub fn start(startup: Startup, cx: &mut App) {
             while let Ok(command) = tray_receiver.recv().await {
                 cx.update(|cx| match command {
                     TrayCommand::Capture => session::start(cx),
+                    TrayCommand::CaptureDelayed => {
+                        session::start_after(TrayCommand::DELAY_SECONDS, cx)
+                    }
                     TrayCommand::PinClipboard => pin::pin_clipboard(cx),
                     TrayCommand::CloseAllPins => pin::close_all(cx),
                     TrayCommand::Settings => settings_window::open(cx),
@@ -216,6 +226,7 @@ pub fn handle(message: Message, cx: &mut App) {
     match message {
         Message::Start => {}
         Message::Capture => session::start(cx),
+        Message::CaptureAfter { seconds } => session::start_after(seconds, cx),
         Message::PinClipboard => pin::pin_clipboard(cx),
         Message::Settings => settings_window::open(cx),
         Message::Quit => cx.quit(),
@@ -289,6 +300,18 @@ pub fn is_idle(cx: &App) -> bool {
     snip.session.is_none() && snip.capturing.is_none()
 }
 
+/// Holds a delayed capture until it starts, replacing one already waiting.
+pub fn delay_capture(task: Task<()>, cx: &mut App) {
+    cx.global_mut::<Snip>().delayed_capture = Some(task);
+}
+
+/// The delayed capture is starting; it runs to its end.
+pub fn delayed_capture_due(cx: &mut App) {
+    if let Some(task) = cx.global_mut::<Snip>().delayed_capture.take() {
+        task.detach();
+    }
+}
+
 pub fn capture_started(task: Task<()>, cx: &mut App) {
     cx.global_mut::<Snip>().capturing = Some(task);
 }
@@ -307,6 +330,21 @@ pub fn begin_session(session: Entity<CaptureSession>, cx: &mut App) {
 
 pub fn end_session(cx: &mut App) {
     cx.global_mut::<Snip>().session = None;
+}
+
+/// How many earlier selections a session can recall.
+const RECENT_SELECTIONS: usize = 20;
+
+pub fn recent_selections(cx: &App) -> Vec<PhysRect> {
+    cx.global::<Snip>().recent_selections.clone()
+}
+
+/// Remembers the selection of a finished capture, newest first.
+pub fn remember_selection(selection: PhysRect, cx: &mut App) {
+    let recent = &mut cx.global_mut::<Snip>().recent_selections;
+    recent.retain(|rect| *rect != selection);
+    recent.insert(0, selection);
+    recent.truncate(RECENT_SELECTIONS);
 }
 
 pub fn session(cx: &App) -> Option<Entity<CaptureSession>> {

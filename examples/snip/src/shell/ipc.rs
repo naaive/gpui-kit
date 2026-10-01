@@ -23,6 +23,10 @@ pub enum Message {
     /// Started again with no command: nothing to do but be running.
     Start,
     Capture,
+    /// Captures once `seconds` have passed, to open a menu or hover first.
+    CaptureAfter {
+        seconds: u32,
+    },
     PinClipboard,
     Settings,
     Quit,
@@ -215,6 +219,7 @@ mod tests {
         let messages = [
             Message::Start,
             Message::Capture,
+            Message::CaptureAfter { seconds: 3 },
             Message::PinClipboard,
             Message::Settings,
             Message::Quit,

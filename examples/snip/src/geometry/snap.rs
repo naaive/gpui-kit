@@ -9,6 +9,9 @@ use super::{PhysPoint, PhysRect};
 pub struct WindowSnapshot {
     frame: PhysRect,
     parts: Vec<PhysRect>,
+    /// The platform's handle for the window (an `HWND` on Windows), for
+    /// looking up its controls after the capture; 0 where unknown.
+    native_id: u64,
 }
 
 impl WindowSnapshot {
@@ -16,12 +19,35 @@ impl WindowSnapshot {
         Self {
             frame,
             parts: Vec::new(),
+            native_id: 0,
         }
     }
 
     pub fn with_parts(mut self, parts: Vec<PhysRect>) -> Self {
         self.parts = parts;
         self
+    }
+
+    pub fn with_native_id(mut self, native_id: u64) -> Self {
+        self.native_id = native_id;
+        self
+    }
+
+    pub fn frame(&self) -> PhysRect {
+        self.frame
+    }
+
+    pub fn native_id(&self) -> u64 {
+        self.native_id
+    }
+
+    /// Adds parts found later, such as controls, skipping ones it has.
+    pub fn add_parts(&mut self, parts: impl IntoIterator<Item = PhysRect>) {
+        for part in parts {
+            if part != self.frame && !self.parts.contains(&part) {
+                self.parts.push(part);
+            }
+        }
     }
 }
 

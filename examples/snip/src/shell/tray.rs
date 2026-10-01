@@ -12,6 +12,8 @@
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TrayCommand {
     Capture,
+    /// Capture after [`TrayCommand::DELAY_SECONDS`].
+    CaptureDelayed,
     PinClipboard,
     CloseAllPins,
     Settings,
@@ -19,8 +21,12 @@ pub enum TrayCommand {
 }
 
 impl TrayCommand {
-    const MENU: [Option<Self>; 7] = [
+    /// How long "Capture in 3 seconds" waits.
+    pub const DELAY_SECONDS: u32 = 3;
+
+    const MENU: [Option<Self>; 8] = [
         Some(Self::Capture),
+        Some(Self::CaptureDelayed),
         Some(Self::PinClipboard),
         Some(Self::CloseAllPins),
         None,
@@ -32,6 +38,7 @@ impl TrayCommand {
     fn title(self) -> &'static str {
         match self {
             Self::Capture => "Capture",
+            Self::CaptureDelayed => "Capture in 3 seconds",
             Self::PinClipboard => "Pin clipboard",
             Self::CloseAllPins => "Close all pins",
             Self::Settings => "Settings…",
