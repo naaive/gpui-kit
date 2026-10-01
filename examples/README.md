@@ -18,6 +18,7 @@ not enable the gallery's test-support development dependency.
 | Text selection | `cargo run -p text_selection` |
 | Touch selection | `cargo run -p touch_selection` |
 | Launcher (JavaScript extensions) | `cargo run -p launcher` |
+| DataKit (database IDE) | `cargo run -p datakit` |
 
 Shared sample documents live in `fixtures/`.
 

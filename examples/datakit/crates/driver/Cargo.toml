@@ -1,0 +1,19 @@
+[package]
+name = "datakit-driver"
+description = "The contract between DataKit and a database: drivers, connections, values and dialects."
+version = "0.6.5"
+publish = false
+edition.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+datakit-catalog = { path = "../catalog" }
+futures = "0.3"
+serde = { workspace = true, features = ["rc"] }
+uuid = { version = "1", features = ["v4"] }
+
+[dev-dependencies]
+serde_json.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,37 @@
+[package]
+name = "datakit"
+description = "A database IDE built on GPUI Kit, in the spirit of DataGrip."
+version = "0.6.5"
+publish = false
+edition.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+chrono = "0.4.38"
+csv = "1"
+datakit-catalog = { path = "crates/catalog" }
+datakit-driver = { path = "crates/driver" }
+datakit-driver-clickhouse = { path = "crates/driver-clickhouse" }
+datakit-driver-mssql = { path = "crates/driver-mssql" }
+datakit-driver-mysql = { path = "crates/driver-mysql" }
+datakit-driver-postgres = { path = "crates/driver-postgres" }
+datakit-driver-sqlite = { path = "crates/driver-sqlite" }
+datakit-runtime = { path = "crates/runtime" }
+datakit-sql = { path = "crates/sql" }
+datakit-store = { path = "crates/store" }
+datakit-tunnel = { path = "crates/tunnel" }
+dirs = "6"
+futures = "0.3"
+gpui-kit = { workspace = true, features = ["tree-sitter-sql"] }
+lsp-types.workspace = true
+rust-i18n.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sys-locale = "0.3"
+tracing.workspace = true
+
+[dev-dependencies]
+gpui-kit = { workspace = true, features = ["test-support", "tree-sitter-sql"] }
+
+[lints]
+workspace = true

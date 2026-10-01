@@ -1,0 +1,15 @@
+[package]
+name = "datakit-catalog"
+description = "DataKit's immutable snapshot of a database's schema objects."
+version = "0.6.5"
+publish = false
+edition.workspace = true
+
+[dependencies]
+serde = { workspace = true, features = ["rc"] }
+
+[dev-dependencies]
+serde_json.workspace = true
+
+[lints]
+workspace = true

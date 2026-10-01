@@ -1,0 +1,25 @@
+[package]
+name = "datakit-driver-mssql"
+description = "DataKit's Microsoft SQL Server driver."
+version = "0.6.5"
+publish = false
+edition.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+datakit-catalog = { path = "../catalog" }
+datakit-driver = { path = "../driver" }
+futures = "0.3"
+roxmltree = "0.21"
+# TLS through rustls only: no native-tls, no OpenSSL. `tds73` brings the
+# `date`, `time`, `datetime2` and `datetimeoffset` types.
+tiberius = { version = "0.13", default-features = false, features = ["rustls", "tds73"] }
+tokio = { version = "1", features = ["rt", "net", "sync", "time", "macros"] }
+tokio-util = { version = "0.7", features = ["compat"] }
+tracing.workspace = true
+
+[dev-dependencies]
+datakit-runtime = { path = "../runtime" }
+
+[lints]
+workspace = true

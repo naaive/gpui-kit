@@ -1,0 +1,25 @@
+[package]
+name = "datakit-driver-postgres"
+description = "DataKit's PostgreSQL driver."
+version = "0.6.5"
+publish = false
+edition.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+datakit-catalog = { path = "../catalog" }
+datakit-driver = { path = "../driver" }
+futures = "0.3"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+rustls-native-certs = "0.8"
+serde_json.workspace = true
+tokio = { version = "1", features = ["rt", "net", "time"] }
+tokio-postgres = "0.7"
+tokio-postgres-rustls = "0.14"
+tracing.workspace = true
+
+[dev-dependencies]
+datakit-runtime = { path = "../runtime" }
+
+[lints]
+workspace = true

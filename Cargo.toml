@@ -40,6 +40,18 @@ members = [
     "crates/shell/rquickjs-compat",
     "crates/component-shell",
     "examples/launcher",
+    "examples/datakit",
+    "examples/datakit/crates/catalog",
+    "examples/datakit/crates/driver",
+    "examples/datakit/crates/driver-clickhouse",
+    "examples/datakit/crates/driver-mssql",
+    "examples/datakit/crates/driver-mysql",
+    "examples/datakit/crates/driver-postgres",
+    "examples/datakit/crates/driver-sqlite",
+    "examples/datakit/crates/runtime",
+    "examples/datakit/crates/sql",
+    "examples/datakit/crates/store",
+    "examples/datakit/crates/tunnel",
 ]
 resolver = "2"
 
