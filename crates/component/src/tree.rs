@@ -89,7 +89,11 @@ impl RenderOnce for Tree {
                             .selected(entry_state.is_selected())
                             .secondary_selected(entry_state.is_right_clicked());
 
+                        // Each row needs an id of its own: without one, every
+                        // row shares one context menu state and draws the
+                        // open menu.
                         div()
+                            .id(entry.item().id.clone())
                             .child(item)
                             .context_menu(move |menu, window, cx| {
                                 let Some(build) = context_menu_builder

@@ -293,14 +293,6 @@ impl<E: ParentElement + Styled + IntoElement + 'static> Element for ContextMenu<
                                                 .snap_to_window_with_margin(px(8.))
                                                 .anchor(anchor)
                                                 .when_some(menu_view, |this, menu| {
-                                                    // Focus the menu, so that can be handle the action.
-                                                    if !menu
-                                                        .focus_handle(cx)
-                                                        .contains_focused(window, cx)
-                                                    {
-                                                        menu.focus_handle(cx).focus(window, cx);
-                                                    }
-
                                                     this.child(menu.clone())
                                                 }),
                                         ),
@@ -456,6 +448,13 @@ impl<E: ParentElement + Styled + IntoElement + 'static> Element for ContextMenu<
                                     state._subscription = Some(_subscription);
                                     window.refresh();
                                 }
+
+                                // Focus the menu here, between frames, so it can
+                                // handle actions. Moving focus while laying the
+                                // trigger out would let an element prepainted
+                                // earlier in the frame, such as a list that renders
+                                // its rows in prepaint, claim focus too.
+                                menu.focus_handle(cx).focus(window, cx);
                             }
                         });
                     }
