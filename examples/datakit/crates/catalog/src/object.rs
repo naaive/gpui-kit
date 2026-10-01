@@ -160,6 +160,9 @@ pub enum RelationType {
     ForeignTable,
     View,
     MaterializedView,
+    /// A key of a key-value store such as Redis: a value of some type,
+    /// shown as rows but not a table.
+    Key,
 }
 
 impl RelationType {

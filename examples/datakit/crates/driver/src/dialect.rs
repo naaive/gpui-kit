@@ -175,6 +175,20 @@ pub trait Dialect: Send + Sync {
         sql
     }
 
+    /// Whether the database speaks commands, one a line, rather than SQL,
+    /// as Redis does. The console then runs the line at the caret, and
+    /// leaves out what only SQL has: parameters, inspections, formatting.
+    fn statements_are_lines(&self) -> bool {
+        false
+    }
+
+    /// Whether `statement` only reads, for a database whose language is not
+    /// SQL; `None` leaves the question to the SQL rules.
+    fn reads_only(&self, statement: &str) -> Option<bool> {
+        let _ = statement;
+        None
+    }
+
     /// Whether statements can be grouped into a transaction.
     fn supports_transactions(&self) -> bool {
         true

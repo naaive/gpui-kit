@@ -455,6 +455,10 @@ explorer:
     en: "Triggers %{count}"
     zh-CN: "触发器 %{count}"
     zh-HK: "觸發程序 %{count}"
+  values:
+    en: "Keys %{count}"
+    zh-CN: "键 %{count}"
+    zh-HK: "鍵 %{count}"
   roles:
     en: "Users and roles %{count}"
     zh-CN: "用户与角色 %{count}"
@@ -869,6 +873,10 @@ objects:
     en: "materialized view"
     zh-CN: "物化视图"
     zh-HK: "具體化檢視表"
+  key:
+    en: "key"
+    zh-CN: "键"
+    zh-HK: "鍵"
   function:
     en: "function"
     zh-CN: "函数"

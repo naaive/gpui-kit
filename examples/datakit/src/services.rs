@@ -12,6 +12,7 @@ use datakit_driver_clickhouse::ClickHouseDriver;
 use datakit_driver_mssql::SqlServerDriver;
 use datakit_driver_mysql::MySqlDriver;
 use datakit_driver_postgres::PostgresDriver;
+use datakit_driver_redis::RedisDriver;
 use datakit_driver_sqlite::SqliteDriver;
 use datakit_runtime::{IoRuntime, RemoteStream, RemoteTask};
 use datakit_store::{CatalogCache, KeychainSecrets, SecretStore};
@@ -61,7 +62,8 @@ impl Services {
                 .with_driver(Arc::new(MySqlDriver::new()))
                 .with_driver(Arc::new(SqliteDriver::new()))
                 .with_driver(Arc::new(SqlServerDriver::new()))
-                .with_driver(Arc::new(ClickHouseDriver::new())),
+                .with_driver(Arc::new(ClickHouseDriver::new()))
+                .with_driver(Arc::new(RedisDriver::new())),
             secrets,
             catalog_cache: Arc::new(CatalogCache::new(data_directory.join("cache"))),
             data_directory,

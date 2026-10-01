@@ -47,4 +47,4 @@ pub use parameters::{Parameter, parameters, substitute};
 pub use read_only::is_reading_statement;
 pub use rename::{Occurrences, alias_occurrences, rename};
 pub use resolve::{Resolution, Target, resolve, usages};
-pub use statement::{split_statements, statement_at};
+pub use statement::{line_at, split_lines, split_statements, statement_at};

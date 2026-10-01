@@ -1,8 +1,8 @@
 # DataKit
 
 A database IDE in the spirit of JetBrains DataGrip, built on GPUI Kit. It
-connects to PostgreSQL, MySQL and MariaDB, SQLite, SQL Server and ClickHouse,
-directly or through an SSH tunnel.
+connects to PostgreSQL, MySQL and MariaDB, SQLite, SQL Server, ClickHouse
+and Redis, directly or through an SSH tunnel.
 
 ```bash
 cargo run -p datakit
@@ -73,6 +73,14 @@ The architecture, milestones and known limitations are described in
 - **Settings.** **File › Settings…** chooses light, dark or the system's
   appearance, the interface language, and how SQL is formatted.
 
+- **Redis.** A Redis console runs the command on the caret's line, or every
+  line of the selection, as `redis-cli` reads them, and completes commands
+  and the keys of its database. Replies become rows: a hash or a scored set
+  as pairs, a list with its indexes. The explorer lists the numbered
+  databases that hold keys and up to 1,000 keys of each; opening a key shows
+  its value by its type, read-only. A read-only Redis data source runs only
+  commands that read.
+
 ## Keys
 
 | Key                          | Does                                       |
@@ -133,8 +141,8 @@ set:
 ```bash
 cargo test -p datakit -p datakit-catalog -p datakit-driver -p datakit-driver-postgres \
   -p datakit-driver-mysql -p datakit-driver-sqlite -p datakit-driver-mssql \
-  -p datakit-driver-clickhouse -p datakit-runtime -p datakit-sql -p datakit-store \
-  -p datakit-tunnel
+  -p datakit-driver-clickhouse -p datakit-driver-redis -p datakit-runtime -p datakit-sql \
+  -p datakit-store -p datakit-tunnel
 ```
 
 The server drivers' integration tests need a server and run only when their
@@ -146,6 +154,7 @@ variable is set; each test works in a schema or database of its own:
 | MySQL      | `DATAKIT_TEST_MYSQL_URL`       |
 | SQL Server | `DATAKIT_TEST_MSSQL_URL`       |
 | ClickHouse | `DATAKIT_TEST_CLICKHOUSE_URL`  |
+| Redis      | `DATAKIT_TEST_REDIS_URL`       |
 
 ```bash
 DATAKIT_TEST_PG_URL=postgres://postgres:secret@localhost:5432/postgres \

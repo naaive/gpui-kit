@@ -668,3 +668,115 @@ fn comparing_data_writes_the_statements_that_sync_the_target(cx: &mut TestAppCon
     assert!(script.contains("UPDATE"), "{script}");
     assert!(script.contains("DELETE FROM"), "{script}");
 }
+
+/// A Redis server to test against, from `DATAKIT_TEST_REDIS_URL`
+/// (`redis://:password@host:port`), as a profile and its password.
+fn redis_server() -> Option<(ConnectionProfile, String)> {
+    let url = std::env::var("DATAKIT_TEST_REDIS_URL").ok()?;
+    let rest = url.strip_prefix("redis://")?;
+    let (credentials, address) = rest.rsplit_once('@').unwrap_or(("", rest));
+    let password = credentials.split_once(':').map_or(credentials, |(_, p)| p);
+    let (host, port) = address.split_once(':')?;
+    let profile = ConnectionProfile::new("redis", port.trim_end_matches('/').parse().ok()?)
+        .with_name("Cache")
+        .with_host(host)
+        .with_database("13");
+    Some((profile, password.to_string()))
+}
+
+#[gpui_kit::test]
+fn a_redis_console_runs_a_command_a_line(cx: &mut TestAppContext) {
+    let Some((profile, password)) = redis_server() else {
+        eprintln!("DATAKIT_TEST_REDIS_URL is not set; skipping");
+        return;
+    };
+    let scratch = Scratch::new("gui-redis");
+    let (workspace, mut cx) = start(&scratch.join("data"), cx);
+    let source = cx.update(|_, cx| {
+        DataSources::global(cx).update(cx, |sources, cx| {
+            sources.add(profile, Some(password), None, cx)
+        })
+    });
+    let script = scratch.join("cache.redis");
+    std::fs::write(&script, "").unwrap();
+    cx.update(|window, cx| {
+        workspace.update(cx, |workspace, cx| workspace.open_file(script, window, cx))
+    });
+    cx.run_until_parked();
+    let console = consoles(&mut cx).remove(0);
+    cx.update(|window, cx| {
+        console.update(cx, |console, cx| {
+            console.set_data_source(source.clone(), window, cx)
+        })
+    });
+    cx.run_until_parked();
+
+    // Every line runs; `user:1` is a key, not a parameter.
+    run(
+        &console,
+        "FLUSHDB\nHSET user:1 name Ada\n# a comment\nHGETALL user:1",
+        &mut cx,
+    );
+    let result = cx.update(|_, cx| console.read(cx).result_views().remove(0));
+    let rows = cx.update(|_, cx| result.read(cx).displayed_rows(cx));
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0][1].display().as_deref(), Some("Ada"));
+
+    // The explorer lists the key, and completion offers it after a command.
+    cx.update(|_, cx| {
+        source.update(cx, |source, cx| {
+            source.request(crate::datasource::CatalogRequest::Schemas, cx);
+            source.request(
+                crate::datasource::CatalogRequest::Objects("db13".into()),
+                cx,
+            )
+        })
+    });
+    wait_until(&mut cx, "the keys", |cx| {
+        let source = source.read(cx);
+        source.catalog().search_path() == [std::sync::Arc::from("db13")]
+            && source
+                .loaded_schema("db13")
+                .and_then(|schema| schema.relations())
+                .is_some_and(|keys| keys.len() == 1)
+    });
+    cx.update(|window, cx| {
+        let focus = console.read(cx).focus_handle(cx);
+        window.focus(&focus, cx);
+    });
+    cx.simulate_keystrokes("secondary-a backspace");
+    cx.simulate_input("hge");
+    cx.run_until_parked();
+    let editor = cx.update(|_, cx| console.read(cx).editor().clone());
+    let labels = |cx: &mut VisualTestContext| {
+        cx.update(|_, cx| {
+            editor
+                .read(cx)
+                .completion_menu_state()
+                .items
+                .iter()
+                .map(|item| item.label.clone())
+                .collect::<Vec<_>>()
+        })
+    };
+    assert!(labels(&mut cx).contains(&"HGETALL".to_string()));
+    cx.simulate_keystrokes("escape");
+    cx.simulate_input("tall us");
+    cx.run_until_parked();
+    assert_eq!(labels(&mut cx), ["user:1"]);
+
+    // A read-only Redis runs only reading commands.
+    cx.update(|_, cx| {
+        let profile = source
+            .read(cx)
+            .profile()
+            .clone()
+            .with_option(crate::datasource::READ_ONLY, "true");
+        DataSources::global(cx).update(cx, |sources, cx| sources.update(profile, None, None, cx));
+    });
+    run(&console, "DEL user:1", &mut cx);
+    run(&console, "EXISTS user:1", &mut cx);
+    let result = cx.update(|_, cx| console.read(cx).result_views().remove(0));
+    let rows = cx.update(|_, cx| result.read(cx).displayed_rows(cx));
+    assert_eq!(rows[0][0].display().as_deref(), Some("1"));
+}

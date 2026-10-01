@@ -546,7 +546,11 @@ impl ConsolePanel {
         // Setting the value is not an edit, so nothing else saves it.
         self.schedule_save(cx);
         self.schedule_inspection(cx);
-        let statements = split_statements(&text);
+        let statements = if self.speaks_lines(cx) {
+            datakit_sql::split_lines(&text)
+        } else {
+            split_statements(&text)
+        };
         self.prepare_run(text, statements, RunMode::Execute, window, cx);
     }
 
@@ -656,6 +660,13 @@ impl ConsolePanel {
         let Some(data_source) = self.data_source.clone() else {
             return;
         };
+        // The inspections read SQL.
+        if self.speaks_lines(cx) {
+            self.inspections.borrow_mut().clear();
+            self.inspect_task = None;
+            self.show_diagnostics(cx);
+            return;
+        }
         self.inspect_task = Some(cx.spawn(async move |this, cx| {
             cx.background_executor()
                 .timer(Duration::from_millis(300))
@@ -728,14 +739,29 @@ impl ConsolePanel {
 
     /// The statements to run: those in the selection, or the one at the
     /// caret, as byte ranges into `text`.
+    /// Whether the data source speaks commands, one a line, not SQL.
+    fn speaks_lines(&self, cx: &App) -> bool {
+        self.data_source
+            .as_ref()
+            .is_some_and(|data_source| data_source.read(cx).dialect().statements_are_lines())
+    }
+
     fn statements_to_run(&self, cx: &App) -> (Arc<str>, Vec<Range<usize>>) {
         let editor = self.editor.read(cx);
         let text: Arc<str> = editor.value().to_string().into();
         let selection = editor.selected_range();
-        let statements = if selection.is_empty() {
-            statement_at(&text, editor.cursor()).into_iter().collect()
+        let (at, split): (
+            fn(&str, usize) -> Option<Range<usize>>,
+            fn(&str) -> Vec<Range<usize>>,
+        ) = if self.speaks_lines(cx) {
+            (datakit_sql::line_at, datakit_sql::split_lines)
         } else {
-            split_statements(&text[selection.clone()])
+            (statement_at, split_statements)
+        };
+        let statements = if selection.is_empty() {
+            at(&text, editor.cursor()).into_iter().collect()
+        } else {
+            split(&text[selection.clone()])
                 .into_iter()
                 .map(|range| range.start + selection.start..range.end + selection.start)
                 .collect()
@@ -793,6 +819,9 @@ impl ConsolePanel {
     }
 
     fn format(&mut self, _: &FormatSql, window: &mut Window, cx: &mut Context<Self>) {
+        if self.speaks_lines(cx) {
+            return;
+        }
         let editor = self.editor.read(cx);
         let selection = editor.selected_range();
         let value = editor.value().to_string();
@@ -1089,7 +1118,13 @@ impl ConsolePanel {
             return;
         }
         let mut names: Vec<String> = Vec::new();
-        for range in &statements {
+        // `:name` is part of a key in a command language, not a parameter.
+        let statements_with_parameters = if self.speaks_lines(cx) {
+            &[][..]
+        } else {
+            &statements[..]
+        };
+        for range in statements_with_parameters {
             for parameter in parameters(&text[range.clone()]) {
                 if !names.iter().any(|name| name == parameter.name()) {
                     names.push(parameter.name().to_string());
@@ -1145,7 +1180,11 @@ impl ConsolePanel {
         // says which one it refused rather than running those before it.
         if data_source.read(cx).is_read_only()
             && let Some((_, refused)) = statements.iter().find(|(_, sql)| {
-                !is_reading_statement(sql) || mode == RunMode::Explain { analyze: true }
+                let dialect = data_source.read(cx).dialect();
+                let reads = dialect
+                    .reads_only(sql)
+                    .unwrap_or_else(|| is_reading_statement(sql));
+                !reads || mode == RunMode::Explain { analyze: true }
             })
         {
             let statement = refused.lines().next().unwrap_or_default().to_string();
@@ -1172,6 +1211,7 @@ impl ConsolePanel {
         let dialect = data_source.read(cx).dialect();
         let session = self.session.clone().filter(|session| !session.is_closed());
         let begin = (self.transaction_mode == TransactionMode::Manual
+            && dialect.supports_transactions()
             && mode == RunMode::Execute
             && (!self.in_transaction || session.is_none()))
         .then(|| dialect.begin_transaction().to_string());
@@ -1771,6 +1811,10 @@ impl ConsolePanel {
             None => t!("console.data_source_missing").into(),
         };
         let disabled = running || self.data_source.is_none();
+        let transactions = self
+            .data_source
+            .as_ref()
+            .is_none_or(|data_source| data_source.read(cx).dialect().supports_transactions());
         let (tint, read_only) = match &self.data_source {
             Some(data_source) => {
                 let source = data_source.read(cx);
@@ -1854,40 +1898,46 @@ impl ConsolePanel {
                     ),
             )
             .child(div().w_px().h_4().mx_1().bg(theme.border))
-            .child(
-                Button::new("transaction-mode")
-                    .ghost()
-                    .small()
-                    .label(mode_label)
-                    .tooltip(t!("console.tx_mode").to_string())
-                    .dropdown_menu(move |menu, _, _| {
-                        let auto = console.clone();
-                        let manual = console.clone();
-                        menu.item(
-                            PopupMenuItem::new(t!("console.tx_auto").to_string())
-                                .checked(mode == TransactionMode::Auto)
-                                .on_click(move |_, window, cx| {
-                                    let _ = auto.update(cx, |this, cx| {
-                                        this.set_transaction_mode(TransactionMode::Auto, window, cx)
-                                    });
-                                }),
-                        )
-                        .item(
-                            PopupMenuItem::new(t!("console.tx_manual").to_string())
-                                .checked(mode == TransactionMode::Manual)
-                                .on_click(move |_, window, cx| {
-                                    let _ = manual.update(cx, |this, cx| {
-                                        this.set_transaction_mode(
-                                            TransactionMode::Manual,
-                                            window,
-                                            cx,
-                                        )
-                                    });
-                                }),
-                        )
-                    }),
-            )
-            .when(mode == TransactionMode::Manual, |toolbar| {
+            .when(transactions, |toolbar| {
+                toolbar.child(
+                    Button::new("transaction-mode")
+                        .ghost()
+                        .small()
+                        .label(mode_label)
+                        .tooltip(t!("console.tx_mode").to_string())
+                        .dropdown_menu(move |menu, _, _| {
+                            let auto = console.clone();
+                            let manual = console.clone();
+                            menu.item(
+                                PopupMenuItem::new(t!("console.tx_auto").to_string())
+                                    .checked(mode == TransactionMode::Auto)
+                                    .on_click(move |_, window, cx| {
+                                        let _ = auto.update(cx, |this, cx| {
+                                            this.set_transaction_mode(
+                                                TransactionMode::Auto,
+                                                window,
+                                                cx,
+                                            )
+                                        });
+                                    }),
+                            )
+                            .item(
+                                PopupMenuItem::new(t!("console.tx_manual").to_string())
+                                    .checked(mode == TransactionMode::Manual)
+                                    .on_click(move |_, window, cx| {
+                                        let _ = manual.update(cx, |this, cx| {
+                                            this.set_transaction_mode(
+                                                TransactionMode::Manual,
+                                                window,
+                                                cx,
+                                            )
+                                        });
+                                    }),
+                            )
+                        }),
+                )
+            })
+            .when(transactions && mode == TransactionMode::Manual, |toolbar| {
                 toolbar
                     .child(
                         Button::new("commit")

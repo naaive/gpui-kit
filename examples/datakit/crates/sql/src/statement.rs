@@ -23,6 +23,35 @@ pub fn split_statements(text: &str) -> Vec<Range<usize>> {
         .collect()
 }
 
+/// The commands in `text` of a language that has one a line, as Redis
+/// does: every line with something on it, trimmed, except comments that
+/// start with `#` or `//`.
+pub fn split_lines(text: &str) -> Vec<Range<usize>> {
+    let mut ranges = Vec::new();
+    let mut start = 0;
+    for line in text.split_inclusive('\n') {
+        let trimmed = line.trim();
+        if !trimmed.is_empty() && !trimmed.starts_with('#') && !trimmed.starts_with("//") {
+            let leading = line.len() - line.trim_start().len();
+            ranges.push(start + leading..start + leading + trimmed.len());
+        }
+        start += line.len();
+    }
+    ranges
+}
+
+/// The command on the line of `offset`, for a language with one a line.
+pub fn line_at(text: &str, offset: usize) -> Option<Range<usize>> {
+    let offset = offset.min(text.len());
+    split_lines(text).into_iter().find(|range| {
+        let line_start = text[..range.start].rfind('\n').map_or(0, |ix| ix + 1);
+        let line_end = text[range.end..]
+            .find('\n')
+            .map_or(text.len(), |ix| range.end + ix);
+        (line_start..=line_end).contains(&offset)
+    })
+}
+
 /// The statement to run for a caret at `offset`, as a byte range.
 ///
 /// A caret inside a statement, or after its `;` on the same line, picks that
@@ -274,6 +303,26 @@ fn starts_new_statement(text: &str, token: &Token, statement: &mut Statement) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_command_language_has_one_command_a_line() {
+        let text = "SET a 1\n\n  # a comment\n  GET a  \r\nHGETALL user:1";
+        let lines: Vec<&str> = split_lines(text)
+            .into_iter()
+            .map(|range| &text[range])
+            .collect();
+        assert_eq!(lines, ["SET a 1", "GET a", "HGETALL user:1"]);
+        let get = text.find("GET").unwrap();
+        assert_eq!(
+            line_at(text, get + 2).map(|range| &text[range]),
+            Some("GET a")
+        );
+        assert_eq!(
+            line_at(text, text.len()).map(|range| &text[range]),
+            Some("HGETALL user:1")
+        );
+        assert_eq!(line_at(text, 8), None, "an empty line runs nothing");
+    }
 
     fn statements(text: &str) -> Vec<&str> {
         split_statements(text)

@@ -583,6 +583,7 @@ pub fn relation_type_label(relation_type: RelationType) -> SharedString {
         RelationType::ForeignTable => t!("objects.foreign_table"),
         RelationType::View => t!("objects.view"),
         RelationType::MaterializedView => t!("objects.materialized_view"),
+        RelationType::Key => t!("objects.key"),
     }
     .into()
 }
@@ -602,6 +603,7 @@ pub fn relation_icon(relation_type: RelationType) -> IconName {
         RelationType::View => IconName::Eye,
         RelationType::MaterializedView => IconName::Layers,
         RelationType::ForeignTable => IconName::Link,
+        RelationType::Key => IconName::KeyRound,
         _ => IconName::Table,
     }
 }

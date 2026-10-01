@@ -48,6 +48,7 @@ members = [
     "examples/datakit/crates/driver-mssql",
     "examples/datakit/crates/driver-mysql",
     "examples/datakit/crates/driver-postgres",
+    "examples/datakit/crates/driver-redis",
     "examples/datakit/crates/driver-sqlite",
     "examples/datakit/crates/runtime",
     "examples/datakit/crates/sql",

@@ -39,6 +39,14 @@ impl CompletionProvider for SqlCompletion {
         data_source.update(cx, |data_source, cx| {
             data_source.ensure(CatalogRequest::Schemas, cx)
         });
+        if data_source.read(cx).dialect().statements_are_lines() {
+            return Task::ready(Ok(CompletionResponse::Array(command_completions(
+                rope,
+                offset,
+                &data_source,
+                cx,
+            ))));
+        }
         let (catalog, dialect) = {
             let data_source = data_source.read(cx);
             (data_source.catalog().clone(), data_source.dialect())
@@ -116,4 +124,80 @@ impl CompletionProvider for SqlCompletion {
             .last()
             .is_some_and(|c| c.is_alphanumeric() || c == '_' || c == '.')
     }
+}
+
+/// Completion for a language of commands, one a line: the command at the
+/// start of a line, keys of the session's database after it.
+fn command_completions(
+    rope: &Rope,
+    offset: usize,
+    data_source: &gpui_kit::Entity<DataSource>,
+    cx: &mut App,
+) -> Vec<CompletionItem> {
+    let text = rope.to_string();
+    let offset = offset.min(text.len());
+    let line_start = text[..offset].rfind('\n').map_or(0, |ix| ix + 1);
+    let line = &text[line_start..offset];
+    let word_start = line
+        .rfind(|c: char| c.is_whitespace() || c == '"' || c == '\'')
+        .map_or(0, |ix| ix + 1);
+    let prefix = &line[word_start..];
+    let first_word = line[..word_start].trim().is_empty();
+    let range = lsp_types::Range::new(
+        rope.offset_to_position(line_start + word_start),
+        rope.offset_to_position(offset),
+    );
+    let item = |label: String, kind: CompletionItemKind, detail: Option<String>| CompletionItem {
+        label: label.clone(),
+        kind: Some(kind),
+        detail,
+        text_edit: Some(CompletionTextEdit::Edit(TextEdit {
+            range,
+            new_text: label,
+        })),
+        ..Default::default()
+    };
+    if first_word {
+        let prefix = prefix.to_uppercase();
+        return data_source
+            .read(cx)
+            .dialect()
+            .keywords()
+            .iter()
+            .filter(|command| command.starts_with(&prefix))
+            .map(|command| item(command.to_string(), CompletionItemKind::KEYWORD, None))
+            .collect();
+    }
+    let schema = data_source
+        .read(cx)
+        .catalog()
+        .search_path()
+        .first()
+        .cloned();
+    let Some(schema) = schema else {
+        return Vec::new();
+    };
+    if data_source.read(cx).loaded_schema(&schema).is_none() {
+        data_source.update(cx, |data_source, cx| {
+            data_source.ensure(CatalogRequest::Objects(schema.clone()), cx)
+        });
+        return Vec::new();
+    }
+    let source = data_source.read(cx);
+    let dialect = source.dialect();
+    source
+        .loaded_schema(&schema)
+        .and_then(|schema| schema.relations())
+        .unwrap_or_default()
+        .iter()
+        .filter(|key| key.name().starts_with(prefix))
+        .take(200)
+        .map(|key| {
+            item(
+                dialect.quote_identifier(&key.name()),
+                CompletionItemKind::VALUE,
+                key.comment().map(str::to_string),
+            )
+        })
+        .collect()
 }

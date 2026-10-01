@@ -1026,6 +1026,10 @@ impl TablePanel {
             .data_source
             .as_ref()
             .and_then(|data_source| data_source.read(cx).tint(cx));
+        let commands = self
+            .data_source
+            .as_ref()
+            .is_some_and(|data_source| data_source.read(cx).dialect().statements_are_lines());
         h_flex()
             .flex_none()
             .px_2()
@@ -1107,21 +1111,27 @@ impl TablePanel {
                     .disabled(pending == 0)
                     .on_click(cx.listener(|this, _, window, cx| this.preview(window, cx))),
             )
-            .child(div().w_px().h_4().mx_1().bg(theme.border))
-            .child(label("WHERE".into()))
-            .child(
-                div()
-                    .flex_1()
-                    .min_w(rems(8.))
-                    .child(Input::new(&self.condition).small()),
-            )
-            .child(label("ORDER BY".into()))
-            .child(
-                div()
-                    .w(rems(12.))
-                    .flex_none()
-                    .child(Input::new(&self.order_by).small()),
-            )
+            // A database of commands reads a key's value whole; there is
+            // nothing to filter or order with SQL.
+            .when(!commands, |toolbar| {
+                toolbar
+                    .child(div().w_px().h_4().mx_1().bg(theme.border))
+                    .child(label("WHERE".into()))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w(rems(8.))
+                            .child(Input::new(&self.condition).small()),
+                    )
+                    .child(label("ORDER BY".into()))
+                    .child(
+                        div()
+                            .w(rems(12.))
+                            .flex_none()
+                            .child(Input::new(&self.order_by).small()),
+                    )
+            })
+            .when(commands, |toolbar| toolbar.child(div().flex_1()))
             .child(
                 Button::new("value-editor")
                     .ghost()

@@ -80,6 +80,8 @@ pub(crate) enum Group {
     Triggers,
     /// The server's users and roles, under the data source.
     Roles,
+    /// The keys of a key-value store.
+    Values,
 }
 
 impl Group {
@@ -95,6 +97,7 @@ impl Group {
             Group::Checks => "checks",
             Group::Triggers => "triggers",
             Group::Roles => "roles",
+            Group::Values => "values",
         }
     }
 
@@ -110,6 +113,7 @@ impl Group {
             Group::Checks => t!("explorer.checks", count = count),
             Group::Triggers => t!("explorer.triggers", count = count),
             Group::Roles => t!("explorer.roles", count = count),
+            Group::Values => t!("explorer.values", count = count),
         }
         .into()
     }
@@ -231,11 +235,18 @@ impl Builder<'_> {
         let children = match schema.relations() {
             Some(relations) => {
                 let mut groups = Vec::new();
-                let (views, tables): (Vec<&Relation>, Vec<&Relation>) = relations
+                let (keys, relations): (Vec<&Relation>, Vec<&Relation>) = relations
                     .iter()
                     .filter(|relation| self.matches(&relation.name()))
+                    .partition(|relation| relation.relation_type() == RelationType::Key);
+                let (views, tables): (Vec<&Relation>, Vec<&Relation>) = relations
+                    .into_iter()
                     .partition(|relation| relation.relation_type().is_view());
-                for (group, relations) in [(Group::Tables, tables), (Group::Views, views)] {
+                for (group, relations) in [
+                    (Group::Tables, tables),
+                    (Group::Views, views),
+                    (Group::Values, keys),
+                ] {
                     if relations.is_empty() {
                         continue;
                     }
@@ -427,6 +438,10 @@ impl Builder<'_> {
                 }),
             },
         );
+        // A key's value has no columns of its own to list.
+        if relation.relation_type() == RelationType::Key {
+            return TreeItem::new(id, relation.name().to_string());
+        }
         let object = |path: ObjectPath| ObjectRef::new(data_source.clone(), path);
         let mut children: Vec<TreeItem> = relation
             .columns()

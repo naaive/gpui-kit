@@ -15,6 +15,7 @@ datakit-driver-clickhouse = { path = "crates/driver-clickhouse" }
 datakit-driver-mssql = { path = "crates/driver-mssql" }
 datakit-driver-mysql = { path = "crates/driver-mysql" }
 datakit-driver-postgres = { path = "crates/driver-postgres" }
+datakit-driver-redis = { path = "crates/driver-redis" }
 datakit-driver-sqlite = { path = "crates/driver-sqlite" }
 datakit-runtime = { path = "crates/runtime" }
 datakit-sql = { path = "crates/sql" }
