@@ -230,6 +230,8 @@ enum FieldOp {
     IncludeTime(bool),
     Directories(bool),
     Multiple(bool),
+    /// `value(null)` or `default_value(null)`: nothing, as if not called.
+    Unset,
 }
 
 fn field(control: FieldControl) -> ComponentDescriptor {
@@ -335,8 +337,29 @@ fn value_method(
 ) -> MethodDescriptor {
     MethodDescriptor::new(
         name,
-        vec![ArgumentDescriptor::new("value", schema)],
+        vec![ArgumentDescriptor::new(
+            "value",
+            ArgumentSchema::Optional(Box::new(schema)),
+        )],
         move |arguments| match arguments {
+            [ComponentArgument::Optional(None)] => Ok(ComponentPayload::new(FieldOp::Unset)),
+            [ComponentArgument::Optional(Some(value))] => match value.as_ref() {
+                ComponentArgument::String(value) => {
+                    Ok(ComponentPayload::new(op(FieldValue::Text(value.clone()))))
+                }
+                ComponentArgument::Boolean(value) => {
+                    Ok(ComponentPayload::new(op(FieldValue::Bool(*value))))
+                }
+                ComponentArgument::Array(values) => values
+                    .iter()
+                    .map(|value| match value {
+                        ComponentArgument::String(value) => Ok(value.clone()),
+                        _ => Err(format!("{name} expects {value_type}")),
+                    })
+                    .collect::<Result<Vec<_>, _>>()
+                    .map(|values| ComponentPayload::new(op(FieldValue::List(values)))),
+                _ => Err(format!("{name} expects {value_type}")),
+            },
             [ComponentArgument::String(value)] => {
                 Ok(ComponentPayload::new(op(FieldValue::Text(value.clone()))))
             }
@@ -384,6 +407,7 @@ impl ComponentMaterializer for FieldMaterializer {
                 FieldOp::IncludeTime(value) => include_time = value,
                 FieldOp::Directories(value) => directories = value,
                 FieldOp::Multiple(value) => multiple = value,
+                FieldOp::Unset => {}
             }
         }
         let value = value.or(default_value);

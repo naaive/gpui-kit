@@ -1,6 +1,9 @@
 {
   "$schema": "./launcher.schema.json",
   "icon": "github",
+  "description": "Search repositories, and follow your pull requests, issues and notifications.",
+  "author": "GPUI Kit",
+  "categories": ["Developer Tools"],
   "commands": [
     {
       "name": "search-repositories",
@@ -9,13 +12,45 @@
       "module": "commands/search-repositories.js",
       "fallback": true,
       "arguments": [{ "name": "query", "placeholder": "Repository" }]
+    },
+    {
+      "name": "my-pull-requests",
+      "title": "My Pull Requests",
+      "subtitle": "GitHub",
+      "icon": "git-pull-request",
+      "keywords": ["github", "pr", "review"],
+      "module": "commands/my-pull-requests.js"
+    },
+    {
+      "name": "my-issues",
+      "title": "My Issues",
+      "subtitle": "GitHub",
+      "icon": "circle-dot",
+      "keywords": ["github", "bugs", "assigned"],
+      "module": "commands/my-issues.js"
+    },
+    {
+      "name": "notifications",
+      "title": "GitHub Notifications",
+      "icon": "bell",
+      "keywords": ["inbox", "unread"],
+      "module": "commands/notifications.js"
+    },
+    {
+      "name": "unread-notifications",
+      "title": "Unread GitHub Notifications in Tray",
+      "icon": "bell-dot",
+      "keywords": ["menu bar", "tray", "inbox"],
+      "module": "commands/unread-notifications.js",
+      "mode": "menu-bar",
+      "interval": "5m"
     }
   ],
   "preferences": [
     {
       "name": "token",
       "title": "Personal Access Token",
-      "description": "Optional. Raises GitHub's search limit from 10 to 30 requests a minute.",
+      "description": "Optional for search, where it raises GitHub's limit from 10 to 30 requests a minute. Needed for pull requests, issues and notifications: create a classic token with the repo and notifications scopes at github.com/settings/tokens.",
       "type": "password"
     }
   ]

@@ -32,6 +32,7 @@ serde.workspace = true
 serde_json.workspace = true
 sha2 = "0.10"
 sysinfo = "0.37"
+tempfile = "3"
 smol.workspace = true
 tracing.workspace = true
 tracing-subscriber = { version = "0.3.22", default-features = false, features = ["env-filter", "fmt", "registry"] }
@@ -52,7 +53,6 @@ windows = { workspace = true, features = ["Win32_Foundation", "Win32_Graphics_Gd
 [dev-dependencies]
 gpui = { workspace = true, features = ["test-support"] }
 gpui-kit = { workspace = true, features = ["test-support"] }
-tempfile = "3"
 
 [lints]
 workspace = true

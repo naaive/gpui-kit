@@ -211,15 +211,7 @@ mod tests {
             .map(|extension| extension.id().as_ref())
             .collect();
         ids.sort();
-        assert_eq!(
-            ids,
-            [
-                "com.gpui-kit.emoji",
-                "com.gpui-kit.github",
-                "com.gpui-kit.links",
-                "com.gpui-kit.notes"
-            ]
-        );
+        assert_eq!(ids, ["com.gpui-kit.github", "com.gpui-kit.links"]);
         for (extension, command) in catalog.commands() {
             assert!(
                 extension.root().join(command.module()).is_file(),

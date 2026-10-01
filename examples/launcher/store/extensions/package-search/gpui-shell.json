@@ -1,0 +1,16 @@
+{
+  "id": "com.gpui-kit.package-search",
+  "name": "Package Search",
+  "version": "1.0.0",
+  "entry": "commands/search-npm.js",
+  "capabilities": {
+    "network": {
+      "http": [
+        { "host": "registry.npmjs.org", "methods": ["GET"], "paths": ["/-/v1/search"] },
+        { "host": "crates.io", "methods": ["GET"], "paths": ["/api/v1/crates"] },
+        { "host": "pypi.org", "methods": ["GET"], "path_prefixes": ["/pypi/"] },
+        { "host": "developer.mozilla.org", "methods": ["GET"], "paths": ["/api/v1/search"] }
+      ]
+    }
+  }
+}

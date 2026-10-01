@@ -1,0 +1,16 @@
+{
+  "id": "com.gpui-kit.web-search",
+  "name": "Web Search",
+  "version": "1.0.0",
+  "entry": "commands/search-web.js",
+  "capabilities": {
+    "network": {
+      "http": [
+        { "host": "suggestqueries.google.com", "methods": ["GET"], "paths": ["/complete/search"] },
+        { "host": "api.bing.com", "methods": ["GET"], "paths": ["/osjson.aspx"] },
+        { "host": "duckduckgo.com", "methods": ["GET"], "paths": ["/ac/"] },
+        { "host": "en.wikipedia.org", "methods": ["GET"], "paths": ["/w/api.php"] }
+      ]
+    }
+  }
+}

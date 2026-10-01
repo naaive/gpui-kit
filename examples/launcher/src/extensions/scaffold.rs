@@ -195,11 +195,16 @@ pub fn lint(directory: &Path) -> Vec<Problem> {
             CommandMode::View => "List",
             CommandMode::NoView => "",
         };
-        let returns_page = ["List", "Detail", "Form"]
-            .iter()
-            .any(|node| source.contains(&format!("new {node}(")));
+        // A page built by a module of the extension's own is not seen here.
+        let imports_own_module = source.contains("from \"./") || source.contains("from \"../");
+        let returns_page = imports_own_module
+            || ["List", "Detail", "Form"]
+                .iter()
+                .any(|node| source.contains(&format!("new {node}(")));
         match command.mode {
-            CommandMode::MenuBar if !source.contains("new MenuBarExtra(") => {
+            CommandMode::MenuBar
+                if !imports_own_module && !source.contains("new MenuBarExtra(") =>
+            {
                 problems.push(Problem::warning(format!(
                     "{at}: a `menu-bar` command's `render` returns a `{returns}`"
                 )));
@@ -209,11 +214,6 @@ pub fn lint(directory: &Path) -> Vec<Problem> {
             ))),
             _ => {}
         }
-    }
-    if !directory.join("launcher.d.ts").is_file() {
-        problems.push(Problem::warning(
-            "no TypeScript declarations; `launcher types <dir>` writes them",
-        ));
     }
     problems
 }
@@ -340,9 +340,21 @@ mod tests {
 
     #[test]
     fn test_bundled_extensions_pass_lint() {
-        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("extensions");
+        lint_all("extensions");
+    }
+
+    #[test]
+    fn test_store_extensions_pass_lint() {
+        lint_all("store/extensions");
+    }
+
+    fn lint_all(folder: &str) {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(folder);
         for entry in std::fs::read_dir(root).unwrap() {
             let directory = entry.unwrap().path();
+            if !directory.is_dir() {
+                continue;
+            }
             let errors: Vec<Problem> = lint(&directory)
                 .into_iter()
                 .filter(|problem| problem.error)

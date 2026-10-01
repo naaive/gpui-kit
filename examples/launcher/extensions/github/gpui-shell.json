@@ -1,11 +1,17 @@
 {
   "id": "com.gpui-kit.github",
   "name": "GitHub",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "entry": "commands/search-repositories.js",
   "capabilities": {
     "network": {
-      "http": [{ "host": "api.github.com", "methods": ["GET"], "paths": ["/search/repositories"] }]
+      "http": [
+        { "host": "api.github.com", "methods": ["GET"], "paths": ["/search/repositories"] },
+        { "host": "api.github.com", "methods": ["POST"], "paths": ["/graphql"] },
+        { "host": "api.github.com", "methods": ["GET"], "paths": ["/notifications"] },
+        { "host": "api.github.com", "methods": ["PUT"], "paths": ["/notifications"] },
+        { "host": "api.github.com", "methods": ["PATCH"], "path_prefixes": ["/notifications/threads/"] }
+      ]
     }
   }
 }

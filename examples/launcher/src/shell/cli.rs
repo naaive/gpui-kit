@@ -27,6 +27,8 @@ Commands:
                      Start an extension from a template
   lint <directory>   Check an extension's manifests, modules and images
                      without running it
+  store-index <directory>
+                     Write the index.json of an Extension Store folder
 
 Options:
   -h, --help         Print this help";
@@ -53,6 +55,8 @@ pub enum Command {
     },
     /// Check an extension without running it; needs no instance.
     Lint(PathBuf),
+    /// Write an Extension Store's index; needs no instance.
+    StoreIndex(PathBuf),
     Help,
 }
 
@@ -66,7 +70,11 @@ impl Command {
             Self::Hide => Message::Hide,
             Self::Open(url) => Message::Open(url.clone()),
             Self::Dev(directory) => Message::Dev(directory.clone()),
-            Self::Types(_) | Self::New { .. } | Self::Lint(_) | Self::Help => return None,
+            Self::Types(_)
+            | Self::New { .. }
+            | Self::Lint(_)
+            | Self::StoreIndex(_)
+            | Self::Help => return None,
         })
     }
 }
@@ -112,6 +120,10 @@ pub fn parse(
         "types" => {
             let directory = PathBuf::from(operand(&mut arguments, "types", "a directory")?);
             Command::Types(current_directory.join(directory))
+        }
+        "store-index" => {
+            let directory = PathBuf::from(operand(&mut arguments, "store-index", "a directory")?);
+            Command::StoreIndex(current_directory.join(directory))
         }
         "lint" => {
             let directory = PathBuf::from(operand(&mut arguments, "lint", "a directory")?);

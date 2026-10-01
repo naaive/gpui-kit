@@ -314,11 +314,11 @@ pub fn uninstall(
     if records.remove(id).is_some() {
         write_json(&data.installs_file(), &records)?;
     }
-    Ok(())
+    super::store::forget(data, id)
 }
 
 /// Both manifests must be valid before an extension replaces anything.
-fn validate(directory: &Path) -> Result<PluginManifest> {
+pub(super) fn validate(directory: &Path) -> Result<PluginManifest> {
     let manifest = PluginManifest::read(directory).map_err(|error| anyhow!("{error}"))?;
     LauncherManifest::read(directory)?;
     Ok(manifest)
@@ -330,12 +330,12 @@ fn validate(directory: &Path) -> Result<PluginManifest> {
 /// It lives in `<data>/staging` rather than beside the installed extensions,
 /// so a catalog scan never sees a half-cloned extension, and on the same file
 /// system, so moving it into place is a rename.
-struct Staging {
+pub(super) struct Staging {
     path: PathBuf,
 }
 
 impl Staging {
-    fn new(data: &DataDirectory) -> Result<Self> {
+    pub(super) fn new(data: &DataDirectory) -> Result<Self> {
         let parent = data.root().join("staging");
         std::fs::create_dir_all(&parent)
             .with_context(|| format!("cannot create {}", parent.display()))?;
@@ -350,7 +350,7 @@ impl Staging {
         })
     }
 
-    fn path(&self) -> &Path {
+    pub(super) fn path(&self) -> &Path {
         &self.path
     }
 
@@ -358,7 +358,7 @@ impl Staging {
     ///
     /// The old copy is moved aside first and restored if the move fails, so
     /// there is never a moment without a working installation to go back to.
-    fn replace(self, target: &Path) -> Result<()> {
+    pub(super) fn replace(self, target: &Path) -> Result<()> {
         let aside = self.path.with_extension("previous");
         let had_previous = target.exists();
         if had_previous {

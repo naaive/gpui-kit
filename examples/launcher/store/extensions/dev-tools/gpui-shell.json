@@ -1,0 +1,6 @@
+{
+  "id": "com.gpui-kit.dev-tools",
+  "name": "Developer Tools",
+  "version": "1.0.0",
+  "entry": "commands/format-json.js"
+}

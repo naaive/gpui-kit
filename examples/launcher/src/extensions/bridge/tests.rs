@@ -1422,19 +1422,57 @@ fn open_bundled(
     command: &str,
     arguments: &[(&str, &str)],
 ) -> Entity<ScriptView> {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("extensions");
+    open_in(&root, false, runtime, cx, effects, data, command, arguments)
+}
+
+/// Mounts `command` of an extension found under `root`. Offline, the
+/// extension gets everything it asks for but the network and the programs
+/// it runs, as on a computer without them, and a required preference
+/// without a default is filled with `test`.
+#[allow(clippy::too_many_arguments)]
+fn open_in(
+    root: &Path,
+    offline: bool,
+    runtime: &Rc<ShellRuntime>,
+    cx: &mut VisualTestContext,
+    effects: &Rc<RefCell<Vec<Effect>>>,
+    data: &Path,
+    command: &str,
+    arguments: &[(&str, &str)],
+) -> Entity<ScriptView> {
     let (extension_id, name) = command.split_once('/').expect("`extension/command`");
-    let catalog =
-        Catalog::discover(&[PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("extensions")]);
+    let catalog = Catalog::discover(&[root.to_path_buf()]);
     let (extension, command) = catalog
         .command(&CommandId::new(extension_id, name))
-        .unwrap_or_else(|| panic!("`{extension_id}/{name}` is bundled"));
+        .unwrap_or_else(|| panic!("`{extension_id}/{name}` is in {}", root.display()));
     let manifest = PluginManifest::read(extension.root()).unwrap();
     let preferences: serde_json::Map<String, serde_json::Value> = extension
         .preferences()
         .iter()
         .chain(command.preferences())
-        .filter_map(|preference| Some((preference.name.clone(), preference.default.clone()?)))
+        .filter_map(|preference| {
+            let value = preference
+                .default
+                .clone()
+                .or_else(|| (offline && preference.required).then(|| serde_json::json!("test")))?;
+            Some((preference.name.clone(), value))
+        })
         .collect();
+    let capabilities = match offline {
+        false => manifest.capabilities(extension.root(), data),
+        true => {
+            let requested =
+                super::super::permissions::RequestedCapabilities::read(extension.root()).unwrap();
+            let approved = requested
+                .items()
+                .iter()
+                .map(|item| item.key().to_owned())
+                .filter(|key| !key.starts_with("network.") && !key.starts_with("fs.execute:"))
+                .collect();
+            requested.grant(&approved, extension.root(), data)
+        }
+    };
     let request = arguments.iter().fold(
         LaunchRequest::new(command.id().clone()),
         |request, (name, value)| request.with_argument(*name, *value),
@@ -1445,12 +1483,20 @@ fn open_bundled(
     let context = ExtensionContext::new(extension.id().clone())
         .with_preferences(preferences)
         .with_cache_directory(data.join("cache"))
+        .with_paths(extension.root(), data)
+        .with_capabilities(capabilities.clone())
+        .with_secrets(Rc::new(crate::extensions::MemorySecrets::default()))
         .with_effect_sink(move |effect, _| sink.borrow_mut().push(effect));
     context.begin_launch(&request, LaunchType::UserInitiated);
     gpui_shell::policy::set_default(
         Policy::new()
             .with_application(extension.id())
-            .with_capabilities(manifest.capabilities(extension.root(), data))
+            .with_capabilities(capabilities)
+            .with_host_module(
+                gpui_shell::HostModule::source(super::UTILS_MODULE, super::utils_module_source())
+                    .declarations(super::utils_declarations()),
+            )
+            .unwrap()
             .with_storage_path(data.join("storage.json"))
             .with_host_module(HostApi::module_for(context))
             .unwrap(),
@@ -1578,95 +1624,6 @@ fn test_bundled_gpui_kit_commands(cx: &mut TestAppContext) {
     assert!(matches!(&effects[1], Effect::CloseWindow));
 }
 
-#[gpui::test]
-fn test_bundled_notes_commands(cx: &mut TestAppContext) {
-    let mut mounted = mount_bundled(cx, "com.gpui-kit.notes/search-notes", &[]);
-    let list = mounted.list();
-    assert_eq!(list.items().count(), 0);
-    assert_eq!(list.empty_title().unwrap().as_ref(), "No notes yet");
-
-    // The argument fills in the title; an empty title is refused.
-    mounted.open_bundled("com.gpui-kit.notes/create-note", &[("title", "Groceries")]);
-    let form = mounted.form();
-    assert!(matches!(
-        form.fields()[0].control(),
-        Control::Text { value, .. } if value.as_ref() == "Groceries"
-    ));
-    let Effect::SubmitForm(submit) = form.actions().primary().unwrap().effect().clone() else {
-        panic!("the primary action submits");
-    };
-    let blank = FormValues::new()
-        .with("title", FormValue::Text(" ".into()))
-        .with("body", FormValue::Text("".into()));
-    mounted.call(|window, cx| submit.call(blank, window, cx));
-    assert!(mounted.form().fields()[0].error().is_some());
-    let values = FormValues::new()
-        .with("title", FormValue::Text("Groceries".into()))
-        .with("body", FormValue::Text("Milk, eggs".into()));
-    mounted.call(|window, cx| submit.call(values, window, cx));
-    assert!(matches!(
-        mounted.effects().last(),
-        Some(Effect::ShowHud(text)) if text.contains("Groceries")
-    ));
-
-    // The list reads what the form saved, and deletes it after confirming.
-    mounted.open_bundled("com.gpui-kit.notes/search-notes", &[]);
-    let list = mounted.list();
-    assert!(list.is_showing_detail());
-    let note = list.items().next().unwrap();
-    assert_eq!(note.title().as_ref(), "Groceries");
-    assert_eq!(
-        note.detail().unwrap().markdown().as_ref(),
-        "# Groceries\n\nMilk, eggs"
-    );
-    assert_eq!(
-        action_titles(note),
-        [
-            "Paste Note",
-            "Copy Note",
-            "Edit Note",
-            "Create Note",
-            "Delete Note"
-        ]
-    );
-    let delete = note.actions().all_actions().last().unwrap();
-    assert_eq!(delete.style(), ActionStyle::Destructive);
-    let Effect::Confirm(confirmation) = delete.effect() else {
-        panic!("deleting asks first");
-    };
-    let Effect::Run(run) = confirmation.effect().clone() else {
-        panic!("the confirmed effect runs the script");
-    };
-    mounted.call(|window, cx| run.run(window, cx));
-    assert_eq!(mounted.list().items().count(), 0);
-}
-
-#[gpui::test]
-fn test_bundled_emoji_command(cx: &mut TestAppContext) {
-    let mut mounted = mount_bundled(cx, "com.gpui-kit.emoji/search-emoji", &[]);
-    let list = mounted.list();
-    assert_eq!(list.layout(), Layout::Grid { columns: 8 });
-    assert_eq!(list.sections().len(), 5);
-    let first = list.items().next().unwrap();
-    assert!(
-        first
-            .keywords()
-            .iter()
-            .any(|keyword| keyword.as_ref() == "happy")
-    );
-    // The preference's default, `paste`, puts pasting first.
-    assert_eq!(
-        action_titles(first),
-        ["Paste Emoji", "Copy Emoji", "Copy Name"]
-    );
-
-    let on_change = list.dropdown().unwrap().on_change().cloned().unwrap();
-    mounted.call(|window, cx| on_change.call("symbols".into(), window, cx));
-    let list = mounted.list();
-    assert_eq!(list.sections().len(), 1);
-    assert_eq!(list.sections()[0].title().unwrap().as_ref(), "Symbols");
-}
-
 /// Only what happens before a request is sent: the test never goes online.
 #[gpui::test]
 fn test_bundled_repository_search_command(cx: &mut TestAppContext) {
@@ -1686,4 +1643,110 @@ fn test_bundled_repository_search_command(cx: &mut TestAppContext) {
     let list = mounted.list();
     assert!(!list.is_loading());
     assert_eq!(list.empty_title().unwrap().as_ref(), "Search GitHub");
+}
+
+/// Every command of every extension in the store loads, and renders its
+/// first page (or menu) without the network: an extension must show
+/// something useful, or say what is wrong, when a request fails.
+#[gpui::test]
+fn test_store_extensions_render_offline(cx: &mut TestAppContext) {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("store/extensions");
+    let catalog = Catalog::discover(std::slice::from_ref(&root));
+    let commands: Vec<(String, crate::extensions::CommandMode, Vec<String>)> = catalog
+        .commands()
+        .map(|(_, command)| {
+            (
+                command.id().to_string(),
+                command.mode(),
+                command
+                    .arguments()
+                    .iter()
+                    .filter(|argument| argument.required)
+                    .map(|argument| argument.name.clone())
+                    .collect(),
+            )
+        })
+        .collect();
+    assert!(!commands.is_empty(), "the store has extensions");
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        gpui_shell::init(cx);
+    });
+    let runtime =
+        cx.update(|cx| ShellRuntime::new_with_components(cx, components().unwrap()).unwrap());
+    let window = cx.add_window(|_, _| Empty);
+    let mut cx = VisualTestContext::from_window(*window.deref(), cx);
+    let effects = Rc::new(RefCell::new(Vec::new()));
+    let data = std::env::temp_dir().join(format!("launcher-store-{}", std::process::id()));
+    std::fs::remove_dir_all(&data).ok();
+    let arguments_of = |required: &[String]| -> Vec<(String, String)> {
+        required
+            .iter()
+            .map(|name| (name.clone(), "test".to_owned()))
+            .collect()
+    };
+    let (first, _, first_required) = &commands[0];
+    let first_arguments = arguments_of(first_required);
+    let first_arguments: Vec<(&str, &str)> = first_arguments
+        .iter()
+        .map(|(n, v)| (n.as_str(), v.as_str()))
+        .collect();
+    let view = open_in(
+        &root,
+        true,
+        &runtime,
+        &mut cx,
+        &effects,
+        &data,
+        first,
+        &first_arguments,
+    );
+    let mut mounted = Mounted {
+        runtime: runtime.clone(),
+        view,
+        cx,
+        effects: effects.clone(),
+        root: data.clone(),
+    };
+    let mut failures = Vec::new();
+    for (ix, (command, mode, required)) in commands.iter().enumerate() {
+        if ix > 0 {
+            let arguments = arguments_of(required);
+            let arguments: Vec<(&str, &str)> = arguments
+                .iter()
+                .map(|(n, v)| (n.as_str(), v.as_str()))
+                .collect();
+            mounted.view = open_in(
+                &root,
+                true,
+                &runtime,
+                &mut mounted.cx,
+                &effects,
+                &data,
+                command,
+                &arguments,
+            );
+        }
+        mounted.settle();
+        let result = match mode {
+            crate::extensions::CommandMode::View => match mounted.model() {
+                Ok(PageModel::Failure { title, message }) => Err(format!("{title}: {message}")),
+                Ok(_) => Ok(()),
+                Err(error) => Err(error),
+            },
+            crate::extensions::CommandMode::MenuBar => mounted.menu_bar().map(|_| ()),
+            crate::extensions::CommandMode::NoView => {
+                let view = mounted.view.clone();
+                mounted
+                    .cx
+                    .update(|_, cx| view.read(cx).build_error().map(str::to_owned))
+                    .map_or(Ok(()), Err)
+            }
+        };
+        if let Err(error) = result {
+            failures.push(format!("{command}: {error}"));
+        }
+    }
+    std::fs::remove_dir_all(&data).ok();
+    assert!(failures.is_empty(), "{failures:#?}");
 }

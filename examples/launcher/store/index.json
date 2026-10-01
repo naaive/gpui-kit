@@ -1,0 +1,990 @@
+{
+  "version": 1,
+  "extensions": [
+    {
+      "id": "com.gpui-kit.bitwarden",
+      "name": "Bitwarden",
+      "description": "Search your Bitwarden vault, copy passwords and TOTP codes, and generate passwords with the Bitwarden CLI.",
+      "author": "GPUI Kit",
+      "version": "1.0.0",
+      "icon": "shield-check",
+      "categories": [
+        "Security",
+        "Productivity"
+      ],
+      "path": "extensions/bitwarden",
+      "commands": [
+        {
+          "name": "search-vault",
+          "title": "Search Bitwarden Vault",
+          "subtitle": "Bitwarden",
+          "mode": "view"
+        },
+        {
+          "name": "generate-password",
+          "title": "Generate Password",
+          "subtitle": "Bitwarden",
+          "mode": "view"
+        },
+        {
+          "name": "lock-vault",
+          "title": "Lock Bitwarden Vault",
+          "subtitle": "Bitwarden",
+          "mode": "no-view"
+        }
+      ],
+      "files": [
+        {
+          "path": "README.md",
+          "sha256": "0009d484f6df459b8095115ace8bfa0b01a1477d10b6b1b36dc7ae029ae35345",
+          "size": 2991
+        },
+        {
+          "path": "commands/generate-password.js",
+          "sha256": "16048960ab020727613512dfd5c31cb56c1ed01608b5d7f41d0f4a28e54b272a",
+          "size": 4445
+        },
+        {
+          "path": "commands/lock-vault.js",
+          "sha256": "61faf21382dc72a8cbb654bda89681c0617a9d8ee11331e6c571b0a75679f52e",
+          "size": 613
+        },
+        {
+          "path": "commands/search-vault.js",
+          "sha256": "e23a807fe32765c000559487bc11cfcb68f8d5f1dd35fe9b720c713c911d3625",
+          "size": 10736
+        },
+        {
+          "path": "gpui-shell.json",
+          "sha256": "f6d202c72a5779b27fd885862754295d0bb965c7d6cfbcf26844ff84b022a7c6",
+          "size": 238
+        },
+        {
+          "path": "launcher.json",
+          "sha256": "3e02e96282e478abb50d82e01917aca29efbb52875c8f316d0df44dc81c98342",
+          "size": 1057
+        },
+        {
+          "path": "lib/bw.js",
+          "sha256": "acfafb40598de384f511b867af97ded5a5c0ad1085f64cbf118a1f80441f0f66",
+          "size": 7301
+        }
+      ]
+    },
+    {
+      "id": "com.gpui-kit.dev-tools",
+      "name": "Developer Tools",
+      "description": "Format JSON, encode and decode text, hash, generate UUIDs and passwords, convert timestamps and test regular expressions, all offline.",
+      "author": "GPUI Kit",
+      "version": "1.0.0",
+      "icon": "wrench",
+      "categories": [
+        "Developer Tools",
+        "Productivity"
+      ],
+      "path": "extensions/dev-tools",
+      "commands": [
+        {
+          "name": "format-json",
+          "title": "Format JSON",
+          "subtitle": "Pretty-print, minify or validate",
+          "mode": "view"
+        },
+        {
+          "name": "encode-decode",
+          "title": "Encode or Decode Text",
+          "subtitle": "Base64, URL, HTML entities, JWT",
+          "mode": "view"
+        },
+        {
+          "name": "hash-text",
+          "title": "Hash Text",
+          "subtitle": "MD5, SHA-1, SHA-256, SHA-512",
+          "mode": "view"
+        },
+        {
+          "name": "generate-uuid",
+          "title": "Generate UUID",
+          "subtitle": "Random version 4 UUIDs",
+          "mode": "view"
+        },
+        {
+          "name": "generate-password",
+          "title": "Generate Password",
+          "subtitle": "Random passwords",
+          "mode": "view"
+        },
+        {
+          "name": "convert-timestamp",
+          "title": "Convert Timestamp",
+          "subtitle": "Unix time and ISO 8601",
+          "mode": "view"
+        },
+        {
+          "name": "lorem-ipsum",
+          "title": "Lorem Ipsum",
+          "subtitle": "Placeholder text",
+          "mode": "view"
+        },
+        {
+          "name": "test-regex",
+          "title": "Test Regex",
+          "subtitle": "Matches and groups",
+          "mode": "view"
+        },
+        {
+          "name": "count-text",
+          "title": "Count Characters",
+          "subtitle": "Characters, words and lines",
+          "mode": "view"
+        }
+      ],
+      "files": [
+        {
+          "path": "README.md",
+          "sha256": "9e1191ddd4a7041c40c7c329329800040d67117f19fd370959742c974c87b89d",
+          "size": 1836
+        },
+        {
+          "path": "commands/convert-timestamp.js",
+          "sha256": "23dce370efeae697c6b39f226ad082943f09480f51284b66704a4f37e5d74fe2",
+          "size": 3576
+        },
+        {
+          "path": "commands/count-text.js",
+          "sha256": "414dbe2076c9d912dcf0a1b4f6aeb00d79b3dce245e36d3fbe12c8caad23043e",
+          "size": 2617
+        },
+        {
+          "path": "commands/encode-decode.js",
+          "sha256": "9c325dbe32bfe43039f1784bc71be8856054583cd5a7461b06704272c329d607",
+          "size": 4774
+        },
+        {
+          "path": "commands/format-json.js",
+          "sha256": "e3aaabd98f2cb7718977851c4483961424bcde7427a63922b7c8430e4749871e",
+          "size": 4897
+        },
+        {
+          "path": "commands/generate-password.js",
+          "sha256": "47bb17d344255fd6fb6b3fbf954e25266a59028dd2027e243b93a3755878f67b",
+          "size": 3898
+        },
+        {
+          "path": "commands/generate-uuid.js",
+          "sha256": "20c7ff3b4dbc4a003f075d6b59dae2a4eb696fe797e707a417aaae4a54cbc796",
+          "size": 3112
+        },
+        {
+          "path": "commands/hash-text.js",
+          "sha256": "3a7dc1db8c7b8bd0e489c4992505bf0267db5c631c945bf0bac5821e10c43384",
+          "size": 1461
+        },
+        {
+          "path": "commands/lorem-ipsum.js",
+          "sha256": "f975377f8372f4b4f4fd4d5a0683c0ff26ac52e8c36df3c305062c2aa12d3780",
+          "size": 3788
+        },
+        {
+          "path": "commands/test-regex.js",
+          "sha256": "3bd8bceac42f70db71a64a40277582457d08f4945e0cdab6c170b66d595d2fe9",
+          "size": 7037
+        },
+        {
+          "path": "gpui-shell.json",
+          "sha256": "2980d145c74ede75a5b0383e90818e51144ed2957ec37765fbdb7d1b3e03505b",
+          "size": 126
+        },
+        {
+          "path": "launcher.json",
+          "sha256": "24295b7beca17a0fa791e8e73082b18f067184c654e1f1c471821b3bfab43bae",
+          "size": 4239
+        },
+        {
+          "path": "lib/codecs.js",
+          "sha256": "336ee913493f823f563d9494fcc7faa489e1bb0d4222bf4b9929bd1e0c66da98",
+          "size": 4362
+        },
+        {
+          "path": "lib/json.js",
+          "sha256": "f522cc8b2db16a9ed161bc488ce1c269a1d0a53536a30453e8f7e000b38598c6",
+          "size": 4566
+        },
+        {
+          "path": "lib/ui.js",
+          "sha256": "f82a6133539824e4a2662fb974d948b2b4360902fc0c41a2ef71956966a208cd",
+          "size": 4418
+        }
+      ]
+    },
+    {
+      "id": "com.gpui-kit.docker",
+      "name": "Docker",
+      "description": "Start, stop, inspect and remove Docker containers and images.",
+      "author": "GPUI Kit",
+      "version": "1.0.0",
+      "icon": "container",
+      "categories": [
+        "Developer Tools",
+        "System"
+      ],
+      "path": "extensions/docker",
+      "commands": [
+        {
+          "name": "search-containers",
+          "title": "Search Docker Containers",
+          "subtitle": "Running and stopped",
+          "mode": "view"
+        },
+        {
+          "name": "search-images",
+          "title": "Search Docker Images",
+          "mode": "view"
+        }
+      ],
+      "files": [
+        {
+          "path": "README.md",
+          "sha256": "9b459f618267bdb22524ba871aea3faaf1321c143ced4ccb6707bc7ebe086c28",
+          "size": 1308
+        },
+        {
+          "path": "commands/search-containers.js",
+          "sha256": "a8a99b3f9e48318e2065eb39260ce831854eed646702f6f6b10e7c162a9a0853",
+          "size": 9816
+        },
+        {
+          "path": "commands/search-images.js",
+          "sha256": "fb33ec087a1a83f22a2e7d9fef3fd83a55aaec4e2d960ee48ceca967ce62d18e",
+          "size": 7466
+        },
+        {
+          "path": "gpui-shell.json",
+          "sha256": "1e612c8e999cb399e3614072bbe43f9ca1100a899e0ea86be578a043527f2f18",
+          "size": 191
+        },
+        {
+          "path": "launcher.json",
+          "sha256": "0c8ebefb2e3222a7589242ece2df33b744afab22f8272b17151ce61359f10abe",
+          "size": 1004
+        },
+        {
+          "path": "lib/docker.js",
+          "sha256": "130ccc80b003b2020b647d391dd5611122568a7f5b92f6434be1b15a41d0fb39",
+          "size": 2703
+        },
+        {
+          "path": "lib/logs.js",
+          "sha256": "66e9a00db4f350f6bcf665940bb193f99f939414546b77bd2e3a01323db7a08e",
+          "size": 3090
+        }
+      ]
+    },
+    {
+      "id": "com.gpui-kit.linear",
+      "name": "Linear",
+      "description": "See, search, create and update your Linear issues.",
+      "author": "GPUI Kit",
+      "version": "1.0.0",
+      "icon": "square-kanban",
+      "categories": [
+        "Productivity",
+        "Developer Tools"
+      ],
+      "path": "extensions/linear",
+      "commands": [
+        {
+          "name": "my-issues",
+          "title": "My Issues",
+          "subtitle": "Linear",
+          "mode": "view"
+        },
+        {
+          "name": "search-issues",
+          "title": "Search Issues",
+          "subtitle": "Linear",
+          "mode": "view"
+        },
+        {
+          "name": "create-issue",
+          "title": "Create Issue",
+          "subtitle": "Linear",
+          "mode": "view"
+        }
+      ],
+      "files": [
+        {
+          "path": "README.md",
+          "sha256": "8e6f63c265782760e8deab5ae853551523fad6d627281b43c0f82a69faa7b31c",
+          "size": 1063
+        },
+        {
+          "path": "commands/create-issue.js",
+          "sha256": "732d4c4e1427f2933d1b3297a4b20b5cd180dafc117fd4d7e0959714e87f63fd",
+          "size": 4570
+        },
+        {
+          "path": "commands/my-issues.js",
+          "sha256": "499f012f10e7b8262ad4eaa7c0af0fb8f8e95b0475be9c4934464dcba207a9f2",
+          "size": 2735
+        },
+        {
+          "path": "commands/search-issues.js",
+          "sha256": "555d0eae592dddd0f0068e1174e259dd63a753bc427f72f880c11390318b8db2",
+          "size": 2776
+        },
+        {
+          "path": "gpui-shell.json",
+          "sha256": "a2e8799d61f9391cd9f747007e451d18544acdf4386785677e4cac33efcb52a4",
+          "size": 249
+        },
+        {
+          "path": "launcher.json",
+          "sha256": "96d1de7a32484c7a7c8034f608e3c2cd9d194654ec98e04a9fee21dd23634cd8",
+          "size": 1299
+        },
+        {
+          "path": "lib/issue-list.js",
+          "sha256": "b53180683a41a4c58e8c68f65cb12151753661b322b709ff2b6a0fdfff306df3",
+          "size": 5924
+        },
+        {
+          "path": "lib/linear.js",
+          "sha256": "f84a2b45d067066e48c72c87a068b7a47a0015d5281a7f60b38bc71eefd95d5e",
+          "size": 5701
+        }
+      ]
+    },
+    {
+      "id": "com.gpui-kit.network-tools",
+      "name": "Network Tools",
+      "description": "See your public and local IP addresses, find which process listens on a port, and look up DNS records.",
+      "author": "GPUI Kit",
+      "version": "1.0.0",
+      "icon": "network",
+      "categories": [
+        "System",
+        "Developer Tools"
+      ],
+      "path": "extensions/network-tools",
+      "commands": [
+        {
+          "name": "my-ip",
+          "title": "My IP Address",
+          "subtitle": "Public and local addresses",
+          "mode": "view"
+        },
+        {
+          "name": "search-ports",
+          "title": "Search Ports",
+          "subtitle": "Which process listens where",
+          "mode": "view"
+        },
+        {
+          "name": "dns-lookup",
+          "title": "DNS Lookup",
+          "subtitle": "A, AAAA, CNAME, MX, TXT and NS records",
+          "mode": "view"
+        }
+      ],
+      "files": [
+        {
+          "path": "README.md",
+          "sha256": "e5c084ae844137068f008bbcf7df90bee344b37fd432d5bf7ec5c0b3dbac5a47",
+          "size": 1376
+        },
+        {
+          "path": "commands/dns-lookup.js",
+          "sha256": "b8611cd2cdcfa7111052837e6b4338b8ad55d1f9d28715f4ea1e85fc6592f805",
+          "size": 4229
+        },
+        {
+          "path": "commands/my-ip.js",
+          "sha256": "12318257fb01a9669f4b0d5a0b4e32b41b36b78cb7511a3ead0731b4dd676c23",
+          "size": 4974
+        },
+        {
+          "path": "commands/search-ports.js",
+          "sha256": "b8f1d8e7b61ed6d564d690aa6011fc84ffccfeeab4f4c35cd1f18acd7208fc0b",
+          "size": 4383
+        },
+        {
+          "path": "gpui-shell.json",
+          "sha256": "89ffb16bc721ec482097a5fa610cb9d14a89fcd7ba72486ac6310a67225d9e5a",
+          "size": 790
+        },
+        {
+          "path": "launcher.json",
+          "sha256": "28ba3d7b37b3bcf499d308f731de7bf4add757086235d6f9557e5dd2e5cb9f94",
+          "size": 1169
+        },
+        {
+          "path": "lib/system.js",
+          "sha256": "e3f353b41bf125f55c62d7b974ba078428304c5bb7797adc12043f86393f7e1a",
+          "size": 7037
+        },
+        {
+          "path": "lib/web.js",
+          "sha256": "05b8660258caad8b7c22671dc70c3b7c8b1e90ba128f6ca621f718a012827c23",
+          "size": 3870
+        }
+      ]
+    },
+    {
+      "id": "com.gpui-kit.notion",
+      "name": "Notion",
+      "description": "Search your Notion pages and databases, and write new pages and notes.",
+      "author": "GPUI Kit",
+      "version": "1.0.0",
+      "icon": "notebook",
+      "categories": [
+        "Productivity"
+      ],
+      "path": "extensions/notion",
+      "commands": [
+        {
+          "name": "search",
+          "title": "Search Notion",
+          "subtitle": "Pages and databases",
+          "mode": "view"
+        },
+        {
+          "name": "quick-note",
+          "title": "Create Notion Page",
+          "subtitle": "Quick note",
+          "mode": "view"
+        },
+        {
+          "name": "append-to-page",
+          "title": "Append to Notion Page",
+          "mode": "view"
+        }
+      ],
+      "files": [
+        {
+          "path": "README.md",
+          "sha256": "6fe9c26bdf3f5739c2c27a3bd17399bdc530ec89620f617c8a9b3294d8d5f4c9",
+          "size": 1418
+        },
+        {
+          "path": "commands/append-to-page.js",
+          "sha256": "7339ae8ac42719affb38a9ec3bc7f6ecf38ee9c14743cff2c6280b64c154ccb6",
+          "size": 306
+        },
+        {
+          "path": "commands/quick-note.js",
+          "sha256": "2cd8fca488b6d2e052008f357686ac8b8163f155203311ff32ab88561f1daadd",
+          "size": 513
+        },
+        {
+          "path": "commands/search.js",
+          "sha256": "3ffc07f98e9bee763ab3771c371e5f7a799b4859e903e5e1482c36c9915b1696",
+          "size": 6179
+        },
+        {
+          "path": "gpui-shell.json",
+          "sha256": "37d46aa287979986fd19724364355081d996f0b3c458b868778cba30705b597c",
+          "size": 378
+        },
+        {
+          "path": "launcher.json",
+          "sha256": "6f0129b0d36dc312edb99f66a87820e43e07a9e6c895c334756cf88f6d5a6e73",
+          "size": 1386
+        },
+        {
+          "path": "lib/append-form.js",
+          "sha256": "5490130e13442d5a69585683ce4d1055140dabb100f8b99ba32e9afb4a3fb70b",
+          "size": 2623
+        },
+        {
+          "path": "lib/notion.js",
+          "sha256": "af42d025259cd6af53b64ea66c3bdf88d993cca9e1630538e15abde6540e49d3",
+          "size": 9973
+        },
+        {
+          "path": "lib/page-form.js",
+          "sha256": "d597290573c199d0f4d5ecff689cecdcd45bd52af1026dc5275451f77f1a87e8",
+          "size": 2434
+        },
+        {
+          "path": "lib/present.js",
+          "sha256": "dea5dc354bdf62543060062d6da3b431ea16ee125423539e2680754452eabbba",
+          "size": 1159
+        },
+        {
+          "path": "lib/target-form.js",
+          "sha256": "d844eb8ddb01188291c61bec83b25cd537edb463e46880fe0f956c8e9a569084",
+          "size": 3411
+        }
+      ]
+    },
+    {
+      "id": "com.gpui-kit.obsidian",
+      "name": "Obsidian",
+      "description": "Search, create and capture notes in your Obsidian vaults.",
+      "author": "GPUI Kit",
+      "version": "1.0.0",
+      "icon": "gem",
+      "categories": [
+        "Productivity"
+      ],
+      "path": "extensions/obsidian",
+      "commands": [
+        {
+          "name": "search-notes",
+          "title": "Search Obsidian Notes",
+          "subtitle": "Obsidian",
+          "mode": "view"
+        },
+        {
+          "name": "create-note",
+          "title": "Create Obsidian Note",
+          "subtitle": "Obsidian",
+          "mode": "view"
+        },
+        {
+          "name": "quick-capture",
+          "title": "Quick Capture to Obsidian",
+          "subtitle": "Obsidian",
+          "mode": "no-view"
+        },
+        {
+          "name": "search-vaults",
+          "title": "Search Obsidian Vaults",
+          "subtitle": "Obsidian",
+          "mode": "view"
+        }
+      ],
+      "files": [
+        {
+          "path": "README.md",
+          "sha256": "9586bde8d14d13c020d5feb9948f8e09ff6fa150369673bd8b8630b8879dfc58",
+          "size": 2065
+        },
+        {
+          "path": "commands/create-note.js",
+          "sha256": "7fc74c9187da09adec4b2c52dd99ebbef3d44ecf4be713110e9f5b734c42dab5",
+          "size": 3993
+        },
+        {
+          "path": "commands/quick-capture.js",
+          "sha256": "6879b3f31a6e55ed1188447ef3e3eaa2006135197aa69b24f03efd34c39a607a",
+          "size": 1685
+        },
+        {
+          "path": "commands/search-notes.js",
+          "sha256": "1d6d4027ebdb97f887405e9dd44e4a8da2a5e9fccb264b17d6c5b70790c67da1",
+          "size": 6950
+        },
+        {
+          "path": "commands/search-vaults.js",
+          "sha256": "b9044f49d12aac5a994cc09bc4293a2e6055a88bdea823fd28d54b536937e7ee",
+          "size": 1973
+        },
+        {
+          "path": "gpui-shell.json",
+          "sha256": "af69beb4a39b7934b7072c79e7763acea405ecf1a016ce59bb1bde6424657650",
+          "size": 247
+        },
+        {
+          "path": "launcher.json",
+          "sha256": "11fffb6a3a9938aad1ff6541b140808db4f5ac127fadd5d6d5e6da4e00b373ff",
+          "size": 2767
+        },
+        {
+          "path": "lib/vaults.js",
+          "sha256": "8fbbe7ac192f9f2743b02eb2b303f37cc9e1976a74c6a54e5b9b17b2b6a14436",
+          "size": 8942
+        }
+      ]
+    },
+    {
+      "id": "com.gpui-kit.package-search",
+      "name": "Package Search",
+      "description": "Search npm, crates.io, PyPI and MDN as you type, and copy install commands.",
+      "author": "GPUI Kit",
+      "version": "1.0.0",
+      "icon": "package-search",
+      "categories": [
+        "Developer Tools",
+        "Web"
+      ],
+      "path": "extensions/package-search",
+      "commands": [
+        {
+          "name": "search-npm",
+          "title": "Search npm",
+          "subtitle": "JavaScript packages",
+          "mode": "view"
+        },
+        {
+          "name": "search-crates",
+          "title": "Search crates.io",
+          "subtitle": "Rust crates",
+          "mode": "view"
+        },
+        {
+          "name": "search-pypi",
+          "title": "Search PyPI",
+          "subtitle": "Python packages by exact name",
+          "mode": "view"
+        },
+        {
+          "name": "search-mdn",
+          "title": "Search MDN",
+          "subtitle": "Web platform documentation",
+          "mode": "view"
+        }
+      ],
+      "files": [
+        {
+          "path": "README.md",
+          "sha256": "631b77bf61df4d82ccf748efc54d7a99725249e9d18cdda0da62fd28508223b9",
+          "size": 1215
+        },
+        {
+          "path": "commands/search-crates.js",
+          "sha256": "860e236b25c504bd06888e4e5ecf2c03907fa2cd9ff175e6b8b2f12b20d945d2",
+          "size": 4030
+        },
+        {
+          "path": "commands/search-mdn.js",
+          "sha256": "d1f87b8db91aae72dd53b5728c6c76f0391228d94f3d29aca5bdbd39178b0f53",
+          "size": 2612
+        },
+        {
+          "path": "commands/search-npm.js",
+          "sha256": "9215d9332f44ea6058779c2ea24b75c3ab4c4956f97fef771e1c9d5ede6c7971",
+          "size": 3972
+        },
+        {
+          "path": "commands/search-pypi.js",
+          "sha256": "74578c28698d1aa724dcbcf8aaaf40f43f38c8230fd21f107938b4ac1c40645d",
+          "size": 5025
+        },
+        {
+          "path": "gpui-shell.json",
+          "sha256": "1f55873e8d4cd21ca50945e31279292dc0c921b381294187fa1d7e4028bd74f7",
+          "size": 546
+        },
+        {
+          "path": "launcher.json",
+          "sha256": "fe06edc4d89b78d6d32475f4cd781491e5d248c65fb830f6039f061c37aa2518",
+          "size": 1532
+        },
+        {
+          "path": "lib/search-view.js",
+          "sha256": "cf8aeb3c23991489cf5224b6f6b398fb5d830076e314b4ea656285ba34c0a50e",
+          "size": 4914
+        }
+      ]
+    },
+    {
+      "id": "com.gpui-kit.recent-projects",
+      "name": "Recent Projects",
+      "description": "Reopen folders and workspaces from VS Code, Cursor, VSCodium, Windsurf and JetBrains IDEs.",
+      "author": "GPUI Kit",
+      "version": "1.0.0",
+      "icon": "folder-clock",
+      "categories": [
+        "Developer Tools",
+        "Productivity"
+      ],
+      "path": "extensions/recent-projects",
+      "commands": [
+        {
+          "name": "search-recent-projects",
+          "title": "Search Recent Projects",
+          "subtitle": "VS Code, Cursor, JetBrains and more",
+          "mode": "view"
+        }
+      ],
+      "files": [
+        {
+          "path": "README.md",
+          "sha256": "13bdd16e84ed86ecf0d8d47565a528e0a133b92bff4850f9b09112e39c3da382",
+          "size": 1964
+        },
+        {
+          "path": "commands/search-recent-projects.js",
+          "sha256": "d636fc46615b54335e3e817e739e610928feb901ae63509540d90999153058ae",
+          "size": 6746
+        },
+        {
+          "path": "gpui-shell.json",
+          "sha256": "16ca10af7afa1245427571104fae11494175d9c6e32e7f9d8a3ee15c5ef15961",
+          "size": 859
+        },
+        {
+          "path": "launcher.json",
+          "sha256": "83a3ee63e1d6a37a221a9e66bdc6f5b97ac477ed43b59118e48f9857c63b1209",
+          "size": 935
+        },
+        {
+          "path": "lib/jetbrains.js",
+          "sha256": "7c6d244fd2aa430b7dc8f0bf50ed9f43362f1b7fdf2fa5c20a33baa96ee76ef5",
+          "size": 6730
+        },
+        {
+          "path": "lib/paths.js",
+          "sha256": "7cf5c334f85321cffc8a46ef89c9c22060ae3b92d34ffbee581d2088e9f232e5",
+          "size": 1647
+        },
+        {
+          "path": "lib/vscode.js",
+          "sha256": "a92a924f35cac07e4dfb9989502170bca896c497a3e4f84807a1d33dfc8a4f5b",
+          "size": 6072
+        }
+      ]
+    },
+    {
+      "id": "com.gpui-kit.spotify",
+      "name": "Spotify",
+      "description": "Search Spotify, see what is playing and control playback from the launcher and the tray.",
+      "author": "GPUI Kit",
+      "version": "1.0.0",
+      "icon": "music",
+      "categories": [
+        "Media"
+      ],
+      "path": "extensions/spotify",
+      "commands": [
+        {
+          "name": "search",
+          "title": "Search Spotify",
+          "subtitle": "Tracks, albums, artists and playlists",
+          "mode": "view"
+        },
+        {
+          "name": "now-playing",
+          "title": "Now Playing",
+          "subtitle": "Spotify",
+          "mode": "view"
+        },
+        {
+          "name": "play-pause",
+          "title": "Play/Pause",
+          "subtitle": "Spotify",
+          "mode": "no-view"
+        },
+        {
+          "name": "next-track",
+          "title": "Next Track",
+          "subtitle": "Spotify",
+          "mode": "no-view"
+        },
+        {
+          "name": "previous-track",
+          "title": "Previous Track",
+          "subtitle": "Spotify",
+          "mode": "no-view"
+        },
+        {
+          "name": "menu-bar",
+          "title": "Now Playing in Tray",
+          "subtitle": "Spotify",
+          "mode": "menu-bar"
+        },
+        {
+          "name": "sign-out",
+          "title": "Sign Out of Spotify",
+          "mode": "no-view"
+        }
+      ],
+      "files": [
+        {
+          "path": "README.md",
+          "sha256": "a76af9a06dafd8816d084497773c409e89b4dcd739b5f1fa71864f46437b0e1c",
+          "size": 2057
+        },
+        {
+          "path": "commands/menu-bar.js",
+          "sha256": "239d969cc95c31903ef4a7a9c92283013d38851a560d8470796ae0f4d8676ffe",
+          "size": 4401
+        },
+        {
+          "path": "commands/next-track.js",
+          "sha256": "aa60ee32a71a71ed3a63e69928f8a2dc0dd62fc6d7f5ec04892c56cc8148e8bf",
+          "size": 617
+        },
+        {
+          "path": "commands/now-playing.js",
+          "sha256": "c1cd9c6b83a472839341c595cda041d827c74e4064dcc22f88cc4f39992d594f",
+          "size": 6769
+        },
+        {
+          "path": "commands/play-pause.js",
+          "sha256": "53cee6c5b79a6c078e15e1ff1ab99716aed56b1d8a53a8c84c18d5a6f3d90077",
+          "size": 640
+        },
+        {
+          "path": "commands/previous-track.js",
+          "sha256": "ef7b48c2740bd6494c18dce0972055ed5cb5a5f26c4360f5f846f7fb3ebe362e",
+          "size": 753
+        },
+        {
+          "path": "commands/search.js",
+          "sha256": "712f19b88808b98af6ec99cc72ab56bf8d5a10a5e418cec2e35905512ab07c2e",
+          "size": 6406
+        },
+        {
+          "path": "commands/sign-out.js",
+          "sha256": "596dd11acec7e3aade5412cfb532962bb64b1c1497570813b6d14fec0bcf9706",
+          "size": 469
+        },
+        {
+          "path": "gpui-shell.json",
+          "sha256": "dd6c82049c4f8082df393f1baaaceb72a4b952dc871852e7040aa7673bf936cf",
+          "size": 672
+        },
+        {
+          "path": "launcher.json",
+          "sha256": "683647a5b2ab51c6ed6a45e98bf4326139ae1e588b64498227a549d449f6856f",
+          "size": 2589
+        },
+        {
+          "path": "lib/no-view.js",
+          "sha256": "bb0a781b188aa58377406e7aa84e0ca0e4f9cf1216cf19c9fb1455c4cbb729f7",
+          "size": 854
+        },
+        {
+          "path": "lib/player.js",
+          "sha256": "30b5593cfb668fb6a5e639f9d0f125e87c544db57bd80d6640fe854295d57378",
+          "size": 4604
+        },
+        {
+          "path": "lib/sign-in.js",
+          "sha256": "01b0a3f5b00c958baf70c462a682a93f47c45e61aabba1d3dbefc3034de7ede6",
+          "size": 2628
+        },
+        {
+          "path": "lib/spotify.js",
+          "sha256": "839937af3bb61b7f28bcdcfa5b36579246ee892d793b226d9d61c6408fcbd0e5",
+          "size": 6120
+        }
+      ]
+    },
+    {
+      "id": "com.gpui-kit.todoist",
+      "name": "Todoist",
+      "description": "See, complete, reschedule and create Todoist tasks, with today's count in the tray.",
+      "author": "GPUI Kit",
+      "version": "1.0.0",
+      "icon": "list-todo",
+      "categories": [
+        "Productivity"
+      ],
+      "path": "extensions/todoist",
+      "commands": [
+        {
+          "name": "search-tasks",
+          "title": "Search Todoist Tasks",
+          "subtitle": "Todoist",
+          "mode": "view"
+        },
+        {
+          "name": "create-task",
+          "title": "Create Todoist Task",
+          "subtitle": "Todoist",
+          "mode": "view"
+        },
+        {
+          "name": "today-tray",
+          "title": "Todoist Today in Tray",
+          "subtitle": "Todoist",
+          "mode": "menu-bar"
+        }
+      ],
+      "files": [
+        {
+          "path": "README.md",
+          "sha256": "f81583827d1c59e415f83487b8bdd75d03569d8bb3a7211a63ca923ab18a36dd",
+          "size": 1737
+        },
+        {
+          "path": "commands/create-task.js",
+          "sha256": "e9cb8727691fbf19c8e5faa8c224cf6c3ae25b378fcbe89c822f694f26b1d66f",
+          "size": 5350
+        },
+        {
+          "path": "commands/search-tasks.js",
+          "sha256": "46a8a35a77d10771118e322e0d760160817cfc125c24316de5ac845080dcb84f",
+          "size": 11488
+        },
+        {
+          "path": "commands/today-tray.js",
+          "sha256": "5f80b97b4d5e1db64c4fc4e43b120f3449379a0b348f589f8c9f6ed4fdc963b7",
+          "size": 3536
+        },
+        {
+          "path": "gpui-shell.json",
+          "sha256": "2f22ecd41eaf3fc02cb13a717aabd24b03a830f218a2d257f822564c8599420f",
+          "size": 628
+        },
+        {
+          "path": "launcher.json",
+          "sha256": "70436e934bd8bc6303006f9210cea20647373b87b7beff886f258e1aba2d06d7",
+          "size": 1337
+        },
+        {
+          "path": "lib/todoist.js",
+          "sha256": "8e14e5e49d4f08c3c221326e9354b2fa00af52d6b939f75ddfe46cce856b8528",
+          "size": 7297
+        }
+      ]
+    },
+    {
+      "id": "com.gpui-kit.web-search",
+      "name": "Web Search",
+      "description": "Search Google, Bing, DuckDuckGo, Wikipedia or YouTube with suggestions as you type.",
+      "author": "GPUI Kit",
+      "version": "1.0.0",
+      "icon": "globe",
+      "categories": [
+        "Web",
+        "Productivity"
+      ],
+      "path": "extensions/web-search",
+      "commands": [
+        {
+          "name": "search-web",
+          "title": "Search the Web",
+          "subtitle": "Suggestions as you type",
+          "mode": "view"
+        }
+      ],
+      "files": [
+        {
+          "path": "README.md",
+          "sha256": "e8ce43dc1bdc3e83d0c6cace7173678e8f5de087adfea7cb99c5ea9409377595",
+          "size": 1150
+        },
+        {
+          "path": "commands/search-web.js",
+          "sha256": "dbe1afcd66645471c98c7f1d2502dfd16c34231012e9ca78bcc71f1b61637e49",
+          "size": 7087
+        },
+        {
+          "path": "gpui-shell.json",
+          "sha256": "e29a7b92dcfe240613677a630415aa347eeb302c996b00981334adc2fadac3e8",
+          "size": 537
+        },
+        {
+          "path": "launcher.json",
+          "sha256": "fbf54f0b4d06abde790334108e8cb1b026212d27ca4a1eed4ee903721b952d31",
+          "size": 1359
+        },
+        {
+          "path": "lib/engines.js",
+          "sha256": "6490dd53c7310e5666259505bf1f054de249ed4ea27bed4aff5285d3dccf16e1",
+          "size": 2901
+        },
+        {
+          "path": "lib/history.js",
+          "sha256": "bde0d3685cb08ff3df70aa813370456da42194057235a582e8e07121bfae29cb",
+          "size": 1495
+        }
+      ]
+    }
+  ]
+}

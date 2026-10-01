@@ -53,6 +53,9 @@ pub struct Client {
     pub scope: Option<String>,
     /// Extra query parameters of the authorize URL, such as `prompt`.
     pub extra: Vec<(String, String)>,
+    /// A fixed loopback port, for a provider that matches the redirect
+    /// exactly; any free port otherwise.
+    pub redirect_port: Option<u16>,
 }
 
 /// One sign-in in progress: the listener the browser comes back to and the
@@ -68,8 +71,8 @@ pub struct Pending {
 impl Pending {
     /// Listens on a free loopback port and builds the URL to open.
     pub fn start(client: Client) -> Result<(Self, Url)> {
-        let listener =
-            TcpListener::bind(("127.0.0.1", 0)).context("cannot listen for the sign-in")?;
+        let listener = TcpListener::bind(("127.0.0.1", client.redirect_port.unwrap_or(0)))
+            .context("cannot listen for the sign-in")?;
         let redirect_uri = format!(
             "http://127.0.0.1:{}/callback",
             listener.local_addr()?.port()
@@ -353,6 +356,7 @@ mod tests {
             client_id: "launcher-test".into(),
             scope: Some("read".into()),
             extra: vec![("prompt".into(), "consent".into())],
+            redirect_port: None,
         };
         let (pending, url) = Pending::start(client).unwrap();
         let query: std::collections::HashMap<String, String> =

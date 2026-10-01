@@ -28,6 +28,15 @@ pub struct LauncherManifest {
     /// extension's commands.
     #[serde(default)]
     pub icon: Option<String>,
+    /// One sentence on what the extension does, shown in the Extension Store.
+    #[serde(default)]
+    pub description: Option<String>,
+    /// Who wrote it, shown in the Extension Store.
+    #[serde(default)]
+    pub author: Option<String>,
+    /// What the Extension Store files it under, such as `Developer Tools`.
+    #[serde(default)]
+    pub categories: Vec<String>,
     pub commands: Vec<CommandManifest>,
     /// Settings shared by every command of the extension.
     #[serde(default)]

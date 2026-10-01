@@ -1,0 +1,132 @@
+{
+  "$schema": "./launcher.schema.json",
+  "icon": "wrench",
+  "description": "Format JSON, encode and decode text, hash, generate UUIDs and passwords, convert timestamps and test regular expressions, all offline.",
+  "author": "GPUI Kit",
+  "categories": ["Developer Tools", "Productivity"],
+  "commands": [
+    {
+      "name": "format-json",
+      "title": "Format JSON",
+      "subtitle": "Pretty-print, minify or validate",
+      "icon": "braces",
+      "keywords": ["json", "pretty", "beautify", "minify", "validate", "lint"],
+      "module": "commands/format-json.js",
+      "preferences": [
+        {
+          "name": "indent",
+          "title": "Indentation",
+          "description": "How pretty-printed JSON is indented.",
+          "type": "dropdown",
+          "default": "2",
+          "choices": [
+            { "value": "2", "title": "2 Spaces" },
+            { "value": "4", "title": "4 Spaces" },
+            { "value": "tab", "title": "Tabs" }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "encode-decode",
+      "title": "Encode or Decode Text",
+      "subtitle": "Base64, URL, HTML entities, JWT",
+      "icon": "binary",
+      "keywords": ["base64", "url", "percent", "html", "entities", "jwt", "token", "decode", "encode", "escape"],
+      "module": "commands/encode-decode.js"
+    },
+    {
+      "name": "hash-text",
+      "title": "Hash Text",
+      "subtitle": "MD5, SHA-1, SHA-256, SHA-512",
+      "icon": "hash",
+      "keywords": ["md5", "sha", "sha1", "sha256", "sha512", "digest", "checksum"],
+      "module": "commands/hash-text.js"
+    },
+    {
+      "name": "generate-uuid",
+      "title": "Generate UUID",
+      "subtitle": "Random version 4 UUIDs",
+      "icon": "fingerprint-pattern",
+      "keywords": ["guid", "uuid", "v4", "random", "id"],
+      "module": "commands/generate-uuid.js"
+    },
+    {
+      "name": "generate-password",
+      "title": "Generate Password",
+      "subtitle": "Random passwords",
+      "icon": "key-round",
+      "keywords": ["password", "random", "secret", "passphrase"],
+      "module": "commands/generate-password.js",
+      "preferences": [
+        {
+          "name": "length",
+          "title": "Default Length",
+          "type": "dropdown",
+          "default": "20",
+          "choices": [
+            { "value": "12", "title": "12 Characters" },
+            { "value": "16", "title": "16 Characters" },
+            { "value": "20", "title": "20 Characters" },
+            { "value": "24", "title": "24 Characters" },
+            { "value": "32", "title": "32 Characters" },
+            { "value": "64", "title": "64 Characters" }
+          ]
+        },
+        {
+          "name": "numbers",
+          "title": "Numbers",
+          "label": "Include numbers",
+          "type": "checkbox",
+          "default": true
+        },
+        {
+          "name": "symbols",
+          "title": "Symbols",
+          "label": "Include symbols",
+          "type": "checkbox",
+          "default": true
+        },
+        {
+          "name": "unambiguous",
+          "title": "Ambiguous Characters",
+          "label": "Leave out look-alikes such as l, 1, O and 0",
+          "type": "checkbox",
+          "default": false
+        }
+      ]
+    },
+    {
+      "name": "convert-timestamp",
+      "title": "Convert Timestamp",
+      "subtitle": "Unix time and ISO 8601",
+      "icon": "clock",
+      "keywords": ["unix", "epoch", "time", "date", "iso", "now"],
+      "module": "commands/convert-timestamp.js"
+    },
+    {
+      "name": "lorem-ipsum",
+      "title": "Lorem Ipsum",
+      "subtitle": "Placeholder text",
+      "icon": "pilcrow",
+      "keywords": ["placeholder", "dummy", "text", "filler"],
+      "module": "commands/lorem-ipsum.js"
+    },
+    {
+      "name": "test-regex",
+      "title": "Test Regex",
+      "subtitle": "Matches and groups",
+      "icon": "regex",
+      "keywords": ["regular expression", "regexp", "match", "pattern"],
+      "module": "commands/test-regex.js"
+    },
+    {
+      "name": "count-text",
+      "title": "Count Characters",
+      "subtitle": "Characters, words and lines",
+      "icon": "type",
+      "keywords": ["count", "words", "lines", "characters", "length"],
+      "module": "commands/count-text.js"
+    }
+  ]
+}

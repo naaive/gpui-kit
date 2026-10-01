@@ -1,0 +1,46 @@
+{
+  "$schema": "./launcher.schema.json",
+  "icon": "package-search",
+  "description": "Search npm, crates.io, PyPI and MDN as you type, and copy install commands.",
+  "author": "GPUI Kit",
+  "categories": ["Developer Tools", "Web"],
+  "commands": [
+    {
+      "name": "search-npm",
+      "title": "Search npm",
+      "subtitle": "JavaScript packages",
+      "icon": "package",
+      "keywords": ["node", "javascript", "package", "pnpm", "yarn"],
+      "module": "commands/search-npm.js",
+      "arguments": [{ "name": "query", "placeholder": "Package" }]
+    },
+    {
+      "name": "search-crates",
+      "title": "Search crates.io",
+      "subtitle": "Rust crates",
+      "icon": "box",
+      "keywords": ["rust", "cargo", "crate", "docs.rs"],
+      "module": "commands/search-crates.js",
+      "arguments": [{ "name": "query", "placeholder": "Crate" }]
+    },
+    {
+      "name": "search-pypi",
+      "title": "Search PyPI",
+      "subtitle": "Python packages by exact name",
+      "icon": "package-2",
+      "keywords": ["python", "pip", "package", "uv"],
+      "module": "commands/search-pypi.js",
+      "arguments": [{ "name": "query", "placeholder": "Package name" }]
+    },
+    {
+      "name": "search-mdn",
+      "title": "Search MDN",
+      "subtitle": "Web platform documentation",
+      "icon": "book-open",
+      "keywords": ["mozilla", "html", "css", "javascript", "web docs"],
+      "module": "commands/search-mdn.js",
+      "arguments": [{ "name": "query", "placeholder": "Topic" }]
+    }
+  ],
+  "preferences": []
+}

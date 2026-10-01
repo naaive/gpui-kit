@@ -12,11 +12,13 @@ mod arguments;
 mod extensions;
 mod permission;
 mod preferences;
+mod store;
 
 pub use arguments::ArgumentsPage;
 pub use extensions::ExtensionsPage;
 pub use permission::PermissionPage;
 pub use preferences::PreferencesPage;
+pub use store::store_page;
 
 use gpui_kit::{App, SharedString};
 

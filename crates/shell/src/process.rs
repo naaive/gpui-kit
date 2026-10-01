@@ -69,6 +69,35 @@ pub(crate) struct Output {
     pub(crate) stderr: String,
 }
 
+/// Variables naming folders, the search path and the locale: what a program
+/// needs to find its own settings, and nothing that authenticates.
+const LOCATION_VARIABLES: &[&str] = &[
+    "PATH",
+    "PATHEXT",
+    "HOME",
+    "USERPROFILE",
+    "HOMEDRIVE",
+    "HOMEPATH",
+    "APPDATA",
+    "LOCALAPPDATA",
+    "PROGRAMDATA",
+    "PROGRAMFILES",
+    "PROGRAMFILES(X86)",
+    "SYSTEMROOT",
+    "SYSTEMDRIVE",
+    "WINDIR",
+    "COMSPEC",
+    "TEMP",
+    "TMP",
+    "TMPDIR",
+    "XDG_CONFIG_HOME",
+    "XDG_DATA_HOME",
+    "XDG_CACHE_HOME",
+    "XDG_RUNTIME_DIR",
+    "LANG",
+    "LC_ALL",
+];
+
 pub(crate) fn run_bounded(
     command: &str,
     args: &[String],
@@ -79,9 +108,15 @@ pub(crate) fn run_bounded(
     let mut command_builder = Command::new(&executable);
     command_builder
         // A process grant authorizes one executable, not the host's ambient
-        // credentials. Keep the child environment empty until the public API
-        // grows an explicit, capability-reviewed environment allowlist.
+        // credentials: the child starts from an empty environment and gets
+        // back only the variables that say where things are, which a program
+        // cannot find its own settings without, and never a token.
         .env_clear()
+        .envs(
+            LOCATION_VARIABLES
+                .iter()
+                .filter_map(|name| std::env::var_os(name).map(|value| (*name, value))),
+        )
         .args(args)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -438,6 +473,37 @@ fn kill_process_tree(tree: &mut ProcessTree, child: &mut std::process::Child) {
 mod tests {
     use super::*;
     use std::time::Duration;
+
+    /// A program finds its settings through the folders the environment
+    /// names, and sees nothing else of the host's environment.
+    #[test]
+    fn passes_location_variables_and_nothing_else() {
+        // SAFETY: no other test reads or writes this variable.
+        unsafe { std::env::set_var("GPUI_SHELL_TEST_SECRET", "hunter2") };
+        let (command, args): (&str, Vec<String>) = if cfg!(windows) {
+            ("cmd", vec!["/c".into(), "set".into()])
+        } else {
+            ("env", Vec::new())
+        };
+        let output = run_bounded(
+            command,
+            &args,
+            Limits::for_test(Duration::from_secs(10), 64 * 1024),
+            Cancellation::new(),
+        )
+        .expect("the environment is listed");
+        let names: Vec<String> = output
+            .stdout
+            .lines()
+            .filter_map(|line| line.split_once('=').map(|(name, _)| name.to_uppercase()))
+            .collect();
+        let home = if cfg!(windows) { "USERPROFILE" } else { "HOME" };
+        assert!(names.iter().any(|name| name == home), "{names:?}");
+        assert!(
+            !names.iter().any(|name| name == "GPUI_SHELL_TEST_SECRET"),
+            "{names:?}"
+        );
+    }
 
     #[cfg(unix)]
     use std::ffi::OsStr;

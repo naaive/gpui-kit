@@ -18,6 +18,7 @@ mod cache;
 mod carrier;
 mod components;
 mod host_api;
+mod sql;
 #[cfg(test)]
 mod tests;
 mod utils;

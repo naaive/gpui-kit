@@ -47,6 +47,26 @@ type EffectHandler = Rc<dyn Fn(Effect, &mut App)>;
 #[derive(Clone, Default)]
 pub(super) struct EffectSink(Rc<RefCell<Option<EffectHandler>>>);
 
+#[cfg(test)]
+impl Services {
+    /// Services over a data folder of a test's own, with secrets in memory.
+    pub(crate) fn for_tests(root: PathBuf) -> Self {
+        let data = DataDirectory::new(root);
+        Self {
+            permissions: PermissionStore::new(data.permissions_file()),
+            preferences: PreferenceStore::new(
+                data.preferences_file(),
+                Rc::new(super::preferences::MemorySecrets::default()),
+            ),
+            data,
+            effects: EffectSink::default(),
+            changed: ChangeNotifier::default(),
+            metadata: MetadataNotifier::default(),
+            development: RefCell::default(),
+        }
+    }
+}
+
 impl EffectSink {
     fn set(&self, handler: impl Fn(Effect, &mut App) + 'static) {
         self.0.replace(Some(Rc::new(handler)));
@@ -107,7 +127,7 @@ impl MetadataNotifier {
 
 /// What the launcher's own extension pages work with.
 #[derive(Clone)]
-pub(super) struct Services {
+pub(crate) struct Services {
     pub(super) data: DataDirectory,
     pub(super) permissions: PermissionStore,
     pub(super) preferences: PreferenceStore,
@@ -715,6 +735,15 @@ impl ExtensionHost {
         if let Some(launch) = self.state.launch_for(&policy) {
             self.state.remove(launch);
         }
+    }
+
+    /// The Extension Store, listing what `source` offers.
+    pub fn store_page(
+        &self,
+        source: Result<super::store::StoreSource, String>,
+        cx: &mut App,
+    ) -> PageHandle {
+        super::pages::store_page(self.state.services.clone(), source, cx)
     }
 
     /// The installed extensions, with Update, Uninstall, Open Preferences and

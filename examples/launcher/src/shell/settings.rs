@@ -158,6 +158,9 @@ pub struct Settings {
     pop_to_root: PopToRoot,
     /// Loaded ahead of the bundled extensions.
     extension_directory: Option<PathBuf>,
+    /// Where the Extension Store's listing comes from: `owner/repo@ref/path`
+    /// on GitHub, or a folder; `None` for the default.
+    store_source: Option<String>,
     /// Whether what is copied is recorded in Clipboard History.
     clipboard_history: bool,
     /// How many days copied entries are kept; 0 keeps them until deleted.
@@ -220,6 +223,7 @@ impl Default for Settings {
             window_mode: WindowMode::default(),
             pop_to_root: PopToRoot::default(),
             extension_directory: None,
+            store_source: None,
             clipboard_history: true,
             clipboard_retention_days: 90,
             snippet_expansion: false,
@@ -271,6 +275,12 @@ impl Settings {
 
     pub fn extension_directory(&self) -> Option<&Path> {
         self.extension_directory.as_deref()
+    }
+
+    /// The store's listing, as the user set it; see
+    /// [`crate::extensions::store::StoreSource`].
+    pub fn store_source(&self) -> Option<&str> {
+        self.store_source.as_deref()
     }
 
     pub fn is_recording_clipboard(&self) -> bool {
@@ -383,6 +393,7 @@ pub(crate) mod field {
     pub const WINDOW_MODE: &str = "window_mode";
     pub const POP_TO_ROOT: &str = "pop_to_root";
     pub const EXTENSION_DIRECTORY: &str = "extension_directory";
+    pub const STORE_SOURCE: &str = "store_source";
     pub const CLIPBOARD_HISTORY: &str = "clipboard_history";
     pub const CLIPBOARD_RETENTION: &str = "clipboard_retention_days";
     pub const SNIPPET_EXPANSION: &str = "snippet_expansion";
@@ -458,6 +469,18 @@ pub fn from_form(values: &FormValues, current: &Settings) -> Result<Settings, Fi
             }
         }
         None => current.extension_directory.clone(),
+    };
+
+    let store_source = match text(field::STORE_SOURCE) {
+        Some(source) if source.is_empty() => None,
+        Some(source) => match crate::extensions::store::StoreSource::parse(&source) {
+            Ok(_) => Some(source),
+            Err(error) => {
+                errors.insert(field::STORE_SOURCE, format!("{error:#}").into());
+                current.store_source.clone()
+            }
+        },
+        None => current.store_source.clone(),
     };
 
     let clipboard_history = match values.get(field::CLIPBOARD_HISTORY) {
@@ -545,6 +568,7 @@ pub fn from_form(values: &FormValues, current: &Settings) -> Result<Settings, Fi
         window_mode,
         pop_to_root,
         extension_directory,
+        store_source,
         clipboard_history,
         clipboard_retention_days,
         snippet_expansion,

@@ -1,0 +1,12 @@
+{
+  "id": "com.gpui-kit.bitwarden",
+  "name": "Bitwarden",
+  "version": "1.0.0",
+  "entry": "commands/search-vault.js",
+  "capabilities": {
+    "fs": {
+      "execute": ["bw"]
+    },
+    "clipboard": { "read": true, "write": true }
+  }
+}

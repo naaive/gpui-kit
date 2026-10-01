@@ -20,6 +20,12 @@ use crate::{
     session::Row,
 };
 
+/// Extensions kept only for tests: a notes list with a form, and an emoji
+/// grid with a dropdown, which exercise the window more than the bundled ones.
+fn fixtures() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("test-extensions")
+}
+
 /// Writes an extension with `id` into `root/<directory>`: its manifests and
 /// `files`, each a module path and its source.
 fn write_extension(root: &Path, id: &str, launcher: &str, files: &[(&str, &str)]) -> PathBuf {
@@ -591,7 +597,7 @@ fn test_an_extension_installed_from_git_is_listed(cx: &mut TestAppContext) {
 
 #[gpui::test]
 fn test_a_note_created_from_the_list_is_there_when_the_list_opens_again(cx: &mut TestAppContext) {
-    let (launcher, mut cx) = open(cx, &[bundled()]);
+    let (launcher, mut cx) = open(cx, &[fixtures()]);
     let notes = |cx: &mut VisualTestContext| {
         cx.simulate_input("search notes");
         cx.simulate_keystrokes("enter");
@@ -641,7 +647,7 @@ fn test_a_note_created_from_the_list_is_there_when_the_list_opens_again(cx: &mut
 
 #[gpui::test]
 fn test_editing_a_note_returns_to_the_list_with_the_change(cx: &mut TestAppContext) {
-    let (launcher, mut cx) = open(cx, &[bundled()]);
+    let (launcher, mut cx) = open(cx, &[fixtures()]);
     cx.simulate_input("create note");
     cx.simulate_keystrokes("enter tab escape");
     assert_eq!(
@@ -697,7 +703,7 @@ fn test_editing_a_note_returns_to_the_list_with_the_change(cx: &mut TestAppConte
 
 #[gpui::test]
 fn test_a_list_dropdown_narrows_an_extension_grid(cx: &mut TestAppContext) {
-    let (launcher, mut cx) = open(cx, &[bundled()]);
+    let (launcher, mut cx) = open(cx, &[fixtures()]);
     cx.simulate_input("search emoji");
     cx.simulate_keystrokes("enter");
     let headers = |cx: &mut VisualTestContext| {

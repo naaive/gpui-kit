@@ -62,7 +62,7 @@ impl CommandSource for SystemCommands {
     }
 }
 
-fn launcher_commands() -> [Item; 14] {
+fn launcher_commands() -> [Item; 15] {
     [
         command_item("system/search-files", "Search Files", "file-search")
             .with_keyword("find")
@@ -185,6 +185,14 @@ fn launcher_commands() -> [Item; 14] {
             .with_action(Action::new(
                 "Open Extensions",
                 Effect::Push(PushHandler::new(crate::shell::launcher::extensions_page)),
+            )),
+        command_item("system/store", "Extension Store", "store")
+            .with_keyword("plugins")
+            .with_keyword("install")
+            .with_keyword("browse")
+            .with_action(Action::new(
+                "Open Store",
+                Effect::Push(PushHandler::new(crate::shell::launcher::store_page)),
             )),
         command_item("system/quit", "Quit Launcher", "circle-x")
             .with_keyword("exit")
@@ -913,6 +921,7 @@ mod tests {
                 "Toggle Appearance",
                 "Launcher Settings",
                 "Manage Extensions",
+                "Extension Store",
                 "Quit Launcher"
             ]
         );

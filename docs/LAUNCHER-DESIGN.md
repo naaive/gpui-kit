@@ -429,6 +429,7 @@ M0 实现了一条最窄的端到端路径：窗口 + 宿主搜索框 + 内置�
 | M5   | 补齐 Raycast 其余内置功能：窗口切换、Emoji 与符号、屏幕取色与颜色记录、悬浮笔记、日程（iCal 订阅与入会）、专注模式（屏蔽应用与网站）、截图搜索（OCR）、主题、设置导入导出、Hyper Key、`{selection}` 占位符；剪贴板按应用排除与图片 OCR；片段按应用禁用；窗口管理的循环尺寸、四等分、六等分、移动、缩放、间距与自定义布局 | **已完成**；系统相关部分仅 Windows（UI Automation、Windows.Media.Ocr、低级键鼠钩子） |
 | M6   | 浏览器历史（Chromium 与 Firefox）与标签页切换、当前应用菜单项搜索、提醒事项（自然语言截止时间与到期提醒窗口）、计算器历史、翻译、查词（含中文与拼音）、系统监视器；文件预览的文件夹内容、系统缩略图与 Quick Look；紧凑窗口模式与“回到根搜索”的时机 | **已完成**；标签页、菜单项与缩略图仅 Windows |
 | M7   | 扩展 SDK 对标 Raycast API：`menu-bar` 命令（`MenuBarExtra`，托盘图标与菜单，经 `tray-icon`）与 `interval` 后台定时运行（在不显示的后台窗口里加载，用户打开一次后启用）；`confirm_alert`、带按钮的 toast、`selected_text`/`selected_files`、前台应用与应用列表、OAuth（PKCE 与本机回环，令牌存系统钥匙串）、`launch_command` 的 `context` 与 deep link 的 `context`；`FilePicker`、`TagPicker`、带时间的 `DatePicker`、`FormSeparator`/`FormDescription`；网络图片、系统文件图标、图标色调与圆形裁剪、相对日期；`open_with`、`trash`、`quick_look`、`create_quicklink`/`create_snippet`、`pick_date`；`launcher dev` 热重载、`launcher new`/`lint`、`LAUNCHER_LOG` | **已完成**；托盘仅 Windows 与 macOS，`selected_files` 为 Explorer 与 Finder；第三方包沿用 GPUI Shell 的 Git `dependencies` |
+| M8   | 扩展生态：Extension Store（GitHub 仓库存放，`index.json` 带每个文件的 SHA-256，下载校验后安装，可更新与卸载，来源可在设置中改为其他仓库或本地文件夹；`launcher store-index`）；首批商店扩展（开发者工具、网页搜索、网络工具、包搜索、最近项目、Docker、Obsidian、Bitwarden、Todoist、Spotify、Linear、Notion）与内置 GitHub 扩展的 PR、Issue、通知与托盘未读数；SDK 补充 `sql_query`、`fs` 授权的 `${homeDir}`/`${configDir}`、OAuth 固定回调端口 | **已完成** |
 
 ## 11. 测试
 

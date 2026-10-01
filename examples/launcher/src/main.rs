@@ -114,6 +114,21 @@ fn main() -> ExitCode {
                 }
             };
         }
+        Command::StoreIndex(directory) => {
+            return match extensions::store::write_index(directory) {
+                Ok(count) => {
+                    println!(
+                        "{count} extensions listed in {}",
+                        directory.join("index.json").display()
+                    );
+                    ExitCode::SUCCESS
+                }
+                Err(error) => {
+                    eprintln!("launcher: {error:#}");
+                    ExitCode::FAILURE
+                }
+            };
+        }
         Command::Lint(directory) => {
             let problems = extensions::lint_extension(directory);
             for problem in &problems {

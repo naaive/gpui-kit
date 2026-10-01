@@ -94,6 +94,8 @@ launcher new <dir> [--template list|detail|form|no-view|menu-bar]
                          start an extension from a template
 launcher lint <dir>      check an extension's manifests, modules and images without
                          running it
+launcher store-index <dir>
+                         write the index.json of an Extension Store folder
 ```
 
 Set `LAUNCHER_LOG=info` (any `tracing` filter) to print what the launcher and
@@ -112,7 +114,8 @@ Support/gpui-kit-launcher` on macOS): `settings.json`, `usage.json` (ranking),
 `permissions.json`, `preferences.json`, `quicklinks.json`, `snippets.json`,
 `customizations.json` (aliases, favorites, hotkeys), `currency-rates.json`,
 `colors.json`, `emoji.json`, `focus.json`, `reminders.json`,
-`calculator-history.json`, `background-commands.json` (the menu-bar and
+`calculator-history.json`, `store-installs.json` (what came from the
+Extension Store), `background-commands.json` (the menu-bar and
 interval commands you turned on), `window-layouts.json`, `notes/`
 (one Markdown file per note), `calendars/` (cached feeds),
 `screenshot-text.json`, `themes/` (your own themes),
@@ -132,6 +135,20 @@ folders, commands it may run, clipboard) and runs it only with what you
 allow; an update that asks for more asks again. Required preferences and
 arguments are asked for in a form before the command opens.
 
+### Extension Store
+
+The Extension Store command lists the extensions of [`store/`](store), read
+from GitHub: each with its README, commands, version and categories, to
+install, update when its version changes, or uninstall. Installing downloads
+exactly the files `store/index.json` names and checks each one's SHA-256
+before the extension replaces anything; installed extensions sit beside those
+installed from Git and ask for their permissions the same way.
+
+The listing comes from `naaive/gpui-kit@main/examples/launcher/store` unless
+Launcher Settings (or `LAUNCHER_STORE`) names another: `owner/repo@branch/folder`
+on GitHub, or a folder on this computer. Publishing an extension is committing
+its folder under `store/extensions/` and running `launcher store-index store`.
+
 ## Bundled extensions
 
 Each one is a reference for part of the SDK.
@@ -139,9 +156,7 @@ Each one is a reference for part of the SDK.
 | Extension                         | Shows                                                                                     |
 | --------------------------------- | ----------------------------------------------------------------------------------------- |
 | [`gpui-kit`](extensions/gpui-kit) | Static lists, action panels, a pushed `Detail`, no-view commands, an argument, a fallback, a `menu-bar` command, an `interval` |
-| [`notes`](extensions/notes)       | `localStorage`, a detail pane, a `Form` with validation, a confirmed destructive action   |
-| [`emoji`](extensions/emoji)       | A grid in sections, a `ListDropdown`, an extension preference that reorders actions       |
-| [`github`](extensions/github)     | `on_query_change`, `fetch` under a narrow network grant, a password preference, timers    |
+| [`github`](extensions/github)     | `on_query_change`, `fetch` under narrow per-method `network.http` grants (REST and GraphQL), a password preference, sectioned lists, a token empty state, a `menu-bar` command with an `interval` |
 
 ## Writing an extension
 
@@ -252,6 +267,16 @@ choose Remove from Tray (in its menu) or Stop Running in Background (in its
 root search actions). The launcher then runs it with
 `launch().launch_type === "background"`; a question it would have to ask first
 (a permission, a preference) waits until you open it again.
+
+### Reading other applications' files
+
+`capabilities.fs.read` and `fs.write` take folders, which may start with
+`${pluginDir}` (the extension), `${dataDir}` (its own data folder),
+`${homeDir}` (your home folder) or `${configDir}` (where applications keep
+their settings: `%APPDATA%`, `~/Library/Application Support` or `~/.config`).
+`environment()` answers `home_path`, `config_path` and `platform` so the code
+can build the same paths. The permission prompt names the whole home or
+settings folder in bold.
 
 ### Packages
 
@@ -437,11 +462,12 @@ action; prefer `secondary-shift-…` combinations.
 | `frontmost_application()`, `applications()`                                    | The application that was in front (`{ name, path }`, or `null`), and a promise of every installed one                         |
 | `copy(text)`, `paste(text)`                                                     | Copies, or pastes into the frontmost application                                                                             |
 | `launch_command(name, arguments?, context?)`                                    | Opens another command, as `Action.launch` does; it reads any JSON `context` as `launch().context`                            |
-| `environment()`                                                                 | `{ appearance, locale, launcher_version, development, assets_path, support_path }`                                          |
+| `environment()`                                                                 | `{ appearance, locale, launcher_version, development, assets_path, support_path, home_path, config_path, platform }` |
 | `cache_get(key)`, `cache_set(key, value)`, `cache_remove(key)`, `cache_clear()` | This extension's JSON cache, up to 10 MB                                                                                     |
 | `update_command_metadata({ subtitle })`                                         | Changes how the root search shows this command; `null` restores the manifest's                                               |
 | `oauth_authorize({ provider, authorize_url, token_url, client_id, scope?, extra_parameters? })` | Signs in with OAuth 2.0 (authorization code with PKCE) in the browser and keeps the tokens in the system keychain; answers a promise of `{ access_token, refresh_token?, expires_at?, is_expired, … }`. `token_url` must be allowed for POST by the extension's network grant |
-| `oauth_tokens(provider)`, `oauth_refresh(client)`, `oauth_remove_tokens(provider)` | The kept tokens or `null`; new tokens from the refresh token; signing out                                                    |
+| `oauth_tokens(provider)`, `oauth_refresh(client)`, `oauth_remove_tokens(provider)` | The kept tokens or `null`; new tokens from the refresh token; signing out. `redirect_port` fixes the loopback port for a provider that matches the redirect exactly |
+| `sql_query(path, sql, parameters?)`                                             | A promise of the rows of a read-only query on an SQLite database inside an `fs.read` grant, such as an editor's recent projects; read from a copy, so the application holding it is not disturbed |
 
 Keep data that must survive in `localStorage`; keep what can be fetched again
 in the cache. The clipboard is GPUI Shell's: `cx.read_from_clipboard()` (with a

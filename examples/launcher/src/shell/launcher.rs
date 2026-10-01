@@ -171,6 +171,18 @@ pub fn extensions_page(
     host.extensions_page(window, cx)
 }
 
+/// Builds the Extension Store page, reading the listing from the store the
+/// settings name.
+pub fn store_page(_: &mut Window, cx: &mut App) -> anyhow::Result<crate::pages::PageHandle> {
+    let host = cx
+        .try_global::<Launcher>()
+        .map(|launcher| launcher.extensions.clone())
+        .ok_or_else(|| anyhow::anyhow!("the launcher is not running"))?;
+    let source = crate::extensions::store::StoreSource::configured(settings(cx).store_source())
+        .map_err(|error| format!("{error:#}"));
+    Ok(host.store_page(source, cx))
+}
+
 /// Builds the preferences page of a command's extension, with the command's
 /// own settings after the extension's.
 pub fn preferences_page(
@@ -248,12 +260,23 @@ pub fn start(startup: Startup, cx: &mut App) {
         &startup.extensions.data().extensions_dir(),
         &startup.bundled_extensions,
     ));
-    // Installing, updating or removing an extension changes the catalog; like
-    // any other change, it is read again the next time the launcher is shown.
+    // Installing, updating or removing an extension changes the catalog: it
+    // is read again at once, so the new commands are in the root search the
+    // user goes back to.
     startup.extensions.set_extensions_changed_handler(|cx| {
-        if cx.has_global::<Launcher>() {
-            cx.global_mut::<Launcher>().catalog_is_stale = true;
-        }
+        cx.defer(|cx| {
+            if !cx.has_global::<Launcher>() {
+                return;
+            }
+            let launcher = cx.global_mut::<Launcher>();
+            launcher.catalog = Rc::new(Catalog::discover(&launcher.roots()));
+            launcher.catalog_is_stale = false;
+            let catalog = launcher.catalog.clone();
+            if let Some(view) = launcher.window.as_ref().map(|open| open.view.clone()) {
+                view.update(cx, |view, cx| view.set_catalog(catalog, cx));
+            }
+            super::background::sync(cx);
+        });
     });
     let appearance = settings.appearance();
     cx.set_global(Launcher {

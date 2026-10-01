@@ -1,0 +1,87 @@
+{
+  "$schema": "./launcher.schema.json",
+  "icon": "music",
+  "description": "Search Spotify, see what is playing and control playback from the launcher and the tray.",
+  "author": "GPUI Kit",
+  "categories": ["Media"],
+  "commands": [
+    {
+      "name": "search",
+      "title": "Search Spotify",
+      "subtitle": "Tracks, albums, artists and playlists",
+      "icon": "search",
+      "keywords": ["music", "song", "album", "artist", "playlist", "play"],
+      "module": "commands/search.js",
+      "arguments": [{ "name": "query", "placeholder": "Song or artist" }]
+    },
+    {
+      "name": "now-playing",
+      "title": "Now Playing",
+      "subtitle": "Spotify",
+      "icon": "audio-lines",
+      "keywords": ["spotify", "music", "current track", "like", "shuffle", "repeat"],
+      "module": "commands/now-playing.js"
+    },
+    {
+      "name": "play-pause",
+      "title": "Play/Pause",
+      "subtitle": "Spotify",
+      "icon": "play",
+      "keywords": ["spotify", "music", "resume", "pause", "toggle"],
+      "module": "commands/play-pause.js",
+      "mode": "no-view"
+    },
+    {
+      "name": "next-track",
+      "title": "Next Track",
+      "subtitle": "Spotify",
+      "icon": "skip-forward",
+      "keywords": ["spotify", "music", "skip"],
+      "module": "commands/next-track.js",
+      "mode": "no-view"
+    },
+    {
+      "name": "previous-track",
+      "title": "Previous Track",
+      "subtitle": "Spotify",
+      "icon": "skip-back",
+      "keywords": ["spotify", "music", "back"],
+      "module": "commands/previous-track.js",
+      "mode": "no-view"
+    },
+    {
+      "name": "menu-bar",
+      "title": "Now Playing in Tray",
+      "subtitle": "Spotify",
+      "icon": "music",
+      "keywords": ["spotify", "menu bar", "tray"],
+      "module": "commands/menu-bar.js",
+      "mode": "menu-bar",
+      "interval": "30s"
+    },
+    {
+      "name": "sign-out",
+      "title": "Sign Out of Spotify",
+      "icon": "log-out",
+      "keywords": ["spotify", "log out", "disconnect"],
+      "module": "commands/sign-out.js",
+      "mode": "no-view"
+    }
+  ],
+  "preferences": [
+    {
+      "name": "client_id",
+      "title": "Client ID",
+      "description": "The Client ID of the app you registered at developer.spotify.com/dashboard (see the extension's README).",
+      "type": "text",
+      "required": true
+    },
+    {
+      "name": "redirect_port",
+      "title": "Redirect Port",
+      "description": "The port of the redirect URI http://127.0.0.1:<port>/callback registered for your Spotify app.",
+      "type": "text",
+      "default": "8973"
+    }
+  ]
+}

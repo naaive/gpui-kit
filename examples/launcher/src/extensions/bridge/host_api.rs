@@ -98,6 +98,8 @@ export interface OAuthClient {
   scope?: string;
   /** More query parameters of the authorize URL. */
   extra_parameters?: { [name: string]: string };
+  /** A fixed port for the `http://127.0.0.1:<port>/callback` redirect, for a provider that needs the redirect registered exactly. */
+  redirect_port?: number;
 }
 
 export interface OAuthTokens {
@@ -122,6 +124,12 @@ export interface Environment {
   assets_path: string;
   /** A directory the extension may keep files in; read and write it with `fs` under `${dataDir}`. */
   support_path: string;
+  /** The user's home directory, which `${homeDir}` grants name. */
+  home_path: string;
+  /** Where applications keep their settings (`%APPDATA%`, `~/Library/Application Support`, `~/.config`), which `${configDir}` grants name. */
+  config_path: string;
+  /** `windows`, `macos` or `linux`. */
+  platform: string;
 }
 
 /** The command this page was opened for, with its arguments and preferences. */
@@ -172,6 +180,17 @@ export function oauth_tokens(provider: string): OAuthTokens | null;
 export function oauth_refresh(client: OAuthClient): Promise<OAuthTokens>;
 /** Forgets the tokens of `provider`: signing out. */
 export function oauth_remove_tokens(provider: string): void;
+/**
+ * Runs a read-only SQL query on an SQLite database, such as another
+ * application's state, and answers its rows as objects keyed by column. The
+ * file must be inside a directory the extension may read; it is read from a
+ * copy, so an application holding it open is not disturbed.
+ */
+export function sql_query(
+  path: string,
+  sql: string,
+  parameters?: (string | number | null)[],
+): Promise<{ [column: string]: string | number | null }[]>;
 /** The launcher's appearance, locale and version. */
 export function environment(): Environment;
 /** A value this extension cached, or `null`. */
@@ -470,6 +489,16 @@ impl ExtensionContext {
             .field("development", self.is_development())
             .field("assets_path", path_text(&self.0.root.borrow()))
             .field("support_path", path_text(&self.0.data_directory.borrow()))
+            .field("home_path", path_text(&gpui_shell::plugin::home_dir()))
+            .field("config_path", path_text(&gpui_shell::plugin::config_dir()))
+            .field(
+                "platform",
+                match std::env::consts::OS {
+                    "windows" => "windows",
+                    "macos" => "macos",
+                    _ => "linux",
+                },
+            )
             .into()
     }
 
@@ -535,6 +564,24 @@ impl ExtensionContext {
         };
         let provider = required("provider")?;
         let token_url = url("token_url")?;
+        let redirect_port = match fields
+            .iter()
+            .find(|(key, _)| key == "redirect_port")
+            .map(|(_, value)| value)
+        {
+            None | Some(HostValue::Null) => None,
+            Some(HostValue::Number(port))
+                if (1.0..=65535.0).contains(port) && port.fract() == 0.0 =>
+            {
+                Some(*port as u16)
+            }
+            Some(other) => {
+                return Err(HostError::new(format!(
+                    "{function}: `redirect_port` must be a port number, not {}",
+                    other.describe()
+                )));
+            }
+        };
         let allowed = self.0.capabilities.borrow().may_request(
             token_url.scheme(),
             token_url.host_str().unwrap_or_default(),
@@ -579,6 +626,7 @@ impl ExtensionContext {
                 client_id: required("client_id")?,
                 scope: text("scope")?,
                 extra,
+                redirect_port,
             },
         ))
     }
@@ -769,8 +817,7 @@ fn module(context: ContextSource) -> HostModule {
         asynchronous("selected_files", |_, _| {
             let window = crate::window_layout::frontmost();
             Ok(Box::pin(async move {
-                let files =
-                    smol::unblock(move || crate::file_manager::selected_files(window)).await;
+                let files = crate::file_manager::selected_files(window);
                 Ok(HostValue::Array(
                     files
                         .iter()
@@ -781,12 +828,9 @@ fn module(context: ContextSource) -> HostModule {
         }),
         asynchronous("applications", |_, _| {
             Ok(Box::pin(async move {
-                let applications = smol::unblock(|| {
-                    crate::sources::applications::scan(
-                        &crate::sources::applications::default_directories(),
-                    )
-                })
-                .await;
+                let applications = crate::sources::applications::scan(
+                    &crate::sources::applications::default_directories(),
+                );
                 Ok(HostValue::Array(
                     applications
                         .iter()
@@ -804,6 +848,33 @@ fn module(context: ContextSource) -> HostModule {
                 .map_err(|error| HostError::new(format!("{error:#}")))?;
             context.request(Effect::OpenUrl(url.to_string().into()));
             context.keep_tokens(provider, move || pending.finish())
+        }),
+        asynchronous("sql_query", |context, arguments| {
+            let path = PathBuf::from(arguments.string(0)?);
+            let sql = arguments.string(1)?.to_owned();
+            if !context.0.capabilities.borrow().may_read(&path) {
+                return Err(HostError::new(format!(
+                    "sql_query: `gpui-shell.json` does not allow reading {}; add its folder to \
+                     `capabilities.fs.read`",
+                    path.display()
+                )));
+            }
+            let parameters: Vec<Value> = match arguments.get(2) {
+                None | Some(HostValue::Null) => Vec::new(),
+                Some(HostValue::Array(values)) => values.iter().map(host_to_json).collect(),
+                Some(other) => {
+                    return Err(HostError::new(format!(
+                        "sql_query: parameters must be an array, not {}",
+                        other.describe()
+                    )));
+                }
+            };
+            Ok(Box::pin(async move {
+                // Already on GPUI's background executor, which may block.
+                let rows = super::sql::query(&path, &sql, &parameters)
+                    .map_err(|error| HostError::new(format!("sql_query: {error:#}")))?;
+                Ok(HostValue::Array(rows.iter().map(json_to_host).collect()))
+            }))
         }),
         asynchronous("oauth_refresh", |context, arguments| {
             let (provider, client) = context.oauth_client("oauth_refresh", arguments.value(0)?)?;

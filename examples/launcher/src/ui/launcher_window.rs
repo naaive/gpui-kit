@@ -58,6 +58,8 @@ pub struct LauncherWindow {
     input: Entity<InputState>,
     pub(super) navigator: Navigator,
     catalog: Rc<Catalog>,
+    /// The root search, which lists the catalog's commands.
+    root_page: gpui_kit::WeakEntity<RootSearchPage>,
     extensions: Rc<ExtensionHost>,
     pub(super) list_scroll: VirtualListScrollHandle,
     pub(super) detail_scroll: ScrollHandle,
@@ -133,6 +135,7 @@ impl LauncherWindow {
             },
             cx,
         );
+        let root_page = root.downgrade();
         let root_entry = Self::entry(pages::handle(root), cx);
         let this = cx.entity().downgrade();
         let own_window = window.window_handle();
@@ -184,6 +187,7 @@ impl LauncherWindow {
             input,
             navigator: Navigator::new(root_entry),
             catalog,
+            root_page,
             extensions,
             list_scroll: VirtualListScrollHandle::new(),
             detail_scroll: ScrollHandle::new(),
@@ -991,6 +995,16 @@ impl LauncherWindow {
         });
     }
 
+    /// Lists the commands of `catalog` from now on, as after an extension was
+    /// installed or removed, without leaving the page that is open.
+    pub fn set_catalog(&mut self, catalog: Rc<Catalog>, cx: &mut Context<Self>) {
+        self.root_page
+            .update(cx, |root, cx| root.set_catalog(&catalog, cx))
+            .ok();
+        self.catalog = catalog;
+        cx.notify();
+    }
+
     /// The request that opened the lowest page of `extension` on the stack,
     /// if one is open: reloading the extension opens it again.
     pub fn open_request_of(&self, extension: &str, cx: &gpui_kit::App) -> Option<LaunchRequest> {
@@ -1673,16 +1687,17 @@ mod tests {
             rows(&launcher, &mut cx),
             [
                 "# Extensions",
-                ">com.gpui-kit.emoji/search-emoji:Command",
-                "com.gpui-kit.github/search-repositories:Command",
+                ">com.gpui-kit.github/search-repositories:Command",
+                "com.gpui-kit.github/my-pull-requests:Command",
+                "com.gpui-kit.github/my-issues:Command",
+                "com.gpui-kit.github/notifications:Command",
+                "com.gpui-kit.github/unread-notifications:Menu Bar",
                 "com.gpui-kit.links/links:Command",
                 "com.gpui-kit.links/checklist:Command",
                 "com.gpui-kit.links/search-docs:Command",
                 "com.gpui-kit.links/copy-date:Command",
                 "com.gpui-kit.links/tray-links:Menu Bar",
                 "com.gpui-kit.links/weekend:Background",
-                "com.gpui-kit.notes/search-notes:Command",
-                "com.gpui-kit.notes/create-note:Command",
                 "# System",
                 "system/search-files:Command",
                 "system/create-quicklink:Command",
@@ -1697,6 +1712,7 @@ mod tests {
                 "system/toggle-appearance:Command",
                 "system/settings:Command",
                 "system/extensions:Command",
+                "system/store:Command",
                 "system/quit:Command",
             ]
         );

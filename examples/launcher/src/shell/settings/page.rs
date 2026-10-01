@@ -199,6 +199,25 @@ impl Page for SettingsPage {
                     ),
                 )
                 .with_field(
+                    self.with_error(
+                        Field::new(
+                            field::STORE_SOURCE,
+                            "Extension Store",
+                            Control::Text {
+                                placeholder: Some(crate::extensions::store::DEFAULT_SOURCE.into()),
+                                value: self.text(
+                                    field::STORE_SOURCE,
+                                    settings.store_source().unwrap_or_default().to_owned(),
+                                ),
+                            },
+                        )
+                        .with_info(
+                            "Where the store lists extensions from: owner/repo@branch/folder \
+                             on GitHub, or a folder on this computer.",
+                        ),
+                    ),
+                )
+                .with_field(
                     Field::new(
                         field::CLIPBOARD_HISTORY,
                         "Clipboard history",

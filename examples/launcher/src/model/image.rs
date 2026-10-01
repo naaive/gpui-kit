@@ -31,6 +31,11 @@ impl Image {
         if value.starts_with("https://") || value.starts_with("http://") {
             return Self::Url(value.to_owned().into());
         }
+        // An emoji or symbol, such as a Notion page's icon: Lucide names and
+        // paths are ASCII.
+        if !value.is_ascii() && !value.contains(['/', '\\', '.']) {
+            return Self::Glyph(value.to_owned().into());
+        }
         let is_file = value.contains('/')
             || value.contains('\\')
             || [".png", ".jpg", ".jpeg", ".svg", ".gif", ".webp"]
@@ -84,6 +89,7 @@ mod tests {
             Image::parse("logo.SVG"),
             Image::File(PathBuf::from("logo.SVG"))
         );
+        assert_eq!(Image::parse("📝"), Image::Glyph("📝".into()));
         assert_eq!(
             Image::parse("https://example.com/a.png"),
             Image::Url("https://example.com/a.png".into())

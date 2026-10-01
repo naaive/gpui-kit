@@ -215,6 +215,12 @@ impl Capabilities {
         !self.read_roots.is_empty()
     }
 
+    /// Whether `path` is inside a directory this grant lets the script read,
+    /// for a host that reads a file on the script's behalf.
+    pub fn may_read(&self, path: &Path) -> bool {
+        self.open(path, Access::Read).is_ok()
+    }
+
     pub fn may_run(&self, command: &str) -> bool {
         match &self.execute {
             ExecuteGrant::Denied => false,

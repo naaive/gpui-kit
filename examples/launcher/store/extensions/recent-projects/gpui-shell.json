@@ -1,0 +1,26 @@
+{
+  "id": "com.gpui-kit.recent-projects",
+  "name": "Recent Projects",
+  "version": "1.0.0",
+  "entry": "commands/search-recent-projects.js",
+  "capabilities": {
+    "fs": {
+      "read": [
+        "${configDir}/Code/User/globalStorage",
+        "${configDir}/Code - Insiders/User/globalStorage",
+        "${configDir}/Cursor/User/globalStorage",
+        "${configDir}/VSCodium/User/globalStorage",
+        "${configDir}/Windsurf/User/globalStorage",
+        "${configDir}/JetBrains",
+        "${homeDir}/AppData/Local/Programs",
+        "${homeDir}/AppData/Local/JetBrains/Toolbox/scripts",
+        "C:/Program Files/Microsoft VS Code",
+        "C:/Program Files/Microsoft VS Code Insiders",
+        "C:/Program Files/cursor",
+        "C:/Program Files/VSCodium",
+        "C:/Program Files/Windsurf",
+        "C:/Program Files/JetBrains"
+      ]
+    }
+  }
+}

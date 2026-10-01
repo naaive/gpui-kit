@@ -1,0 +1,34 @@
+{
+  "$schema": "./launcher.schema.json",
+  "icon": "shield-check",
+  "description": "Search your Bitwarden vault, copy passwords and TOTP codes, and generate passwords with the Bitwarden CLI.",
+  "author": "GPUI Kit",
+  "categories": ["Security", "Productivity"],
+  "commands": [
+    {
+      "name": "search-vault",
+      "title": "Search Bitwarden Vault",
+      "subtitle": "Bitwarden",
+      "icon": "shield-check",
+      "keywords": ["bitwarden", "password", "login", "totp", "vault", "bw"],
+      "module": "commands/search-vault.js"
+    },
+    {
+      "name": "generate-password",
+      "title": "Generate Password",
+      "subtitle": "Bitwarden",
+      "icon": "dices",
+      "keywords": ["bitwarden", "password", "passphrase", "random", "bw"],
+      "module": "commands/generate-password.js"
+    },
+    {
+      "name": "lock-vault",
+      "title": "Lock Bitwarden Vault",
+      "subtitle": "Bitwarden",
+      "icon": "lock",
+      "keywords": ["bitwarden", "lock", "bw"],
+      "module": "commands/lock-vault.js",
+      "mode": "no-view"
+    }
+  ]
+}

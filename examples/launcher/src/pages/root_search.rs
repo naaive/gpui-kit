@@ -559,6 +559,14 @@ impl RootSearchPage {
         self.invalidate(cx);
     }
 
+    /// Lists the commands of another catalog, after an extension was
+    /// installed or removed.
+    pub fn set_catalog(&mut self, catalog: &Catalog, cx: &mut Context<Self>) {
+        self.extensions = Collection::new(&ExtensionCommands::new(catalog));
+        self.fallbacks = FallbackCommand::from_catalog(catalog);
+        self.invalidate(cx);
+    }
+
     fn invalidate(&mut self, cx: &mut Context<Self>) {
         self.list = None;
         cx.notify();
@@ -891,16 +899,17 @@ mod tests {
                 "app:/apps/Safari",
                 "app:/apps/Terminal",
                 "# Extensions",
-                "com.gpui-kit.emoji/search-emoji",
                 "com.gpui-kit.github/search-repositories",
+                "com.gpui-kit.github/my-pull-requests",
+                "com.gpui-kit.github/my-issues",
+                "com.gpui-kit.github/notifications",
+                "com.gpui-kit.github/unread-notifications",
                 "com.gpui-kit.links/links",
                 "com.gpui-kit.links/checklist",
                 "com.gpui-kit.links/search-docs",
                 "com.gpui-kit.links/copy-date",
                 "com.gpui-kit.links/tray-links",
                 "com.gpui-kit.links/weekend",
-                "com.gpui-kit.notes/search-notes",
-                "com.gpui-kit.notes/create-note",
                 "# System",
                 "system/search-files",
                 "system/create-quicklink",
@@ -915,6 +924,7 @@ mod tests {
                 "system/toggle-appearance",
                 "system/settings",
                 "system/extensions",
+                "system/store",
                 "system/quit",
             ]
         );

@@ -22,6 +22,8 @@ use super::paths::{read_json, write_json};
 
 const PLUGIN_DIR: &str = "${pluginDir}";
 const DATA_DIR: &str = "${dataDir}";
+const HOME_DIR: &str = "${homeDir}";
+const CONFIG_DIR: &str = "${configDir}";
 
 /// How much a capability deserves the user's attention.
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -326,7 +328,7 @@ impl RequestedCapabilities {
             paths
                 .iter()
                 .filter(|path| allowed(format!("fs.{field}:{path}")))
-                .map(|path| expand(path, plugin_dir, data_dir))
+                .filter_map(|path| gpui_shell::plugin::expand(path, plugin_dir, data_dir))
                 .collect()
         };
         let execute = match &request.fs.execute {
@@ -406,23 +408,15 @@ fn describe_path(path: &str) -> String {
     match path {
         PLUGIN_DIR => "its own folder".to_owned(),
         DATA_DIR => "its data folder".to_owned(),
+        HOME_DIR => "**your whole home folder**".to_owned(),
+        CONFIG_DIR => "**every application's settings folder**".to_owned(),
         path => format!(
             "`{}`",
             path.replace(PLUGIN_DIR, "<extension>")
                 .replace(DATA_DIR, "<data>")
+                .replace(HOME_DIR, "~")
+                .replace(CONFIG_DIR, "<settings>")
         ),
-    }
-}
-
-fn expand(raw: &str, plugin_dir: &Path, data_dir: &Path) -> PathBuf {
-    let expanded = raw
-        .replace(PLUGIN_DIR, &plugin_dir.to_string_lossy())
-        .replace(DATA_DIR, &data_dir.to_string_lossy());
-    let path = PathBuf::from(expanded);
-    if path.is_absolute() {
-        path
-    } else {
-        plugin_dir.join(path)
     }
 }
 
