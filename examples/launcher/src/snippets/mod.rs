@@ -235,7 +235,13 @@ pub fn set_expansion(enabled: bool, cx: &mut App) {
                         .cloned()
                 })
             });
-            if let Some(snippet) = snippet {
+            // Applications the user excluded keep what was typed.
+            let excluded = crate::switch_windows::frontmost_application().is_some_and(|app| {
+                cx.update(|cx| crate::shell::launcher::settings(cx).is_snippet_ignored(&app))
+            });
+            if let Some(snippet) = snippet
+                && !excluded
+            {
                 expand(&snippet, &keyword, cx).await;
             }
         }

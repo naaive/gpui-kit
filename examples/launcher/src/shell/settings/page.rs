@@ -6,7 +6,7 @@ use gpui_kit::{
     },
 };
 
-use super::{Appearance, FieldErrors, RETENTION_DAYS, field, from_form};
+use super::{Appearance, FieldErrors, RETENTION_DAYS, WINDOW_GAPS, field, from_form};
 use crate::{
     model::{
         Action, ActionPanel, Choice, Control, Effect, Field, FormHandler, FormModel, FormValue,
@@ -174,6 +174,20 @@ impl Page for SettingsPage {
                     .with_info("Content a password manager marks as private is never recorded."),
                 )
                 .with_field(
+                    Field::new(
+                        field::CLIPBOARD_IGNORED_APPS,
+                        "Ignore copies from",
+                        Control::Text {
+                            placeholder: Some("keepass, 1password".into()),
+                            value: self.text(
+                                field::CLIPBOARD_IGNORED_APPS,
+                                settings.clipboard_ignored_apps().join(", "),
+                            ),
+                        },
+                    )
+                    .with_info("Applications by program name, separated by commas."),
+                )
+                .with_field(
                     self.with_error(Field::new(
                         field::CLIPBOARD_RETENTION,
                         "Keep clipboard history for",
@@ -222,6 +236,82 @@ impl Page for SettingsPage {
                         "Available on Windows."
                     }),
                 )
+                .with_field(
+                    Field::new(
+                        field::SNIPPET_IGNORED_APPS,
+                        "Don’t expand snippets in",
+                        Control::Text {
+                            placeholder: Some("code, windowsterminal".into()),
+                            value: self.text(
+                                field::SNIPPET_IGNORED_APPS,
+                                settings.snippet_ignored_apps().join(", "),
+                            ),
+                        },
+                    )
+                    .with_info("Applications by program name, separated by commas."),
+                )
+                .with_field(
+                    self.with_error(
+                        Field::new(
+                            field::CALENDAR_FEEDS,
+                            "Calendars",
+                            Control::TextArea {
+                                placeholder: Some(
+                                    "https://calendar.google.com/calendar/ical/…/basic.ics".into(),
+                                ),
+                                value: self.text(
+                                    field::CALENDAR_FEEDS,
+                                    settings.calendar_feeds().join("\n"),
+                                ),
+                            },
+                        )
+                        .with_info(
+                            "One iCal address or .ics file per line, for My Schedule. Google \
+                             Calendar: Settings → Integrate calendar → Secret address in iCal \
+                             format. Outlook: Settings → Calendar → Shared calendars → Publish.",
+                        ),
+                    ),
+                )
+                .with_field(
+                    self.with_error(Field::new(
+                        field::WINDOW_GAP,
+                        "Window gap",
+                        Control::Dropdown {
+                            choices: WINDOW_GAPS
+                                .iter()
+                                .map(|(gap, title)| Choice::new(gap.to_string(), *title))
+                                .collect(),
+                            value: Some(
+                                match self.draft.as_ref().and_then(|d| d.get(field::WINDOW_GAP)) {
+                                    Some(FormValue::Text(gap)) => gap.clone(),
+                                    _ => settings.window_gap().to_string().into(),
+                                },
+                            ),
+                        },
+                    )),
+                )
+                .with_fields(crate::hyper_key::is_supported().then(|| {
+                    self.with_error(Field::new(
+                        field::HYPER_KEY,
+                        "Hyper Key",
+                        Control::Dropdown {
+                            choices: crate::hyper_key::HyperKey::ALL
+                                .into_iter()
+                                .map(|key| Choice::new(key.value(), key.title()))
+                                .collect(),
+                            value: Some(
+                                match self.draft.as_ref().and_then(|d| d.get(field::HYPER_KEY)) {
+                                    Some(FormValue::Text(value)) => value.clone(),
+                                    _ => settings.hyper_key().value().into(),
+                                },
+                            ),
+                        },
+                    ))
+                    .with_info(
+                        "Holding Caps Lock presses Ctrl+Shift+Alt+Win, for hotkeys such \
+                             as hyper-k.",
+                    )
+                }))
                 .with_actions(
                     ActionPanel::new().with_action(Action::new("Save", Effect::SubmitForm(submit))),
                 ),

@@ -32,7 +32,8 @@ arithmetic (`2^10`), units (`5 km to mi`, `100 f in c`, `1.5 GB in MiB`),
 percentages (`20% of 150`, `80 - 15%`), number bases (`255 in hex`), currencies
 (`100 usd to twd`, `€25 in yen`; daily rates from open.er-api.com, cached for a
 day), time zones (`time in tokyo`, `5pm pst to taipei`) and dates (`days until
-christmas`, `today + 30 days`), and ends with "Use “…” with…" for a web search,
+christmas`, `today + 30 days`), shows a typed color (`#f80`, `rgb(255 136 0)`,
+`hsl(32 100% 50%)`) in every notation, and ends with "Use “…” with…" for a web search,
 every fallback command and every quicklink that takes one argument.
 
 Every root item can be customized from its actions (`Cmd/Ctrl-K`): **Add to
@@ -40,18 +41,33 @@ Favorites** (favorites lead the empty search), **Set Alias…** (typing the alia
 puts the item first), **Set Hotkey…** (a system-wide shortcut that opens it) and
 **Copy Deeplink**.
 
+Quicklinks and snippets fill in `{selection}` with the text selected in the
+application that was in front when the launcher opened (read through the
+accessibility API, so nothing is typed into it). With **Hyper Key** on in
+Settings, holding Caps Lock is Ctrl+Shift+Alt+Win, for hotkeys such as
+`hyper-k`; a quick press stays Caps Lock, becomes Esc, or does nothing.
+
 ### Built-in commands
 
 | Command                                     | Does                                                                                                                                          |
 | ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| Clipboard History                           | Text, links, colors, images and files you copied, by day, with a preview; paste or copy again, pin, delete. Private copies are never recorded |
+| Clipboard History                           | Text, links, colors, images and files you copied, by day, with a preview; paste or copy again, pin, delete. Private copies are never recorded, nor copies from applications you exclude (password managers by default); text in copied images is recognized and searchable (Windows) |
 | Search Files                                | Files and folders in your home folder by name, recent files with nothing typed, a preview of text and images                                  |
 | Create Quicklink, Search Quicklinks         | Saved links and paths, opened from the search; `{argument}`, `{clipboard}`, `{date}` and `{time}` are filled in when one opens                |
-| Create Snippet, Search Snippets             | Saved text to paste, with the same placeholders; a keyword puts it first, and can expand as you type anywhere (Windows, opt-in in Settings)   |
+| Create Snippet, Search Snippets             | Saved text to paste, with the same placeholders; a keyword puts it first, and can expand as you type anywhere (Windows, opt-in in Settings, except in applications you list)   |
+| Search Emoji & Symbols                      | Every emoji by name and shortcode, with a skin tone chosen once, and arrows, math, currency, keyboard and box-drawing symbols; recently used first |
+| Switch Windows                              | Every open window, front to back, to switch to, minimize or close (Windows)                                                                    |
+| Pick Color, Search Colors                   | A magnifier beside the pointer; a click copies the color under it as HEX (Esc cancels, arrows nudge). Picked colors are kept to copy as HEX, RGB, HSL (Windows) |
+| Toggle Floating Notes, Create Note, Search Notes | Markdown notes in a small window above the others, saved as you type; searched and previewed from the launcher                         |
+| My Schedule                                 | Events of the calendars you subscribe to by iCal address (Google Calendar, Outlook) for the next two weeks; a meeting about to start is offered in the root search to join |
+| Start Focus Session                         | A goal and a length; social media, video, news, games, chat or your own apps and sites are minimized while it runs, websites read from the browser's address bar (Windows) |
+| Search Screenshots                          | Screenshots in the Screenshots folder, newest first, found by the text in them (Windows)                                                       |
+| Change Theme                                | GPUI Kit's themes, and your own from the `themes` folder, one for light and one for dark appearance                                            |
+| Export Settings & Data, Import…             | Everything but the clipboard history in one JSON file, imported elsewhere without a restart                                                    |
 | Create Script Command                       | Scripts in the script commands folder become commands; Raycast's `@raycast.title`, `mode`, `icon` and `argument1…3` comments are understood   |
 | Search Processes                            | Running programs with CPU and memory, to quit or force quit                                                                                   |
 | Search Bookmarks                            | Bookmarks of Chrome, Edge, Brave, Vivaldi and Chromium                                                                                        |
-| Left Half, Maximize, Center, Next Display…  | Window Management for the window that was in front (Windows)                                                                                  |
+| Left Half, Maximize, Center, Next Display…  | Window Management for the window that was in front: halves (pressed again: two thirds, then one third), thirds, fourths, sixths, quarters, moving to an edge, larger and smaller, other displays, restore, and layouts of your own; a gap between windows in Settings (Windows) |
 | Display Settings, Sound Settings…           | Pages of the system settings (Windows)                                                                                                        |
 
 ### From the command line
@@ -78,6 +94,9 @@ Under the platform data directory (for example
 Support/gpui-kit-launcher` on macOS): `settings.json`, `usage.json` (ranking),
 `permissions.json`, `preferences.json`, `quicklinks.json`, `snippets.json`,
 `customizations.json` (aliases, favorites, hotkeys), `currency-rates.json`,
+`colors.json`, `emoji.json`, `focus.json`, `window-layouts.json`, `notes/`
+(one Markdown file per note), `calendars/` (cached feeds),
+`screenshot-text.json`, `themes/` (your own themes),
 `clipboard/` (the clipboard
 history and copied images), `script-commands/`, and `extensions/` for extensions
 installed from Git. Password preferences go to the system keychain; where none

@@ -54,7 +54,8 @@ fn item(command: &ScriptCommand) -> Item {
         {
             Image::Icon(icon.clone().into())
         }
-        // An emoji or anything else the icon set cannot draw.
+        // An emoji, or a few characters.
+        Some(icon) if icon.chars().count() <= 2 => Image::Glyph(icon.clone().into()),
         _ => Image::Icon("square-terminal".into()),
     };
     let run = command.clone();

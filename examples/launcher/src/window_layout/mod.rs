@@ -6,6 +6,7 @@
 //! frontmost window, its display's usable area, and sets the frame. Windows
 //! is supported; elsewhere the commands are not offered.
 
+mod custom;
 #[cfg(target_os = "windows")]
 mod windows;
 
@@ -47,6 +48,25 @@ impl Frame {
         Self::new(self.x, top, self.width, bottom - top)
     }
 
+    /// `self` with `amount` pixels taken off every side.
+    fn inset(self, amount: i32) -> Self {
+        let amount = amount.max(0).min(self.width / 4).min(self.height / 4);
+        Self::new(
+            self.x + amount,
+            self.y + amount,
+            self.width - 2 * amount,
+            self.height - 2 * amount,
+        )
+    }
+
+    /// Whether `other` is `self`, give or take a few pixels.
+    fn is_near(self, other: Self) -> bool {
+        (self.x - other.x).abs() <= SAME_FRAME
+            && (self.y - other.y).abs() <= SAME_FRAME
+            && (self.width - other.width).abs() <= SAME_FRAME
+            && (self.height - other.height).abs() <= SAME_FRAME
+    }
+
     /// A `width` × `height` frame centered in `self`, no larger than it.
     fn centered(self, width: i32, height: i32) -> Self {
         let (width, height) = (width.min(self.width), height.min(self.height));
@@ -85,10 +105,47 @@ pub enum Layout {
     NextDisplay,
     PreviousDisplay,
     Minimize,
+    FirstFourth,
+    SecondFourth,
+    ThirdFourth,
+    LastFourth,
+    TopLeftSixth,
+    TopCenterSixth,
+    TopRightSixth,
+    BottomLeftSixth,
+    BottomCenterSixth,
+    BottomRightSixth,
+    CenterHalf,
+    CenterTwoThirds,
+    MoveLeft,
+    MoveRight,
+    MoveUp,
+    MoveDown,
+    MakeLarger,
+    MakeSmaller,
+    /// A user's own layout.
+    Custom(CustomFrame),
 }
 
+/// Where a custom layout puts the window, in thousandths of the display's
+/// usable area.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
+pub struct CustomFrame {
+    pub x: u16,
+    pub y: u16,
+    pub width: u16,
+    pub height: u16,
+}
+
+/// How much Make Larger and Make Smaller change each side, as a fraction of
+/// the usable area.
+const RESIZE_STEP: f32 = 0.05;
+/// Frames this close are the same frame, for cycling: windows round their
+/// sizes to their own increments.
+const SAME_FRAME: i32 = 12;
+
 impl Layout {
-    pub const ALL: [Self; 23] = [
+    pub const ALL: [Self; 41] = [
         Self::LeftHalf,
         Self::RightHalf,
         Self::TopHalf,
@@ -112,6 +169,24 @@ impl Layout {
         Self::NextDisplay,
         Self::PreviousDisplay,
         Self::Minimize,
+        Self::FirstFourth,
+        Self::SecondFourth,
+        Self::ThirdFourth,
+        Self::LastFourth,
+        Self::TopLeftSixth,
+        Self::TopCenterSixth,
+        Self::TopRightSixth,
+        Self::BottomLeftSixth,
+        Self::BottomCenterSixth,
+        Self::BottomRightSixth,
+        Self::CenterHalf,
+        Self::CenterTwoThirds,
+        Self::MoveLeft,
+        Self::MoveRight,
+        Self::MoveUp,
+        Self::MoveDown,
+        Self::MakeLarger,
+        Self::MakeSmaller,
     ];
 
     fn id(self) -> &'static str {
@@ -139,6 +214,25 @@ impl Layout {
             Self::NextDisplay => "next-display",
             Self::PreviousDisplay => "previous-display",
             Self::Minimize => "minimize",
+            Self::FirstFourth => "first-fourth",
+            Self::SecondFourth => "second-fourth",
+            Self::ThirdFourth => "third-fourth",
+            Self::LastFourth => "last-fourth",
+            Self::TopLeftSixth => "top-left-sixth",
+            Self::TopCenterSixth => "top-center-sixth",
+            Self::TopRightSixth => "top-right-sixth",
+            Self::BottomLeftSixth => "bottom-left-sixth",
+            Self::BottomCenterSixth => "bottom-center-sixth",
+            Self::BottomRightSixth => "bottom-right-sixth",
+            Self::CenterHalf => "center-half",
+            Self::CenterTwoThirds => "center-two-thirds",
+            Self::MoveLeft => "move-left",
+            Self::MoveRight => "move-right",
+            Self::MoveUp => "move-up",
+            Self::MoveDown => "move-down",
+            Self::MakeLarger => "make-larger",
+            Self::MakeSmaller => "make-smaller",
+            Self::Custom(_) => "custom",
         }
     }
 
@@ -167,6 +261,25 @@ impl Layout {
             Self::NextDisplay => "Next Display",
             Self::PreviousDisplay => "Previous Display",
             Self::Minimize => "Minimize",
+            Self::FirstFourth => "First Fourth",
+            Self::SecondFourth => "Second Fourth",
+            Self::ThirdFourth => "Third Fourth",
+            Self::LastFourth => "Last Fourth",
+            Self::TopLeftSixth => "Top Left Sixth",
+            Self::TopCenterSixth => "Top Center Sixth",
+            Self::TopRightSixth => "Top Right Sixth",
+            Self::BottomLeftSixth => "Bottom Left Sixth",
+            Self::BottomCenterSixth => "Bottom Center Sixth",
+            Self::BottomRightSixth => "Bottom Right Sixth",
+            Self::CenterHalf => "Center Half",
+            Self::CenterTwoThirds => "Center Two Thirds",
+            Self::MoveLeft => "Move Left",
+            Self::MoveRight => "Move Right",
+            Self::MoveUp => "Move Up",
+            Self::MoveDown => "Move Down",
+            Self::MakeLarger => "Make Larger",
+            Self::MakeSmaller => "Make Smaller",
+            Self::Custom(_) => "Custom Layout",
         }
     }
 
@@ -187,39 +300,155 @@ impl Layout {
             Self::NextDisplay => "monitor",
             Self::PreviousDisplay => "monitor",
             Self::Minimize => "minimize",
+            Self::FirstFourth | Self::SecondFourth | Self::ThirdFourth | Self::LastFourth => {
+                "columns-4"
+            }
+            Self::TopLeftSixth
+            | Self::TopCenterSixth
+            | Self::TopRightSixth
+            | Self::BottomLeftSixth
+            | Self::BottomCenterSixth
+            | Self::BottomRightSixth => "grid-3x2",
+            Self::CenterHalf | Self::CenterTwoThirds => "columns-3",
+            Self::MoveLeft => "arrow-left-to-line",
+            Self::MoveRight => "arrow-right-to-line",
+            Self::MoveUp => "arrow-up-to-line",
+            Self::MoveDown => "arrow-down-to-line",
+            Self::MakeLarger => "maximize-2",
+            Self::MakeSmaller => "minimize-2",
+            Self::Custom(_) => "layout-template",
         }
     }
 
     /// Where the window goes on a display whose usable area is `area`, given
-    /// its current frame. `None` for layouts that are not a frame on the
-    /// current display.
-    pub fn frame(self, window: Frame, area: Frame) -> Option<Frame> {
+    /// its current frame, with `gap` pixels between windows and around the
+    /// edges. `None` for layouts that are not a frame on the current display.
+    ///
+    /// The halves cycle as in Raycast: asking for the half the window
+    /// already fills gives two thirds, then one third, then the half again.
+    pub fn frame(self, window: Frame, area: Frame, gap: i32) -> Option<Frame> {
+        // Tiles share the gap: half of it around each tile, inside an area
+        // inset by the other half, makes `gap` everywhere.
+        let half_gap = gap / 2;
+        let tiles = area.inset(gap - half_gap);
+        let tile = |frame: Frame| frame.inset(half_gap);
+        let cycle = |sizes: [Frame; 3]| {
+            let at = sizes
+                .iter()
+                .position(|size| tile(*size).is_near(window))
+                .map_or(0, |index| (index + 1) % sizes.len());
+            tile(sizes[at])
+        };
+        let inner = area.inset(gap);
         Some(match self {
-            Self::LeftHalf => area.columns(0., 0.5),
-            Self::RightHalf => area.columns(0.5, 1.),
-            Self::TopHalf => area.rows(0., 0.5),
-            Self::BottomHalf => area.rows(0.5, 1.),
-            Self::TopLeftQuarter => area.columns(0., 0.5).rows(0., 0.5),
-            Self::TopRightQuarter => area.columns(0.5, 1.).rows(0., 0.5),
-            Self::BottomLeftQuarter => area.columns(0., 0.5).rows(0.5, 1.),
-            Self::BottomRightQuarter => area.columns(0.5, 1.).rows(0.5, 1.),
-            Self::FirstThird => area.columns(0., 1. / 3.),
-            Self::CenterThird => area.columns(1. / 3., 2. / 3.),
-            Self::LastThird => area.columns(2. / 3., 1.),
-            Self::FirstTwoThirds => area.columns(0., 2. / 3.),
-            Self::LastTwoThirds => area.columns(1. / 3., 1.),
-            Self::Maximize => area,
+            Self::LeftHalf => cycle([
+                tiles.columns(0., 0.5),
+                tiles.columns(0., 2. / 3.),
+                tiles.columns(0., 1. / 3.),
+            ]),
+            Self::RightHalf => cycle([
+                tiles.columns(0.5, 1.),
+                tiles.columns(1. / 3., 1.),
+                tiles.columns(2. / 3., 1.),
+            ]),
+            Self::TopHalf => cycle([
+                tiles.rows(0., 0.5),
+                tiles.rows(0., 2. / 3.),
+                tiles.rows(0., 1. / 3.),
+            ]),
+            Self::BottomHalf => cycle([
+                tiles.rows(0.5, 1.),
+                tiles.rows(1. / 3., 1.),
+                tiles.rows(2. / 3., 1.),
+            ]),
+            Self::TopLeftQuarter => tile(tiles.columns(0., 0.5).rows(0., 0.5)),
+            Self::TopRightQuarter => tile(tiles.columns(0.5, 1.).rows(0., 0.5)),
+            Self::BottomLeftQuarter => tile(tiles.columns(0., 0.5).rows(0.5, 1.)),
+            Self::BottomRightQuarter => tile(tiles.columns(0.5, 1.).rows(0.5, 1.)),
+            Self::FirstThird => tile(tiles.columns(0., 1. / 3.)),
+            Self::CenterThird => tile(tiles.columns(1. / 3., 2. / 3.)),
+            Self::LastThird => tile(tiles.columns(2. / 3., 1.)),
+            Self::FirstTwoThirds => tile(tiles.columns(0., 2. / 3.)),
+            Self::LastTwoThirds => tile(tiles.columns(1. / 3., 1.)),
+            Self::FirstFourth => tile(tiles.columns(0., 0.25)),
+            Self::SecondFourth => tile(tiles.columns(0.25, 0.5)),
+            Self::ThirdFourth => tile(tiles.columns(0.5, 0.75)),
+            Self::LastFourth => tile(tiles.columns(0.75, 1.)),
+            Self::TopLeftSixth => tile(tiles.columns(0., 1. / 3.).rows(0., 0.5)),
+            Self::TopCenterSixth => tile(tiles.columns(1. / 3., 2. / 3.).rows(0., 0.5)),
+            Self::TopRightSixth => tile(tiles.columns(2. / 3., 1.).rows(0., 0.5)),
+            Self::BottomLeftSixth => tile(tiles.columns(0., 1. / 3.).rows(0.5, 1.)),
+            Self::BottomCenterSixth => tile(tiles.columns(1. / 3., 2. / 3.).rows(0.5, 1.)),
+            Self::BottomRightSixth => tile(tiles.columns(2. / 3., 1.).rows(0.5, 1.)),
+            Self::CenterHalf => tile(tiles.columns(0.25, 0.75)),
+            Self::CenterTwoThirds => tile(tiles.columns(1. / 6., 5. / 6.)),
+            Self::Maximize => inner,
             Self::AlmostMaximize => area.centered(
                 (area.width as f32 * 0.9) as i32,
                 (area.height as f32 * 0.9) as i32,
             ),
-            Self::MaximizeHeight => Frame::new(window.x, area.y, window.width, area.height),
-            Self::MaximizeWidth => Frame::new(area.x, window.y, area.width, window.height),
+            Self::MaximizeHeight => Frame::new(window.x, inner.y, window.width, inner.height),
+            Self::MaximizeWidth => Frame::new(inner.x, window.y, inner.width, window.height),
             Self::ReasonableSize => area.centered(
                 (area.width as f32 * 0.6) as i32,
                 (area.height as f32 * 0.7) as i32,
             ),
             Self::Center => area.centered(window.width, window.height),
+            Self::MoveLeft => Frame::new(
+                inner.x,
+                window.y,
+                window.width.min(inner.width),
+                window.height,
+            ),
+            Self::MoveRight => {
+                let width = window.width.min(inner.width);
+                Frame::new(
+                    inner.x + inner.width - width,
+                    window.y,
+                    width,
+                    window.height,
+                )
+            }
+            Self::MoveUp => Frame::new(
+                window.x,
+                inner.y,
+                window.width,
+                window.height.min(inner.height),
+            ),
+            Self::MoveDown => {
+                let height = window.height.min(inner.height);
+                Frame::new(
+                    window.x,
+                    inner.y + inner.height - height,
+                    window.width,
+                    height,
+                )
+            }
+            Self::MakeLarger | Self::MakeSmaller => {
+                let sign = match self {
+                    Self::MakeLarger => 1.,
+                    _ => -1.,
+                };
+                let dx = (area.width as f32 * RESIZE_STEP * sign) as i32;
+                let dy = (area.height as f32 * RESIZE_STEP * sign) as i32;
+                let width = (window.width + 2 * dx).clamp(200.min(inner.width), inner.width);
+                let height = (window.height + 2 * dy).clamp(150.min(inner.height), inner.height);
+                let x = (window.x - (width - window.width) / 2)
+                    .clamp(inner.x, inner.x + inner.width - width);
+                let y = (window.y - (height - window.height) / 2)
+                    .clamp(inner.y, inner.y + inner.height - height);
+                Frame::new(x, y, width, height)
+            }
+            Self::Custom(custom) => {
+                let part = |value: u16| f32::from(value.min(1000)) / 1000.;
+                let left = part(custom.x);
+                let top = part(custom.y);
+                tile(
+                    tiles
+                        .columns(left, (left + part(custom.width)).min(1.))
+                        .rows(top, (top + part(custom.height)).min(1.)),
+                )
+            }
             Self::Restore | Self::NextDisplay | Self::PreviousDisplay | Self::Minimize => {
                 return None;
             }
@@ -227,15 +456,19 @@ impl Layout {
     }
 
     fn item(self) -> Item {
-        Item::new(ItemId::new(format!("window/{}", self.id())), self.title())
+        self.item_with(format!("window/{}", self.id()), self.title().to_owned())
             .with_subtitle("Window Management")
+    }
+
+    fn item_with(self, id: String, title: String) -> Item {
+        Item::new(ItemId::new(id), title.clone())
             .with_icon(self.icon())
             .with_accessory(Accessory::text("Command"))
             .with_keyword("window")
             .with_keyword("snap")
             .with_keyword("resize")
             .with_action(Action::new(
-                self.title(),
+                title,
                 Effect::Run(RunHandler::new(move |(), _, cx| run(self, cx))),
             ))
     }
@@ -243,10 +476,28 @@ impl Layout {
 
 /// The Window Management commands this platform supports.
 pub fn commands() -> Vec<Item> {
-    match is_supported() {
-        true => Layout::ALL.into_iter().map(Layout::item).collect(),
-        false => Vec::new(),
+    if !is_supported() {
+        return Vec::new();
     }
+    Layout::ALL
+        .into_iter()
+        .map(Layout::item)
+        .chain(custom::load().iter().map(custom::item))
+        .chain([
+            Item::new(ItemId::new("window/create-layout"), "Create Window Layout")
+                .with_subtitle("Window Management")
+                .with_icon("layout-template")
+                .with_accessory(Accessory::text("Command"))
+                .with_keyword("custom")
+                .with_keyword("window")
+                .with_action(Action::new(
+                    "Create Window Layout",
+                    Effect::Push(crate::model::PushHandler::new(|window, cx| {
+                        custom::layout_form(None, window, cx)
+                    })),
+                )),
+        ])
+        .collect()
 }
 
 fn is_supported() -> bool {
@@ -262,27 +513,28 @@ pub fn remember_frontmost() {
 
 /// Hides the launcher, then lays out the window that was in front of it.
 fn run(layout: Layout, cx: &mut App) {
+    let gap = crate::shell::launcher::settings(cx).window_gap() as i32;
     crate::shell::launcher::hide(cx);
     let executor = cx.background_executor().clone();
     cx.spawn(async move |cx| {
         // The launcher's window has to be gone first, or it is the one
         // the system brings back to the front.
         executor.timer(std::time::Duration::from_millis(120)).await;
-        if let Err(message) = apply(layout) {
+        if let Err(message) = apply(layout, gap) {
             cx.update(|cx| crate::shell::platform::show_hud(message, cx));
         }
     })
     .detach();
 }
 
-fn apply(layout: Layout) -> Result<(), SharedString> {
+fn apply(layout: Layout, gap: i32) -> Result<(), SharedString> {
     #[cfg(target_os = "windows")]
     {
-        windows::apply(layout)
+        windows::apply(layout, gap)
     }
     #[cfg(not(target_os = "windows"))]
     {
-        let _ = layout;
+        let _ = (layout, gap);
         Err("Window Management is not available here".into())
     }
 }
@@ -301,7 +553,7 @@ mod tests {
     #[test]
     fn test_halves_thirds_and_quarters_tile_the_area() {
         let window = Frame::new(300, 200, 400, 300);
-        let frame = |layout: Layout| layout.frame(window, AREA).unwrap();
+        let frame = |layout: Layout| layout.frame(window, AREA, 0).unwrap();
         assert_eq!(frame(Layout::LeftHalf), Frame::new(100, 0, 600, 900));
         assert_eq!(frame(Layout::RightHalf), Frame::new(700, 0, 600, 900));
         assert_eq!(frame(Layout::BottomHalf), Frame::new(100, 450, 1200, 450));
@@ -318,15 +570,51 @@ mod tests {
     fn test_center_keeps_the_size_within_the_area() {
         let window = Frame::new(0, 0, 400, 300);
         assert_eq!(
-            Layout::Center.frame(window, AREA),
+            Layout::Center.frame(window, AREA, 0),
             Some(Frame::new(500, 300, 400, 300))
         );
         let huge = Frame::new(0, 0, 4000, 3000);
-        assert_eq!(Layout::Center.frame(huge, AREA), Some(AREA));
+        assert_eq!(Layout::Center.frame(huge, AREA, 0), Some(AREA));
         assert_eq!(
-            Layout::MaximizeHeight.frame(window, AREA),
+            Layout::MaximizeHeight.frame(window, AREA, 0),
             Some(Frame::new(0, 0, 400, 900))
         );
-        assert_eq!(Layout::Restore.frame(window, AREA), None);
+        assert_eq!(Layout::Restore.frame(window, AREA, 0), None);
+    }
+
+    #[test]
+    fn test_halves_cycle_and_gaps_separate_tiles() {
+        let half = Layout::LeftHalf.frame(Frame::default(), AREA, 0).unwrap();
+        assert_eq!(half, Frame::new(100, 0, 600, 900));
+        let two_thirds = Layout::LeftHalf.frame(half, AREA, 0).unwrap();
+        assert_eq!(two_thirds, Frame::new(100, 0, 800, 900));
+        let third = Layout::LeftHalf.frame(two_thirds, AREA, 0).unwrap();
+        assert_eq!(third, Frame::new(100, 0, 400, 900));
+        assert_eq!(Layout::LeftHalf.frame(third, AREA, 0), Some(half));
+
+        let left = Layout::LeftHalf.frame(Frame::default(), AREA, 8).unwrap();
+        let right = Layout::RightHalf.frame(Frame::default(), AREA, 8).unwrap();
+        assert_eq!(left.x, AREA.x + 8);
+        assert_eq!(right.x - (left.x + left.width), 8);
+        assert_eq!(right.x + right.width, AREA.x + AREA.width - 8);
+        assert_eq!(Layout::Maximize.frame(left, AREA, 8).unwrap().y, 8);
+
+        let custom = Layout::Custom(CustomFrame {
+            x: 250,
+            y: 0,
+            width: 500,
+            height: 1000,
+        });
+        assert_eq!(
+            custom.frame(Frame::default(), AREA, 0),
+            Some(Frame::new(400, 0, 600, 900))
+        );
+        let window = Frame::new(500, 300, 400, 300);
+        let larger = Layout::MakeLarger.frame(window, AREA, 0).unwrap();
+        assert_eq!(larger, Frame::new(440, 255, 520, 390));
+        assert_eq!(
+            Layout::MoveRight.frame(window, AREA, 0),
+            Some(Frame::new(900, 300, 400, 300))
+        );
     }
 }

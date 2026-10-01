@@ -22,8 +22,8 @@ use crate::{
 const NAME: &str = "name";
 const TEXT: &str = "text";
 const KEYWORD: &str = "keyword";
-const PLACEHOLDER_HELP: &str = "Placeholders: {clipboard}, {date}, {time}, {datetime}, {uuid}, \
-     and {argument name=\"…\"} for text asked for when it is pasted.";
+const PLACEHOLDER_HELP: &str = "Placeholders: {clipboard}, {selection}, {date}, {time}, \
+     {datetime}, {uuid}, and {argument name=\"…\"} for text asked for when it is pasted.";
 
 fn snippet_store(cx: &App) -> Result<Entity<SnippetStore>> {
     store(cx).ok_or_else(|| anyhow!("snippets are not loaded"))

@@ -20,7 +20,8 @@ use crate::{
 const NAME: &str = "name";
 const LINK: &str = "link";
 const PLACEHOLDER_HELP: &str = "Use {argument} for text typed when it opens (name several with \
-     {argument name=\"city\"}), {clipboard} for what was copied, and {date} or {time}.";
+     {argument name=\"city\"}), {clipboard} for what was copied, {selection} for the text \
+     selected before the launcher opened, and {date} or {time}.";
 
 fn quicklink_store(cx: &App) -> Result<Entity<QuicklinkStore>> {
     store(cx).ok_or_else(|| anyhow!("quicklinks are not loaded"))

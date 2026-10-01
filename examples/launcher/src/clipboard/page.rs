@@ -90,7 +90,7 @@ impl ClipboardHistoryPage {
             })
             .filter(|entry| {
                 terms.is_empty() || {
-                    let text = entry.content().searchable_text().to_lowercase();
+                    let text = entry.searchable_text().to_lowercase();
                     terms.iter().all(|term| text.contains(term.as_str()))
                 }
             })
@@ -247,6 +247,35 @@ impl ClipboardHistoryPage {
             .with_shortcut("secondary-shift-p"),
         );
 
+        if let Some(text) = entry.recognized_text() {
+            actions = actions.with_action(
+                Action::new("Copy Text in Image", Effect::Copy(text.to_owned().into()))
+                    .with_image(Image::Icon("scan-text".into()))
+                    .with_shortcut("secondary-shift-t"),
+            );
+        }
+        if let Some(source) = entry.source() {
+            let source = source.to_owned();
+            actions = actions.with_action(
+                Action::new(
+                    format!("Ignore Copies from {source}"),
+                    Effect::Run(RunHandler::new(move |(), window, cx| {
+                        let settings = crate::shell::launcher::settings(cx)
+                            .with_clipboard_ignored_app(&source);
+                        crate::shell::launcher::update_settings(settings, window, cx).ok();
+                        crate::shell::launcher::perform(
+                            Effect::ShowToast(crate::model::Toast::new(
+                                crate::model::ToastStyle::Success,
+                                format!("Copies from {source} are no longer recorded"),
+                            )),
+                            cx,
+                        );
+                    })),
+                )
+                .with_image(Image::Icon("eye-off".into())),
+            );
+        }
+
         let id = entry.id().to_owned();
         let store = self.store.clone();
         let delete = Action::new(
@@ -368,6 +397,22 @@ fn detail(entry: &Entry) -> DetailModel {
             .with_metadata(label("Dimensions", format!("{width} × {height}")))
             .with_metadata(label("Image Size", format_bytes(*bytes))),
         Content::Files { paths } => detail.with_metadata(label("Files", paths.len().to_string())),
+    };
+    let detail = match entry.source() {
+        Some(source) => detail.with_metadata(label("Copied From", source.to_owned())),
+        None => detail,
+    };
+    let detail = match entry.recognized_text() {
+        Some(text) => detail.with_metadata(label(
+            "Text in Image",
+            text.split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ")
+                .chars()
+                .take(200)
+                .collect(),
+        )),
+        None => detail,
     };
     detail
         .with_metadata(label("Times Copied", entry.copies().to_string()))

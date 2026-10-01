@@ -263,6 +263,13 @@ pub fn start(startup: Startup, cx: &mut App) {
     launcher
         .extensions
         .set_development_directories(launcher.development_roots());
+    crate::themes::register(cx);
+    let settings = &cx.global::<Launcher>().settings;
+    let (light, dark) = (
+        settings.theme(false).map(str::to_owned),
+        settings.theme(true).map(str::to_owned),
+    );
+    crate::themes::apply(light.as_deref(), dark.as_deref(), cx);
     apply_appearance(appearance, None, cx);
 
     crate::clipboard::start(cx);
@@ -273,6 +280,9 @@ pub fn start(startup: Startup, cx: &mut App) {
     register_command_hotkeys(cx);
     let expands = cx.global::<Launcher>().settings.expands_snippets();
     crate::snippets::set_expansion(expands, cx);
+    crate::hyper_key::set(cx.global::<Launcher>().settings.hyper_key());
+    crate::calendar::start(cx);
+    crate::focus::start(cx);
     super::platform::hide_dock_icon();
     show(cx);
 }
@@ -393,11 +403,23 @@ pub fn update_settings(settings: Settings, window: &mut Window, cx: &mut App) ->
     if previous.extension_directory() != settings.extension_directory() {
         launcher.catalog_is_stale = true;
     }
+    if previous.theme(false) != settings.theme(false)
+        || previous.theme(true) != settings.theme(true)
+    {
+        crate::themes::apply(settings.theme(false), settings.theme(true), cx);
+    }
     if previous.appearance() != settings.appearance() {
         apply_appearance(settings.appearance(), Some(window), cx);
     }
     if previous.expands_snippets() != settings.expands_snippets() {
         crate::snippets::set_expansion(settings.expands_snippets(), cx);
+    }
+    if previous.calendar_feeds() != settings.calendar_feeds() {
+        let schedule = crate::calendar::schedule(cx);
+        schedule.update(cx, |schedule, cx| schedule.refresh(true, cx));
+    }
+    if previous.hyper_key() != settings.hyper_key() {
+        crate::hyper_key::set(settings.hyper_key());
     }
     Ok(())
 }
@@ -408,6 +430,56 @@ fn apply_appearance(appearance: Appearance, window: Option<&mut Window>, cx: &mu
         Appearance::Light => Theme::change(ThemeMode::Light, window, cx),
         Appearance::Dark => Theme::change(ThemeMode::Dark, window, cx),
     }
+}
+
+/// Reads settings and data again after they were replaced on disk, as an
+/// import does, and applies them without a restart.
+pub fn reload_data(cx: &mut App) {
+    if !cx.has_global::<Launcher>() {
+        return;
+    }
+    // The next summon builds a fresh window on the reloaded stores.
+    hide_now(cx);
+    close_window(cx);
+    let old_hotkeys: Vec<String> = crate::customizations::store(cx)
+        .map(|store| {
+            store
+                .read(cx)
+                .hotkeys()
+                .map(|(item, _)| item.to_owned())
+                .collect()
+        })
+        .unwrap_or_default();
+    for item in old_hotkeys {
+        cx.global_mut::<Launcher>().hotkey.unregister_command(&item);
+    }
+    let settings = cx
+        .global::<Launcher>()
+        .settings_path
+        .as_deref()
+        .and_then(|path| Settings::load(path).ok())
+        .unwrap_or_default();
+    let previous = std::mem::replace(&mut cx.global_mut::<Launcher>().settings, settings.clone());
+    if previous.summon_shortcut() != settings.summon_shortcut() {
+        cx.global_mut::<Launcher>()
+            .hotkey
+            .register(settings.summon_shortcut());
+    }
+    if previous.extension_directory() != settings.extension_directory() {
+        cx.global_mut::<Launcher>().catalog_is_stale = true;
+    }
+    crate::themes::apply(settings.theme(false), settings.theme(true), cx);
+    apply_appearance(settings.appearance(), None, cx);
+    crate::quicklinks::start(cx);
+    crate::snippets::start(cx);
+    crate::customizations::start(cx);
+    register_command_hotkeys(cx);
+    crate::snippets::set_expansion(settings.expands_snippets(), cx);
+    crate::hyper_key::set(settings.hyper_key());
+    crate::focus::reload(cx);
+    crate::notes::reload_open_note(cx);
+    let schedule = crate::calendar::schedule(cx);
+    schedule.update(cx, |schedule, cx| schedule.refresh(true, cx));
 }
 
 /// Runs `update` with the launcher window and its view, if one is open.
@@ -496,6 +568,7 @@ fn show_now(cx: &mut App) {
     // Before the launcher's window opens and takes the front. The launcher's
     // own windows are ignored, so showing it again keeps the earlier one.
     crate::window_layout::remember_frontmost();
+    crate::selection::capture();
     let launcher = cx.global_mut::<Launcher>();
     if launcher.catalog_is_stale {
         launcher.catalog = Rc::new(Catalog::discover(&launcher.roots()));

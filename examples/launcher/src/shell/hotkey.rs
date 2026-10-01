@@ -30,6 +30,8 @@ pub fn parse_shortcut(shortcut: &str) -> Result<HotKey> {
     if shortcut.contains(' ') {
         bail!("Use one key combination, not a sequence.");
     }
+    // The Hyper Key presses all four modifiers.
+    let shortcut = &shortcut.replace("hyper-", "ctrl-alt-shift-super-");
     let keystroke = Keystroke::parse(shortcut)
         .map_err(|_| anyhow!("“{shortcut}” isn't a shortcut. Use a form such as alt-space."))?;
     let modifiers = &keystroke.modifiers;

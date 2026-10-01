@@ -86,7 +86,43 @@ pub struct Settings {
     clipboard_retention_days: u32,
     /// Whether typing a snippet's keyword in any application expands it.
     snippet_expansion: bool,
+    /// Pixels Window Management leaves between windows and around them.
+    window_gap: u32,
+    /// What Caps Lock does.
+    hyper_key: crate::hyper_key::HyperKey,
+    /// Applications whose copies Clipboard History leaves out, by their
+    /// executable's name (`keepass`), in lowercase.
+    clipboard_ignored_apps: Vec<String>,
+    /// Applications snippet keywords are not expanded in, by executable
+    /// name, in lowercase.
+    snippet_ignored_apps: Vec<String>,
+    /// iCalendar feeds My Schedule shows: web addresses or `.ics` files.
+    calendar_feeds: Vec<String>,
+    /// The theme for light appearance, by name; `None` for the default.
+    light_theme: Option<String>,
+    /// The theme for dark appearance.
+    dark_theme: Option<String>,
 }
+
+/// Password managers, whose copies are left out unless the user says
+/// otherwise; most also mark their copies private.
+const PASSWORD_MANAGERS: [&str; 6] = [
+    "1password",
+    "bitwarden",
+    "keepass",
+    "keepassxc",
+    "lastpass",
+    "dashlane",
+];
+
+/// The choices for the gap between windows, in pixels.
+pub const WINDOW_GAPS: [(u32, &str); 5] = [
+    (0, "None"),
+    (4, "4 px"),
+    (8, "8 px"),
+    (12, "12 px"),
+    (16, "16 px"),
+];
 
 /// The choices for how long clipboard history is kept, in days.
 pub const RETENTION_DAYS: [(u32, &str); 6] = [
@@ -107,6 +143,13 @@ impl Default for Settings {
             clipboard_history: true,
             clipboard_retention_days: 90,
             snippet_expansion: false,
+            window_gap: 0,
+            hyper_key: crate::hyper_key::HyperKey::Off,
+            clipboard_ignored_apps: PASSWORD_MANAGERS.map(str::to_owned).to_vec(),
+            snippet_ignored_apps: Vec::new(),
+            calendar_feeds: Vec::new(),
+            light_theme: None,
+            dark_theme: None,
         }
     }
 }
@@ -150,6 +193,69 @@ impl Settings {
         self.snippet_expansion
     }
 
+    pub fn window_gap(&self) -> u32 {
+        self.window_gap
+    }
+
+    pub fn hyper_key(&self) -> crate::hyper_key::HyperKey {
+        self.hyper_key
+    }
+
+    pub fn clipboard_ignored_apps(&self) -> &[String] {
+        &self.clipboard_ignored_apps
+    }
+
+    /// Whether copies from the application `name` are left out.
+    pub fn is_clipboard_ignored(&self, name: &str) -> bool {
+        self.clipboard_ignored_apps
+            .iter()
+            .any(|ignored| ignored.eq_ignore_ascii_case(name))
+    }
+
+    /// The theme chosen for dark or light appearance.
+    pub fn theme(&self, dark: bool) -> Option<&str> {
+        match dark {
+            true => self.dark_theme.as_deref(),
+            false => self.light_theme.as_deref(),
+        }
+    }
+
+    pub fn with_theme(mut self, dark: bool, name: Option<String>) -> Self {
+        match dark {
+            true => self.dark_theme = name,
+            false => self.light_theme = name,
+        }
+        self
+    }
+
+    pub fn with_appearance_value(mut self, appearance: Appearance) -> Self {
+        self.appearance = appearance;
+        self
+    }
+
+    pub fn calendar_feeds(&self) -> &[String] {
+        &self.calendar_feeds
+    }
+
+    pub fn snippet_ignored_apps(&self) -> &[String] {
+        &self.snippet_ignored_apps
+    }
+
+    /// Whether snippet keywords typed in the application `name` stay.
+    pub fn is_snippet_ignored(&self, name: &str) -> bool {
+        self.snippet_ignored_apps
+            .iter()
+            .any(|ignored| ignored.eq_ignore_ascii_case(name))
+    }
+
+    /// These settings, with copies from `name` left out too.
+    pub fn with_clipboard_ignored_app(mut self, name: &str) -> Self {
+        if !self.is_clipboard_ignored(name) {
+            self.clipboard_ignored_apps.push(name.to_lowercase());
+        }
+        self
+    }
+
     /// Days clipboard entries are kept; `None` keeps them until deleted.
     pub fn clipboard_retention_days(&self) -> Option<u32> {
         (self.clipboard_retention_days > 0).then_some(self.clipboard_retention_days)
@@ -190,6 +296,11 @@ pub(crate) mod field {
     pub const CLIPBOARD_HISTORY: &str = "clipboard_history";
     pub const CLIPBOARD_RETENTION: &str = "clipboard_retention_days";
     pub const SNIPPET_EXPANSION: &str = "snippet_expansion";
+    pub const WINDOW_GAP: &str = "window_gap";
+    pub const HYPER_KEY: &str = "hyper_key";
+    pub const CLIPBOARD_IGNORED_APPS: &str = "clipboard_ignored_apps";
+    pub const SNIPPET_IGNORED_APPS: &str = "snippet_ignored_apps";
+    pub const CALENDAR_FEEDS: &str = "calendar_feeds";
 }
 
 /// Validation messages by field id.
@@ -265,6 +376,60 @@ pub fn from_form(values: &FormValues, current: &Settings) -> Result<Settings, Fi
         None => current.clipboard_retention_days,
     };
 
+    let window_gap = match text(field::WINDOW_GAP) {
+        Some(gap) => match gap.parse::<u32>() {
+            Ok(gap) if WINDOW_GAPS.iter().any(|(known, _)| *known == gap) => gap,
+            _ => {
+                errors.insert(field::WINDOW_GAP, "Choose a gap.".into());
+                current.window_gap
+            }
+        },
+        None => current.window_gap,
+    };
+
+    let clipboard_ignored_apps = match text(field::CLIPBOARD_IGNORED_APPS) {
+        Some(list) => parse_app_list(&list),
+        None => current.clipboard_ignored_apps.clone(),
+    };
+
+    let snippet_ignored_apps = match text(field::SNIPPET_IGNORED_APPS) {
+        Some(list) => parse_app_list(&list),
+        None => current.snippet_ignored_apps.clone(),
+    };
+
+    let calendar_feeds = match text(field::CALENDAR_FEEDS) {
+        Some(list) => {
+            let feeds: Vec<String> = list
+                .lines()
+                .map(str::trim)
+                .filter(|feed| !feed.is_empty())
+                .map(str::to_owned)
+                .collect();
+            let invalid = feeds.iter().find(|feed| {
+                !(feed.starts_with("https://")
+                    || feed.starts_with("http://")
+                    || feed.starts_with("webcal://")
+                    || expand_home(feed).is_file())
+            });
+            if let Some(invalid) = invalid {
+                errors.insert(
+                    field::CALENDAR_FEEDS,
+                    format!("“{invalid}” is neither a web address nor a file.").into(),
+                );
+            }
+            feeds
+        }
+        None => current.calendar_feeds.clone(),
+    };
+
+    let hyper_key = match text(field::HYPER_KEY) {
+        Some(value) => crate::hyper_key::HyperKey::from_value(&value).unwrap_or_else(|| {
+            errors.insert(field::HYPER_KEY, "Choose what Caps Lock does.".into());
+            current.hyper_key
+        }),
+        None => current.hyper_key,
+    };
+
     if !errors.is_empty() {
         return Err(errors);
     }
@@ -275,11 +440,31 @@ pub fn from_form(values: &FormValues, current: &Settings) -> Result<Settings, Fi
         clipboard_history,
         clipboard_retention_days,
         snippet_expansion,
+        window_gap,
+        hyper_key,
+        clipboard_ignored_apps,
+        snippet_ignored_apps,
+        calendar_feeds,
+        light_theme: current.light_theme.clone(),
+        dark_theme: current.dark_theme.clone(),
     })
 }
 
+/// `KeePass.exe, 1password` → `["keepass", "1password"]`.
+pub fn parse_app_list(list: &str) -> Vec<String> {
+    let mut apps: Vec<String> = Vec::new();
+    for app in list.split([',', ';', '\n']) {
+        let app = app.trim().to_lowercase();
+        let app = app.strip_suffix(".exe").unwrap_or(&app).trim().to_owned();
+        if !app.is_empty() && !apps.contains(&app) {
+            apps.push(app);
+        }
+    }
+    apps
+}
+
 /// Expands a leading `~` to the home directory, as a shell would.
-fn expand_home(path: &str) -> PathBuf {
+pub fn expand_home(path: &str) -> PathBuf {
     match (path.strip_prefix('~'), dirs::home_dir()) {
         (Some(rest), Some(home)) if rest.is_empty() || rest.starts_with(['/', '\\']) => {
             home.join(rest.trim_start_matches(['/', '\\']))

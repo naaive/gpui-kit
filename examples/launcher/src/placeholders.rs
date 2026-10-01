@@ -1,7 +1,8 @@
 //! Placeholders in quicklinks and snippets, filled in when they are used:
 //! `{argument}` (or `{query}`) asks for text, `{argument name="city"
 //! default="Paris"}` names one of several, and `{clipboard}`, `{date}`,
-//! `{time}`, `{datetime}` and `{uuid}` insert what they say. `{cursor}`
+//! `{time}`, `{datetime}`, `{uuid}` and `{selection}` (the text selected
+//! when the launcher was summoned) insert what they say. `{cursor}`
 //! marks where a snippet's text ends up and inserts nothing.
 
 use chrono::Local;
@@ -31,6 +32,7 @@ enum Placeholder {
     Time,
     DateTime,
     Uuid,
+    Selection,
     Cursor,
 }
 
@@ -85,6 +87,7 @@ pub fn expand(
             Some(Placeholder::Time) => Some(now.format("%H:%M").to_string()),
             Some(Placeholder::DateTime) => Some(now.format("%Y-%m-%d %H:%M").to_string()),
             Some(Placeholder::Uuid) => Some(uuid()),
+            Some(Placeholder::Selection) => Some(crate::selection::latest().unwrap_or_default()),
             Some(Placeholder::Cursor) => Some(String::new()),
             None => None,
         };
@@ -126,6 +129,7 @@ fn parse(inside: &str) -> Option<Placeholder> {
         "time" => Placeholder::Time,
         "datetime" => Placeholder::DateTime,
         "uuid" => Placeholder::Uuid,
+        "selection" | "selected-text" => Placeholder::Selection,
         "cursor" => Placeholder::Cursor,
         _ => return None,
     })

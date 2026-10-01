@@ -5,6 +5,7 @@
 //! launcher states intent ("paste into the previous application") and never
 //! branches on the operating system.
 
+pub mod backup;
 pub mod cli;
 pub mod deeplink;
 pub mod hotkey;

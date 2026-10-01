@@ -130,6 +130,14 @@ impl ClipboardStore {
             self.change_count = count;
             return;
         }
+        let source = platform::source_application();
+        if source
+            .as_deref()
+            .is_some_and(|source| settings.is_clipboard_ignored(source))
+        {
+            self.change_count = count;
+            return;
+        }
         // The read fails while the copying application still holds the
         // clipboard open; the counter stays behind so the next poll retries.
         let Some(item) = cx.read_from_clipboard() else {
@@ -143,7 +151,7 @@ impl ClipboardStore {
         self.change_count = count;
         self.failed_reads = 0;
         if let Some(content) = self.content(&item) {
-            self.record(content, cx);
+            self.record(content, source, cx);
         }
     }
 
@@ -194,13 +202,38 @@ impl ClipboardStore {
         Some(content)
     }
 
-    fn record(&mut self, content: Content, cx: &mut Context<Self>) {
+    fn record(&mut self, content: Content, source: Option<String>, cx: &mut Context<Self>) {
         if self.history.is_latest(&content) {
             return;
         }
-        let dropped = self.history.record(content, now());
+        let image = match &content {
+            Content::Image { path, .. } => Some(path.clone()),
+            Content::Text { .. } | Content::Files { .. } => None,
+        };
+        let dropped = self.history.record_from(content, now(), source);
         remove_files(dropped);
         self.changed(cx);
+        // The text in a new image is read in the background, for search.
+        if let Some(path) = image
+            && let Some(entry) = self.history.entries().first()
+            && entry.recognized_text().is_none()
+        {
+            let id = entry.id().to_owned();
+            cx.spawn(async move |this, cx| {
+                let text = cx
+                    .background_spawn(async move { crate::ocr::recognize(&path) })
+                    .await;
+                if let Some(text) = text {
+                    this.update(cx, |store, cx| {
+                        if store.history.set_recognized(&id, text) {
+                            store.changed(cx);
+                        }
+                    })
+                    .ok();
+                }
+            })
+            .detach();
+        }
     }
 
     /// Leaves clipboard changes for `duration` out of the history, while

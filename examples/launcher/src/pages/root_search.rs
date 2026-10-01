@@ -125,6 +125,10 @@ pub struct RootSearchPage {
     favorites: Vec<String>,
     hotkeys: HashMap<String, String>,
     fallbacks: Vec<FallbackCommand>,
+    /// The meeting about to start, offered above everything else.
+    next_meeting: Option<crate::calendar::Occurrence>,
+    /// The running focus session, with its controls.
+    focus_session: Option<Item>,
     /// The subtitles extension commands had before `update_command_metadata`
     /// replaced them, by command id.
     manifest_subtitles: HashMap<String, Option<SharedString>>,
@@ -199,6 +203,8 @@ impl RootSearchPage {
             window_layouts,
             settings_pages,
             fallbacks: FallbackCommand::from_catalog(catalog),
+            next_meeting: None,
+            focus_session: None,
             manifest_subtitles: HashMap::new(),
             usage: UsageStore::in_memory(),
             query: String::new(),
@@ -248,6 +254,33 @@ impl RootSearchPage {
                     page.invalidate(cx);
                 }));
         }
+        if self.options.platform_commands && crate::focus::is_supported() {
+            let focus = crate::focus::focus(cx);
+            self.focus_session = crate::focus::session_item(cx);
+            self.store_subscriptions
+                .push(cx.observe(&focus, |page, _, cx| {
+                    let session = crate::focus::session_item(cx);
+                    // The clock ticks every second; only a shown change
+                    // rebuilds the list.
+                    if session.as_ref().map(Item::accessories)
+                        != page.focus_session.as_ref().map(Item::accessories)
+                        || session.as_ref().map(Item::title)
+                            != page.focus_session.as_ref().map(Item::title)
+                    {
+                        page.focus_session = session;
+                        page.invalidate(cx);
+                    }
+                }));
+        }
+        if self.options.platform_commands {
+            let schedule = crate::calendar::schedule(cx);
+            self.read_schedule(&schedule, cx);
+            self.store_subscriptions
+                .push(cx.observe(&schedule, |page, schedule, cx| {
+                    page.read_schedule(&schedule, cx);
+                    page.invalidate(cx);
+                }));
+        }
         if let Some(store) = snippets::store(cx) {
             self.snippets.items = snippets::snippet_items(store.read(cx).snippets());
             self.store_subscriptions
@@ -256,6 +289,14 @@ impl RootSearchPage {
                     page.invalidate(cx);
                 }));
         }
+    }
+
+    fn read_schedule(
+        &mut self,
+        schedule: &gpui_kit::Entity<crate::calendar::Schedule>,
+        cx: &mut Context<Self>,
+    ) {
+        self.next_meeting = schedule.read(cx).next_meeting().cloned();
     }
 
     /// Reads the script commands folder again; a few small files.
@@ -575,6 +616,22 @@ impl RootSearchPage {
             .collect();
         let mut shown: HashSet<&ItemId> = recent.iter().map(|item| item.id()).collect();
         shown.extend(favorite_ids);
+        let list = match &self.focus_session {
+            Some(session) => list.with_section(
+                Section::new()
+                    .with_title("Focus")
+                    .with_item(session.clone()),
+            ),
+            None => list,
+        };
+        let list = match &self.next_meeting {
+            Some(meeting) => {
+                list.with_section(Section::new().with_title("Upcoming Meeting").with_item(
+                    crate::calendar::occurrence_item(meeting, chrono::Local::now()),
+                ))
+            }
+            None => list,
+        };
         let list = [("Favorites", favorites), ("Recent", recent)]
             .into_iter()
             .filter(|(_, items)| !items.is_empty())
@@ -649,6 +706,10 @@ impl RootSearchPage {
             }
             None => list,
         };
+        let list = match crate::colors::item(query) {
+            Some(color) => list.with_section(Section::new().with_title("Color").with_item(color)),
+            None => list,
+        };
         let list = match matches.is_empty() {
             true => list,
             false => list.with_section(
@@ -691,6 +752,10 @@ impl Page for RootSearchPage {
     /// A page above may have created a script, quicklink or snippet.
     fn did_reappear(&mut self, cx: &mut Context<Self>) {
         self.rescan_scripts();
+        // A custom window layout may have been created, edited or deleted.
+        if self.options.platform_commands {
+            self.window_layouts.items = crate::window_layout::commands();
+        }
         self.invalidate(cx);
     }
 
@@ -711,6 +776,12 @@ impl Page for RootSearchPage {
     fn set_query(&mut self, query: &str, _: &mut Window, cx: &mut Context<Self>) {
         self.start(cx);
         if query.trim().is_empty() {
+            if self.options.platform_commands {
+                let schedule = crate::calendar::schedule(cx);
+                // Meetings come and go with the clock, not only with fetches.
+                self.read_schedule(&schedule, cx);
+                schedule.update(cx, |schedule, cx| schedule.refresh(false, cx));
+            }
             self.rescan_scripts();
             if self.is_stale() {
                 self.rescan(cx);

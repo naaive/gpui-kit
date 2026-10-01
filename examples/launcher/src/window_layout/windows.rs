@@ -36,9 +36,10 @@ use super::{Frame, Layout};
 /// The window in front before the launcher, as a raw handle.
 static FRONTMOST: AtomicIsize = AtomicIsize::new(0);
 
-/// Frames windows had before a command moved them, for Restore.
-fn previous_frames() -> &'static Mutex<HashMap<isize, Frame>> {
-    static FRAMES: OnceLock<Mutex<HashMap<isize, Frame>>> = OnceLock::new();
+/// For Restore: the frame each window had before the commands moved it,
+/// and where the last command put it.
+fn previous_frames() -> &'static Mutex<HashMap<isize, (Frame, Frame)>> {
+    static FRAMES: OnceLock<Mutex<HashMap<isize, (Frame, Frame)>>> = OnceLock::new();
     FRAMES.get_or_init(Default::default)
 }
 
@@ -54,7 +55,7 @@ pub fn remember_frontmost() {
     }
 }
 
-pub fn apply(layout: Layout) -> Result<(), SharedString> {
+pub fn apply(layout: Layout, gap: i32) -> Result<(), SharedString> {
     let raw = FRONTMOST.load(Ordering::Relaxed);
     let window = HWND(raw as *mut c_void);
     if raw == 0 || !unsafe { IsWindow(window) }.as_bool() {
@@ -76,7 +77,7 @@ pub fn apply(layout: Layout) -> Result<(), SharedString> {
         Layout::Restore => previous_frames()
             .lock()
             .ok()
-            .and_then(|frames| frames.get(&raw).copied())
+            .and_then(|frames| frames.get(&raw).map(|(original, _)| *original))
             .ok_or("Nothing to restore")?,
         Layout::NextDisplay | Layout::PreviousDisplay => {
             let step = match layout {
@@ -89,13 +90,25 @@ pub fn apply(layout: Layout) -> Result<(), SharedString> {
             .frame(
                 current,
                 work_area(window).ok_or("Couldn’t read the display")?,
+                gap,
             )
             .ok_or("Unsupported layout")?,
     };
-    if layout != Layout::Restore
-        && let Ok(mut frames) = previous_frames().lock()
-    {
-        frames.insert(raw, current);
+    if let Ok(mut frames) = previous_frames().lock() {
+        match layout {
+            Layout::Restore => {
+                frames.remove(&raw);
+            }
+            // A window still where the last command put it keeps the frame
+            // it had before the first one; a window moved since starts over.
+            _ => {
+                let original = match frames.get(&raw) {
+                    Some((original, placed)) if placed.is_near(current) => *original,
+                    _ => current,
+                };
+                frames.insert(raw, (original, target));
+            }
+        }
     }
     set_visible_frame(window, target)?;
     unsafe {

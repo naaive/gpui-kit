@@ -9,6 +9,10 @@ pub enum Image {
     Icon(SharedString),
     /// An image file drawn as is, such as an application icon.
     File(PathBuf),
+    /// A character drawn as text, such as an emoji.
+    Glyph(SharedString),
+    /// A swatch of a color, as `0xRRGGBBAA`.
+    Color(u32),
 }
 
 impl Image {

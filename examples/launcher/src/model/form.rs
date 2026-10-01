@@ -27,6 +27,11 @@ impl FormModel {
         self
     }
 
+    pub fn with_fields(mut self, fields: impl IntoIterator<Item = Field>) -> Self {
+        self.fields.extend(fields);
+        self
+    }
+
     pub fn with_actions(mut self, actions: ActionPanel) -> Self {
         self.actions = actions;
         self

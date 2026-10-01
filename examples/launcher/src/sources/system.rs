@@ -48,6 +48,10 @@ impl CommandSource for SystemCommands {
             .chain(launcher_commands())
             .chain(match self.platform.is_empty() {
                 true => Vec::new(),
+                false => feature_commands(),
+            })
+            .chain(match self.platform.is_empty() {
+                true => Vec::new(),
                 false => crate::window_layout::commands(),
             })
             .chain(match self.platform.is_empty() {
@@ -189,6 +193,58 @@ fn launcher_commands() -> [Item; 14] {
                 Effect::Run(RunHandler::new(|(), _, cx| cx.quit())),
             )),
     ]
+}
+
+/// The commands that read the machine: its screen, windows, calendars and
+/// files. Like the platform's own, they are left out of tests.
+fn feature_commands() -> Vec<Item> {
+    let mut commands = Vec::new();
+    commands.push(
+        command_item(
+            "system/search-emoji",
+            "Search Emoji & Symbols",
+            "face-slightly-smiling",
+        )
+        .with_keyword("emoji")
+        .with_keyword("symbols")
+        .with_keyword("character")
+        .with_keyword("unicode")
+        .with_action(Action::new(
+            "Search Emoji & Symbols",
+            Effect::Push(PushHandler::new(crate::emoji::search_emoji_page)),
+        )),
+    );
+    commands.extend(crate::colors::commands());
+    commands.extend(crate::notes::commands());
+    commands.extend(crate::calendar::commands());
+    commands.extend(crate::focus::commands());
+    commands.extend(crate::shell::backup::commands());
+    commands.extend(crate::themes::commands());
+    commands.push(
+        command_item("system/search-screenshots", "Search Screenshots", "image")
+            .with_keyword("screenshot")
+            .with_keyword("ocr")
+            .with_keyword("capture")
+            .with_action(Action::new(
+                "Search Screenshots",
+                Effect::Push(PushHandler::new(
+                    crate::screenshots::search_screenshots_page,
+                )),
+            )),
+    );
+    if crate::switch_windows::is_supported() {
+        commands.push(
+            command_item("system/switch-windows", "Switch Windows", "app-window")
+                .with_keyword("alt tab")
+                .with_keyword("windows")
+                .with_keyword("focus")
+                .with_action(Action::new(
+                    "Switch Windows",
+                    Effect::Push(PushHandler::new(crate::switch_windows::switch_windows_page)),
+                )),
+        );
+    }
+    commands
 }
 
 /// The extension id deep links use for the launcher's own commands:

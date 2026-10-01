@@ -153,6 +153,12 @@ pub struct Entry {
     copies: u32,
     #[serde(default)]
     pinned: bool,
+    /// The application it was copied from, by its executable's name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    source: Option<String>,
+    /// The text recognized in an image, for search.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    recognized: Option<String>,
 }
 
 fn one() -> u32 {
@@ -178,6 +184,25 @@ impl Entry {
 
     pub fn is_pinned(&self) -> bool {
         self.pinned
+    }
+
+    pub fn source(&self) -> Option<&str> {
+        self.source.as_deref()
+    }
+
+    pub fn recognized_text(&self) -> Option<&str> {
+        self.recognized.as_deref()
+    }
+
+    /// What a search matches: the content, the text in an image and the
+    /// application it came from.
+    pub fn searchable_text(&self) -> String {
+        let mut text = self.content.searchable_text();
+        for extra in [&self.recognized, &self.source].into_iter().flatten() {
+            text.push('\n');
+            text.push_str(extra);
+        }
+        text
     }
 }
 
@@ -221,13 +246,27 @@ impl History {
     /// Records a copy. Content already in the history moves to the top
     /// instead of appearing twice. Returns the files of entries that fell
     /// off the end, for the caller to delete.
+    #[cfg(test)]
     pub fn record(&mut self, content: Content, now: u64) -> Vec<PathBuf> {
+        self.record_from(content, now, None)
+    }
+
+    /// Records a copy from the application `source`.
+    pub fn record_from(
+        &mut self,
+        content: Content,
+        now: u64,
+        source: Option<String>,
+    ) -> Vec<PathBuf> {
         let id = content.fingerprint();
         let entry = match self.entries.iter().position(|entry| entry.id == id) {
             Some(ix) => {
                 let mut entry = self.entries.remove(ix);
                 entry.copied_at = now;
                 entry.copies = entry.copies.saturating_add(1);
+                if source.is_some() {
+                    entry.source = source;
+                }
                 entry
             }
             None => Entry {
@@ -236,6 +275,8 @@ impl History {
                 copied_at: now,
                 copies: 1,
                 pinned: false,
+                source,
+                recognized: None,
             },
         };
         self.entries.insert(0, entry);
@@ -248,6 +289,17 @@ impl History {
         self.entries
             .first()
             .is_some_and(|entry| entry.id == content.fingerprint())
+    }
+
+    /// Keeps the text recognized in the image entry `id`.
+    pub fn set_recognized(&mut self, id: &str, text: String) -> bool {
+        match self.entries.iter_mut().find(|entry| entry.id == id) {
+            Some(entry) => {
+                entry.recognized = Some(text);
+                true
+            }
+            None => false,
+        }
     }
 
     pub fn set_pinned(&mut self, id: &str, pinned: bool) -> bool {
