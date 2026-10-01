@@ -8,7 +8,10 @@
 
 mod pages;
 
-pub use pages::{create_quicklink_page, fallback_items, quicklink_items, search_quicklinks_page};
+pub use pages::{
+    create_quicklink_page, create_quicklink_page_with, fallback_items, quicklink_items,
+    search_quicklinks_page,
+};
 
 use std::path::PathBuf;
 

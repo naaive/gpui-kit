@@ -5,6 +5,7 @@
 //! launcher states intent ("paste into the previous application") and never
 //! branches on the operating system.
 
+pub mod background;
 pub mod backup;
 pub mod cli;
 pub mod deeplink;
@@ -13,6 +14,7 @@ pub mod ipc;
 pub mod launcher;
 pub mod platform;
 pub mod settings;
+pub mod tray;
 
 use std::path::PathBuf;
 

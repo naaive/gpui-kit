@@ -247,6 +247,26 @@ pub enum Effect {
     OpenPath(PathBuf),
     /// Shows a file in the file manager.
     RevealPath(PathBuf),
+    /// Opens a file, folder or URL with a given application: its path, or
+    /// its name as the system knows it.
+    OpenWith {
+        target: SharedString,
+        application: SharedString,
+    },
+    /// Moves files to the Trash (the Recycle Bin on Windows).
+    Trash(Vec<PathBuf>),
+    /// Shows a file large, as Quick Look does.
+    QuickLook(PathBuf),
+    /// Opens the Create Quicklink form filled in.
+    CreateQuicklink {
+        name: SharedString,
+        link: SharedString,
+    },
+    /// Opens the Create Snippet form filled in.
+    CreateSnippet {
+        name: SharedString,
+        text: SharedString,
+    },
     Copy(SharedString),
     /// Pastes text into the application that was frontmost before the
     /// launcher, then hides the launcher.
@@ -291,6 +311,10 @@ pub struct Toast {
     /// Toasts with the same id replace each other, so a progress toast can
     /// turn into a success or failure one.
     id: Option<SharedString>,
+    /// A button on the toast, and what pressing it does.
+    action: Option<Box<(SharedString, RunHandler)>>,
+    /// Called when the toast goes away without its button being pressed.
+    on_dismiss: Option<RunHandler>,
 }
 
 impl Toast {
@@ -300,7 +324,27 @@ impl Toast {
             title: title.into(),
             message: None,
             id: None,
+            action: None,
+            on_dismiss: None,
         }
+    }
+
+    pub fn with_action(mut self, title: impl Into<SharedString>, handler: RunHandler) -> Self {
+        self.action = Some(Box::new((title.into(), handler)));
+        self
+    }
+
+    pub fn with_on_dismiss(mut self, handler: RunHandler) -> Self {
+        self.on_dismiss = Some(handler);
+        self
+    }
+
+    pub fn action(&self) -> Option<&(SharedString, RunHandler)> {
+        self.action.as_deref()
+    }
+
+    pub fn on_dismiss(&self) -> Option<&RunHandler> {
+        self.on_dismiss.as_ref()
     }
 
     pub fn with_message(mut self, message: impl Into<SharedString>) -> Self {
@@ -337,6 +381,8 @@ pub struct Confirmation {
     confirm_title: SharedString,
     destructive: bool,
     effect: Box<Effect>,
+    /// Called when the user cancels instead.
+    on_cancel: Option<RunHandler>,
 }
 
 impl Confirmation {
@@ -347,7 +393,17 @@ impl Confirmation {
             confirm_title: "Confirm".into(),
             destructive: false,
             effect: Box::new(effect),
+            on_cancel: None,
         }
+    }
+
+    pub fn with_on_cancel(mut self, handler: RunHandler) -> Self {
+        self.on_cancel = Some(handler);
+        self
+    }
+
+    pub fn on_cancel(&self) -> Option<&RunHandler> {
+        self.on_cancel.as_ref()
     }
 
     pub fn with_message(mut self, message: impl Into<SharedString>) -> Self {

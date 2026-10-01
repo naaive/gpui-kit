@@ -45,6 +45,7 @@ fn submitted_text(values: &FormValues, id: &str) -> Option<SharedString> {
         FormValue::Text(text) => Some(text.clone()),
         FormValue::Empty => Some(SharedString::default()),
         FormValue::Bool(value) => Some(value.to_string().into()),
+        FormValue::List(values) => Some(values.join(", ").into()),
     }
 }
 

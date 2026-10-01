@@ -84,11 +84,20 @@ Settings, holding Caps Lock is Ctrl+Shift+Alt+Win, for hotkeys such as
 launcher                 start, or show the launcher already running
 launcher toggle          show, or hide it if it is in front
 launcher show | hide
-launcher open <url>      open a deep link: launcher://extensions/<id>/<command>?arguments=<JSON>;
-                         built-in commands are launcher://extensions/launcher/<name>
-launcher dev <dir>       load an extension directory ahead of the installed ones
+launcher open <url>      open a deep link: launcher://extensions/<id>/<command>?arguments=<JSON>
+                         (and &context=<JSON>); built-in commands are
+                         launcher://extensions/launcher/<name>
+launcher dev <dir>       load an extension directory ahead of the installed ones, and
+                         reload it whenever one of its files is saved
 launcher types <dir>     write TypeScript declarations and the launcher.json schema
+launcher new <dir> [--template list|detail|form|no-view|menu-bar]
+                         start an extension from a template
+launcher lint <dir>      check an extension's manifests, modules and images without
+                         running it
 ```
+
+Set `LAUNCHER_LOG=info` (any `tracing` filter) to print what the launcher and
+extensions report, `console.log` included, to stderr.
 
 Only one launcher runs; the others hand their request to it over a local
 socket (a named pipe on Windows). The summon shortcut defaults to `Alt-Space`
@@ -103,7 +112,8 @@ Support/gpui-kit-launcher` on macOS): `settings.json`, `usage.json` (ranking),
 `permissions.json`, `preferences.json`, `quicklinks.json`, `snippets.json`,
 `customizations.json` (aliases, favorites, hotkeys), `currency-rates.json`,
 `colors.json`, `emoji.json`, `focus.json`, `reminders.json`,
-`calculator-history.json`, `window-layouts.json`, `notes/`
+`calculator-history.json`, `background-commands.json` (the menu-bar and
+interval commands you turned on), `window-layouts.json`, `notes/`
 (one Markdown file per note), `calendars/` (cached feeds),
 `screenshot-text.json`, `themes/` (your own themes),
 `clipboard/` (the clipboard
@@ -128,7 +138,7 @@ Each one is a reference for part of the SDK.
 
 | Extension                         | Shows                                                                                     |
 | --------------------------------- | ----------------------------------------------------------------------------------------- |
-| [`gpui-kit`](extensions/gpui-kit) | Static lists, action panels, a pushed `Detail`, no-view commands, an argument, a fallback |
+| [`gpui-kit`](extensions/gpui-kit) | Static lists, action panels, a pushed `Detail`, no-view commands, an argument, a fallback, a `menu-bar` command, an `interval` |
 | [`notes`](extensions/notes)       | `localStorage`, a detail pane, a `Form` with validation, a confirmed destructive action   |
 | [`emoji`](extensions/emoji)       | A grid in sections, a `ListDropdown`, an extension preference that reorders actions       |
 | [`github`](extensions/github)     | `on_query_change`, `fetch` under a narrow network grant, a password preference, timers    |
@@ -220,7 +230,8 @@ with the path of the offending field.
 | `commands[].name`                       | Lowercase letters, digits and `-`, unique in the extension; `launch().command`                                                         |
 | `commands[].title`                      | What the root search shows and matches; `subtitle`, `icon` and `keywords` are optional                                                 |
 | `commands[].module`                     | The module default-exporting the command's `View`, relative to the extension                                                           |
-| `commands[].mode`                       | `view` (the default) pushes the page `render` returns; `no-view` runs `init` and shows no page                                         |
+| `commands[].mode`                       | `view` (the default) pushes the page `render` returns; `no-view` runs `init` and shows no page; `menu-bar` shows the `MenuBarExtra` `render` returns in the system tray |
+| `commands[].interval`                   | How often the launcher runs a `no-view` or `menu-bar` command on its own, such as `10m` (`s`, `m`, `h`, `d`; at least `1m`, or `10s` for `menu-bar`); none of its arguments may be required |
 | `commands[].arguments`                  | Up to three inputs typed in the search field before the command runs: `name`, `placeholder`, `required`, `type` (`text` or `password`) |
 | `commands[].fallback`                   | Offered when nothing matches, with the search text as its first argument, which must be `text`                                         |
 | `preferences`, `commands[].preferences` | Settings filled in once, for the extension or one command; names are shared by both lists                                              |
@@ -234,6 +245,21 @@ optional `description`, `required` and `default`, and a `type`:
   `default`.
 - `dropdown` needs `choices` of `{ value, title }`; its `default` must be one of
   the values.
+
+A `menu-bar` command, or one with an `interval`, starts running on its own once
+you open it from the root search, and keeps doing so after a restart until you
+choose Remove from Tray (in its menu) or Stop Running in Background (in its
+root search actions). The launcher then runs it with
+`launch().launch_type === "background"`; a question it would have to ask first
+(a permission, a preference) waits until you open it again.
+
+### Packages
+
+`gpui-shell.json` lists JavaScript packages under `dependencies`, each a Git
+repository holding ES modules (`"dayjs": "iamkun/dayjs#v1.11.13"`, or an
+object with a `url`, a `branch` or `tag`, and an `entry`). GPUI Shell checks
+them out once into its cache and resolves `import "dayjs"` to them; an
+editor finds them through the links it writes beside the extension.
 
 ### A command
 
@@ -311,8 +337,11 @@ selection stays on the item.
 | Method                                    | Meaning                                                                         |
 | ----------------------------------------- | ------------------------------------------------------------------------------- |
 | `subtitle(text)`                          | Secondary text after the title                                                  |
-| `icon(name)`                              | A Lucide icon name such as `globe`, or an image path inside the extension       |
+| `icon(name)`                              | A Lucide icon name such as `globe`, an image path inside the extension, or an `https://` image |
+| `file_icon(path)`                         | The icon the system shows for a file, folder or application                     |
+| `icon_tone(tone)`, `icon_mask("circle")`  | Draws a Lucide icon in a tone, or clips the icon to a circle (an avatar)        |
 | `accessory(text)`, `accessory_icon(name)` | Trailing text or icon                                                           |
+| `accessory_date(date)`                    | A `YYYY-MM-DD` or ISO 8601 date shown relative to now (`3h ago`, `in 2d`), in full on hover |
 | `accessory_tooltip(text)`                 | Explains the accessory, icon or tag added just before, on hover                 |
 | `tag(text, tone?)`                        | A trailing tag; `tone` is `neutral`, `accent`, `success`, `warning` or `danger` |
 | `keyword(text)`                           | Something the search matches without showing it; call it once per keyword       |
@@ -341,10 +370,24 @@ first action should `submit`. Children are fields, each built as
 | `TextField`, `TextArea`, `PasswordField` | A string; also `placeholder(text)`                             |
 | `Checkbox(id, title, label)`             | A boolean                                                      |
 | `Dropdown`                               | A string, or `null`; children are `DropdownItem(value, title)` |
-| `DatePicker`                             | An ISO 8601 `YYYY-MM-DD` string, or `null`                     |
+| `DatePicker`                             | An ISO 8601 `YYYY-MM-DD` string, or `null`; with `include_time()`, `YYYY-MM-DDTHH:MM` |
+| `FilePicker`                             | An array of paths chosen in the system's open panel; `directories()`, `multiple()` |
+| `TagPicker`                              | An array of values; children are `TagPickerItem(value, title)` |
 
 Every field has `value(v)` (the page keeps the value), `default_value(v)` (the
 launcher keeps it), `info(text)`, `error(text)` and `on_change((v, cx) => …)`.
+`FormSeparator()` draws a line between fields, and `FormDescription(text)` or
+`FormDescription(label, text)` explains them; neither has a value.
+
+**`MenuBarExtra()`**, what a `menu-bar` command's `render` returns: an icon in
+the system tray (the menu bar on macOS) and its menu. `icon(name)` (a Lucide
+name, or a PNG or SVG inside the extension), `title(text)` (beside the icon on
+macOS, in the tooltip elsewhere), `tooltip(text)`, `loading(bool?)`. Children
+are `MenuBarItem(title)` with `subtitle(text)`, `checked(bool?)` and
+`action(Action)`; `MenuBarSection(title?)`; `MenuBarSubmenu(title)`; and
+`MenuBarSeparator()`. An item's `Action` is performed without the launcher
+window where it can be (opening, copying, `run`); one that needs a page shows
+the launcher first.
 
 ### `launcher`: actions
 
@@ -366,6 +409,11 @@ the primary one (`Enter`), the second the secondary one (`Cmd/Ctrl-Enter`), and
 | `pop()`, `pop_to_root()`, `close_window()`    | Navigates back, to the root search, or hides the launcher                                             |
 | `run((cx) => …)`                              | Calls back into the extension                                                                         |
 | `submit((values, cx) => …)`                   | In a form, calls back with every field's value, keyed by field id                                     |
+| `open_with(target, application)`              | Opens a file, folder or URL with an application: its path, or a name such as `notepad` or `Safari`    |
+| `trash([paths])`                              | Moves files to the Trash (the Recycle Bin), where the user can put them back                          |
+| `quick_look(path)`                            | Shows a file large: an image, text, or the system's preview of a document                             |
+| `create_quicklink(name, link)`, `create_snippet(text, name?)` | Opens Create Quicklink or Create Snippet filled in; the user saves it                  |
+| `pick_date((date, cx) => …, include_time?)`   | Asks for a date (and time), then calls back with it                                                   |
 
 and may add `icon(name)`, `shortcut(keys)` (such as `secondary-shift-c`, where
 `secondary` is Cmd on macOS and Ctrl elsewhere), `destructive()`, and
@@ -378,19 +426,28 @@ action; prefer `secondary-shift-…` combinations.
 
 | Function                                                                        | Meaning                                                                                                                      |
 | ------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| `launch()`                                                                      | `{ extension, command, arguments, preferences, launch_type }` of this launch                                                 |
-| `show_toast({ title, message?, style?, id? })`                                  | A message in the launcher; `style` is `info`, `success`, `failure` or `progress`, and a toast replaces the one with its `id` |
+| `launch()`                                                                      | `{ extension, command, arguments, preferences, launch_type, context }` of this launch; `launch_type` is `user_initiated` or `background` |
+| `show_toast({ title, message?, style?, id?, primary_action? })`                 | A message in the launcher; `style` is `info`, `success`, `failure` or `progress`, and a toast replaces the one with its `id`. Answers a promise of `"primary"` when its button is pressed, `null` when it goes away |
+| `confirm_alert({ title, message?, primary_action?, destructive? })`             | Asks the user; answers a promise of whether they confirmed                                                                   |
 | `show_hud(text)`                                                                | Hides the launcher and shows a short message                                                                                 |
 | `close_main_window()`, `pop()`, `pop_to_root()`                                 | Hides the launcher, or navigates back                                                                                        |
-| `open(target)`                                                                  | Opens a URL, file or folder                                                                                                  |
+| `open(target, application?)`                                                    | Opens a URL, file or folder, with its default application or the one named                                                   |
+| `selected_text()`                                                               | The text selected in the application in front when the launcher was summoned, or `null`                                      |
+| `selected_files()`                                                              | A promise of the files selected in the file manager window in front (Explorer, Finder)                                       |
+| `frontmost_application()`, `applications()`                                    | The application that was in front (`{ name, path }`, or `null`), and a promise of every installed one                         |
 | `copy(text)`, `paste(text)`                                                     | Copies, or pastes into the frontmost application                                                                             |
-| `launch_command(name, arguments?)`                                              | Opens another command, as `Action.launch` does                                                                               |
-| `environment()`                                                                 | `{ appearance, locale, launcher_version, development }`                                                                      |
+| `launch_command(name, arguments?, context?)`                                    | Opens another command, as `Action.launch` does; it reads any JSON `context` as `launch().context`                            |
+| `environment()`                                                                 | `{ appearance, locale, launcher_version, development, assets_path, support_path }`                                          |
 | `cache_get(key)`, `cache_set(key, value)`, `cache_remove(key)`, `cache_clear()` | This extension's JSON cache, up to 10 MB                                                                                     |
 | `update_command_metadata({ subtitle })`                                         | Changes how the root search shows this command; `null` restores the manifest's                                               |
+| `oauth_authorize({ provider, authorize_url, token_url, client_id, scope?, extra_parameters? })` | Signs in with OAuth 2.0 (authorization code with PKCE) in the browser and keeps the tokens in the system keychain; answers a promise of `{ access_token, refresh_token?, expires_at?, is_expired, … }`. `token_url` must be allowed for POST by the extension's network grant |
+| `oauth_tokens(provider)`, `oauth_refresh(client)`, `oauth_remove_tokens(provider)` | The kept tokens or `null`; new tokens from the refresh token; signing out                                                    |
 
 Keep data that must survive in `localStorage`; keep what can be fetched again
-in the cache.
+in the cache. The clipboard is GPUI Shell's: `cx.read_from_clipboard()` (with a
+`clipboard.read` grant) and `cx.write_to_clipboard(text)`; files are its `fs`
+module and programs its `process` module, each under the grant
+`gpui-shell.json` asks for.
 
 ### `launcher/utils`
 

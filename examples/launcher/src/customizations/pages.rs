@@ -22,7 +22,7 @@ fn customizations(cx: &App) -> Result<Entity<Customizations>> {
 fn submitted(values: &FormValues) -> String {
     match values.get(VALUE) {
         Some(FormValue::Text(text)) => text.trim().to_owned(),
-        Some(FormValue::Empty | FormValue::Bool(_)) | None => String::new(),
+        Some(FormValue::Empty | FormValue::Bool(_) | FormValue::List(_)) | None => String::new(),
     }
 }
 

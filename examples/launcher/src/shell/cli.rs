@@ -23,6 +23,10 @@ Commands:
                      writing its TypeScript declarations first
   types <directory>  Write TypeScript declarations and the launcher.json
                      schema into an extension directory
+  new <directory> [--template list|detail|form|no-view|menu-bar]
+                     Start an extension from a template
+  lint <directory>   Check an extension's manifests, modules and images
+                     without running it
 
 Options:
   -h, --help         Print this help";
@@ -42,6 +46,13 @@ pub enum Command {
     Dev(PathBuf),
     /// Write an extension's TypeScript declarations; needs no instance.
     Types(PathBuf),
+    /// Start an extension from a template; needs no instance.
+    New {
+        directory: PathBuf,
+        template: crate::extensions::Template,
+    },
+    /// Check an extension without running it; needs no instance.
+    Lint(PathBuf),
     Help,
 }
 
@@ -55,7 +66,7 @@ impl Command {
             Self::Hide => Message::Hide,
             Self::Open(url) => Message::Open(url.clone()),
             Self::Dev(directory) => Message::Dev(directory.clone()),
-            Self::Types(_) | Self::Help => return None,
+            Self::Types(_) | Self::New { .. } | Self::Lint(_) | Self::Help => return None,
         })
     }
 }
@@ -101,6 +112,30 @@ pub fn parse(
         "types" => {
             let directory = PathBuf::from(operand(&mut arguments, "types", "a directory")?);
             Command::Types(current_directory.join(directory))
+        }
+        "lint" => {
+            let directory = PathBuf::from(operand(&mut arguments, "lint", "a directory")?);
+            Command::Lint(current_directory.join(directory))
+        }
+        "new" => {
+            let directory = PathBuf::from(operand(&mut arguments, "new", "a directory")?);
+            let template = match arguments.next().as_deref() {
+                None => Default::default(),
+                Some("--template") => {
+                    let name = operand(&mut arguments, "--template", "a template")?;
+                    crate::extensions::Template::parse(&name).ok_or_else(|| {
+                        UsageError(format!(
+                            "unknown template `{name}`; use {}",
+                            crate::extensions::Template::NAMES.join(", ")
+                        ))
+                    })?
+                }
+                Some(other) => return Err(UsageError(format!("unexpected argument `{other}`"))),
+            };
+            Command::New {
+                directory: current_directory.join(directory),
+                template,
+            }
         }
         other => return Err(UsageError(format!("unknown command `{other}`"))),
     };
@@ -164,6 +199,18 @@ mod tests {
             run(&["types", "ext"]),
             Ok(Command::Types(PathBuf::from("/work/ext")))
         );
+        assert_eq!(
+            run(&["lint", "ext"]),
+            Ok(Command::Lint(PathBuf::from("/work/ext")))
+        );
+        assert_eq!(
+            run(&["new", "ext", "--template", "menu-bar"]),
+            Ok(Command::New {
+                directory: PathBuf::from("/work/ext"),
+                template: crate::extensions::Template::MenuBar,
+            })
+        );
+        assert!(run(&["new", "ext", "--template", "nope"]).is_err());
     }
 
     #[test]

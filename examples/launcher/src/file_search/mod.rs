@@ -9,7 +9,7 @@
 mod index;
 mod page;
 
-pub use page::search_files_page;
+pub use page::{quick_look_path, search_files_page};
 
 use std::{
     sync::Arc,

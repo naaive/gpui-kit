@@ -405,7 +405,7 @@ pub fn from_form(values: &FormValues, current: &Settings) -> Result<Settings, Fi
     let text = |id: &str| match values.get(id) {
         Some(FormValue::Text(text)) => Some(text.trim().to_string()),
         Some(FormValue::Empty) => Some(String::new()),
-        Some(FormValue::Bool(_)) | None => None,
+        Some(FormValue::Bool(_) | FormValue::List(_)) | None => None,
     };
 
     let summon_shortcut = match text(field::SUMMON_SHORTCUT) {

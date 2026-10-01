@@ -17,9 +17,9 @@ use super::{
     action::{resolve_action, resolve_panel},
     detail::resolve_detail,
     shared::{
-        RUN_CALLBACK, TEXT_CALLBACK, bool_method, callback_method, carry, describe, element_method,
-        empty_constructor, payload, recorded, reject_style, reporting, resolved, run_handler,
-        string_method, strings_constructor, tag_method, taken, text_handler,
+        RUN_CALLBACK, TEXT_CALLBACK, TONES, bool_method, callback_method, carry, describe,
+        element_method, empty_constructor, payload, recorded, reject_style, reporting, resolved,
+        run_handler, string_method, strings_constructor, tag_method, taken, text_handler,
     },
 };
 use crate::model::{
@@ -274,7 +274,11 @@ struct ItemHead {
 enum ItemOp {
     Subtitle(String),
     Icon(String),
+    FileIcon(String),
+    IconTone(Tone),
+    IconMask,
     Accessory(String),
+    AccessoryDate(String),
     AccessoryIcon(String),
     AccessoryTooltip(String),
     Tag(String, Tone),
@@ -313,9 +317,54 @@ fn list_item() -> ComponentDescriptor {
                 ItemOp::Icon,
             ),
             string_method(
+                "file_icon",
+                "The icon the system shows for a file, folder or application at this path.",
+                ItemOp::FileIcon,
+            ),
+            MethodDescriptor::new(
+                "icon_tone",
+                vec![ArgumentDescriptor::new("tone", ArgumentSchema::Enum(TONES))],
+                |arguments| match arguments {
+                    [ComponentArgument::Enum(tone) | ComponentArgument::String(tone)] => {
+                        Tone::parse(tone)
+                            .map(|tone| ComponentPayload::new(ItemOp::IconTone(tone)))
+                            .ok_or_else(|| {
+                                format!("unknown tone `{tone}`; use {}", TONES.join(", "))
+                            })
+                    }
+                    _ => Err("icon_tone expects a tone".into()),
+                },
+            )
+            .with_documentation(
+                "Draws a Lucide `icon` in a tone instead of the text color: accent, success, \
+                 warning or danger. The theme decides the color.",
+            ),
+            MethodDescriptor::new(
+                "icon_mask",
+                vec![ArgumentDescriptor::new(
+                    "mask",
+                    ArgumentSchema::Enum(&["circle"]),
+                )],
+                |arguments| match arguments {
+                    [ComponentArgument::Enum(mask) | ComponentArgument::String(mask)]
+                        if mask == "circle" =>
+                    {
+                        Ok(ComponentPayload::new(ItemOp::IconMask))
+                    }
+                    _ => Err("icon_mask expects `circle`".into()),
+                },
+            )
+            .with_documentation("Clips the icon to a circle, as for an avatar."),
+            string_method(
                 "accessory",
                 "Short trailing text, such as a count or a date.",
                 ItemOp::Accessory,
+            ),
+            string_method(
+                "accessory_date",
+                "A trailing date, `YYYY-MM-DD` or an ISO 8601 date and time, shown relative \
+                 to now (\"3h ago\", \"in 2d\") with the full date on hover.",
+                ItemOp::AccessoryDate,
             ),
             string_method(
                 "accessory_icon",
@@ -368,10 +417,40 @@ impl ComponentMaterializer for ItemMaterializer {
         let mut item = Item::new(ItemId::new(id), title);
         // Collected first, because a tooltip applies to the accessory before it.
         let mut accessories: Vec<Accessory> = Vec::new();
+        let mut image = None;
+        let mut tone = None;
+        let mut circle = false;
         for op in recorded::<ItemOp>(&request) {
             item = match op {
                 ItemOp::Subtitle(text) => item.with_subtitle(text),
-                ItemOp::Icon(icon) => item.with_image(Image::parse(&icon)),
+                ItemOp::Icon(icon) => {
+                    image = Some(Image::parse(&icon));
+                    item
+                }
+                ItemOp::FileIcon(path) => {
+                    image = Some(Image::FileIcon(path.into()));
+                    item
+                }
+                ItemOp::IconTone(next) => {
+                    tone = Some(next);
+                    item
+                }
+                ItemOp::IconMask => {
+                    circle = true;
+                    item
+                }
+                ItemOp::AccessoryDate(date) => {
+                    let (relative, full) = relative_date(&date, chrono::Local::now().naive_local())
+                        .ok_or_else(|| {
+                            anyhow::anyhow!(
+                                "ListItem `{}`: accessory_date `{date}` is not YYYY-MM-DD or an \
+                                 ISO 8601 date and time",
+                                item.id().as_str()
+                            )
+                        })?;
+                    accessories.push(Accessory::text(relative).with_tooltip(full));
+                    item
+                }
                 ItemOp::Accessory(text) => {
                     accessories.push(Accessory::text(text));
                     item
@@ -405,11 +484,93 @@ impl ComponentMaterializer for ItemMaterializer {
                 }
             };
         }
+        let image = match (image, tone) {
+            (Some(Image::Icon(name)), Some(tone)) => Some(Image::TintedIcon(name, tone)),
+            (image, _) => image,
+        };
+        let image = match (image, circle) {
+            (Some(image), true) => Some(Image::Circle(Box::new(image))),
+            (image, _) => image,
+        };
+        if let Some(image) = image {
+            item = item.with_image(image);
+        }
         Ok(carry(
             accessories
                 .into_iter()
                 .fold(item, |item, accessory| item.with_accessory(accessory)),
         ))
+    }
+}
+
+/// A date as a short distance from `now` ("now", "5m ago", "in 3h", "2d ago",
+/// past a month the date itself), and in full for the tooltip.
+fn relative_date(value: &str, now: chrono::NaiveDateTime) -> Option<(String, String)> {
+    use chrono::{DateTime, NaiveDate, NaiveDateTime};
+    let (when, has_time) = if let Ok(date) = NaiveDate::parse_from_str(value, "%Y-%m-%d") {
+        (date.and_hms_opt(0, 0, 0)?, false)
+    } else if let Ok(when) = DateTime::parse_from_rfc3339(value) {
+        (when.with_timezone(&chrono::Local).naive_local(), true)
+    } else {
+        let when = ["%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M", "%Y-%m-%d %H:%M"]
+            .iter()
+            .find_map(|format| NaiveDateTime::parse_from_str(value, format).ok())?;
+        (when, true)
+    };
+    let full = match has_time {
+        true => when.format("%Y-%m-%d %H:%M").to_string(),
+        false => when.format("%Y-%m-%d").to_string(),
+    };
+    let relative = if !has_time {
+        match (when.date() - now.date()).num_days() {
+            0 => "today".to_owned(),
+            1 => "tomorrow".to_owned(),
+            -1 => "yesterday".to_owned(),
+            days @ 2..=30 => format!("in {days}d"),
+            days @ -30..=-2 => format!("{}d ago", -days),
+            _ => full.clone(),
+        }
+    } else {
+        let seconds = (when - now).num_seconds();
+        let (amount, future) = (seconds.unsigned_abs(), seconds > 0);
+        let span = match amount {
+            0..60 => None,
+            60..3600 => Some(format!("{}m", amount / 60)),
+            3600..86_400 => Some(format!("{}h", amount / 3600)),
+            86_400..2_592_000 => Some(format!("{}d", amount / 86_400)),
+            _ => return Some((full.clone(), full)),
+        };
+        match (span, future) {
+            (None, _) => "now".to_owned(),
+            (Some(span), true) => format!("in {span}"),
+            (Some(span), false) => format!("{span} ago"),
+        }
+    };
+    Some((relative, full))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_relative_date() {
+        let now = chrono::NaiveDate::from_ymd_opt(2026, 10, 1)
+            .unwrap()
+            .and_hms_opt(12, 0, 0)
+            .unwrap();
+        let relative = |value| relative_date(value, now).map(|(relative, _)| relative);
+        assert_eq!(relative("2026-10-01T11:58"), Some("2m ago".into()));
+        assert_eq!(relative("2026-10-01T15:00:00"), Some("in 3h".into()));
+        assert_eq!(relative("2026-10-01T12:00"), Some("now".into()));
+        assert_eq!(relative("2026-09-28T12:00"), Some("3d ago".into()));
+        assert_eq!(relative("2026-10-02"), Some("tomorrow".into()));
+        assert_eq!(relative("2025-01-01"), Some("2025-01-01".into()));
+        assert_eq!(
+            relative_date("2026-10-01T11:00", now).map(|(_, full)| full),
+            Some("2026-10-01 11:00".into())
+        );
+        assert_eq!(relative("next week"), None);
     }
 }
 

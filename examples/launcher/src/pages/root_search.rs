@@ -897,6 +897,8 @@ mod tests {
                 "com.gpui-kit.links/checklist",
                 "com.gpui-kit.links/search-docs",
                 "com.gpui-kit.links/copy-date",
+                "com.gpui-kit.links/tray-links",
+                "com.gpui-kit.links/weekend",
                 "com.gpui-kit.notes/search-notes",
                 "com.gpui-kit.notes/create-note",
                 "# System",

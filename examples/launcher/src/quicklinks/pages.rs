@@ -138,7 +138,7 @@ pub fn fallback_items(quicklinks: &[Quicklink], query: &str) -> Vec<Item> {
 fn text(values: &FormValues, id: &str) -> String {
     match values.get(id) {
         Some(FormValue::Text(text)) => text.trim().to_owned(),
-        Some(FormValue::Empty | FormValue::Bool(_)) | None => String::new(),
+        Some(FormValue::Empty | FormValue::Bool(_) | FormValue::List(_)) | None => String::new(),
     }
 }
 
@@ -290,6 +290,18 @@ impl Page for QuicklinkFormPage {
 /// The Create Quicklink command.
 pub fn create_quicklink_page(_: &mut Window, cx: &mut App) -> Result<PageHandle> {
     let page = QuicklinkFormPage::new(None, cx)?;
+    Ok(pages::handle(cx.new(|_| page)))
+}
+
+/// The Create Quicklink form filled in, as an extension's
+/// `Action.create_quicklink` asks; nothing is saved until the user submits.
+pub fn create_quicklink_page_with(name: &str, link: &str, cx: &mut App) -> Result<PageHandle> {
+    let mut page = QuicklinkFormPage::new(None, cx)?;
+    page.draft = Some(
+        FormValues::new()
+            .with(NAME, FormValue::Text(name.to_owned().into()))
+            .with(LINK, FormValue::Text(link.to_owned().into())),
+    );
     Ok(pages::handle(cx.new(|_| page)))
 }
 

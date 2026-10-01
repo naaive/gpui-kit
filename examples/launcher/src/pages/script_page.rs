@@ -3,7 +3,7 @@ use gpui_shell::ScriptView;
 
 use super::Page;
 use crate::{
-    extensions::{render_for_extension, take_page_model},
+    extensions::{LaunchRequest, render_for_extension, take_page_model},
     model::PageModel,
 };
 
@@ -18,6 +18,8 @@ pub struct ScriptPage {
     title: SharedString,
     view: Entity<ScriptView>,
     model: Option<PageModel>,
+    /// The request that opened the command, on its first page.
+    request: Option<LaunchRequest>,
     _observe: Subscription,
 }
 
@@ -31,8 +33,14 @@ impl ScriptPage {
             title,
             view,
             model: None,
+            request: None,
             _observe,
         }
+    }
+
+    pub fn with_request(mut self, request: LaunchRequest) -> Self {
+        self.request = Some(request);
+        self
     }
 
     fn build(&self, window: &mut Window, cx: &mut Context<Self>) -> PageModel {
@@ -72,6 +80,10 @@ impl Page for ScriptPage {
     /// Renders the script again: a page pushed over this one runs in the same
     /// script (an edit form saving a note), and GPUI Shell's `cx.notify()`
     /// reaches only the view whose code is running, which was the page above.
+    fn launch_request(&self) -> Option<LaunchRequest> {
+        self.request.clone()
+    }
+
     fn did_reappear(&mut self, cx: &mut Context<Self>) {
         self.view.update(cx, |view, cx| view.refresh(cx));
     }

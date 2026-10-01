@@ -16,8 +16,8 @@ use std::{
 
 use anyhow::{Context as _, Result};
 use gpui_kit::{
-    AnyWindowHandle, App, AppContext as _, AsyncApp, Bounds, Entity, Global, Subscription, Task,
-    Window, WindowBounds, WindowKind, WindowOptions,
+    AnyWindowHandle, App, AppContext as _, AsyncApp, Bounds, Entity, Global, SharedString,
+    Subscription, Task, Window, WindowBounds, WindowKind, WindowOptions,
     component::{
         Theme, ThemeMode, WindowExt as _,
         notification::{Notification, NotificationType},
@@ -122,6 +122,8 @@ pub struct Launcher {
     /// What the window showed when it last hid, and when, to come back to.
     left: Option<(std::time::Instant, crate::ui::Snapshot)>,
     hotkey: SummonHotkey,
+    /// Watches the development directories for hot reload.
+    development_watcher: Option<notify::RecommendedWatcher>,
     _tasks: Vec<Task<()>>,
 }
 
@@ -147,6 +149,13 @@ impl Launcher {
             &self.bundled_extensions,
         )
     }
+}
+
+/// The extension host and the catalog it opens commands from, while the
+/// launcher runs.
+pub fn host_and_catalog(cx: &App) -> Option<(Rc<Catalog>, Rc<ExtensionHost>)> {
+    cx.try_global::<Launcher>()
+        .map(|launcher| (launcher.catalog.clone(), launcher.extensions.clone()))
 }
 
 /// Builds the page listing installed extensions, where they are installed
@@ -259,8 +268,10 @@ pub fn start(startup: Startup, cx: &mut App) {
         is_visible: false,
         left: None,
         hotkey,
+        development_watcher: None,
         _tasks: tasks,
     });
+    watch_development(cx);
 
     let launcher = cx.global::<Launcher>();
     launcher
@@ -287,6 +298,7 @@ pub fn start(startup: Startup, cx: &mut App) {
     crate::calendar::start(cx);
     crate::focus::start(cx);
     crate::reminders::start(cx);
+    super::background::start(cx);
     super::platform::hide_dock_icon();
     show(cx);
 }
@@ -366,10 +378,137 @@ pub fn add_development_directory(directory: PathBuf, cx: &mut App) {
         launcher
             .extensions
             .set_development_directories(launcher.development_roots());
+        watch_development(cx);
         // A window that is showing keeps the old catalog until shown again.
         hide_now(cx);
         show_now(cx);
     });
+}
+
+/// How long a burst of saves settles before the extension reloads.
+const RELOAD_DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(300);
+
+/// Watches the development directories, and reloads an extension whose
+/// files change: its loaded code is dropped, the catalog read again, its
+/// menu-bar commands restarted, and a page of it that is open is opened again
+/// from the new code, so an author sees a save at once.
+fn watch_development(cx: &mut App) {
+    let roots = cx.global::<Launcher>().development_roots();
+    let (changes, changed) = smol::channel::unbounded::<PathBuf>();
+    let watcher = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
+        if let Ok(event) = event
+            && !event.kind.is_access()
+        {
+            for path in event.paths {
+                changes.try_send(path).ok();
+            }
+        }
+    });
+    let mut watcher = match watcher {
+        Ok(watcher) => watcher,
+        Err(error) => {
+            tracing::warn!("cannot watch the extensions in development: {error}");
+            return;
+        }
+    };
+    use notify::Watcher as _;
+    for root in roots.iter().filter(|root| root.is_dir()) {
+        if let Err(error) = watcher.watch(root, notify::RecursiveMode::Recursive) {
+            tracing::warn!("cannot watch {}: {error}", root.display());
+        }
+    }
+    cx.global_mut::<Launcher>().development_watcher = Some(watcher);
+    let task = cx.spawn(async move |cx: &mut AsyncApp| {
+        while let Ok(first) = changed.recv().await {
+            let mut paths = vec![first];
+            cx.background_executor().timer(RELOAD_DEBOUNCE).await;
+            while let Ok(path) = changed.try_recv() {
+                paths.push(path);
+            }
+            cx.update(|cx| reload_changed(&paths, cx));
+        }
+    });
+    cx.global_mut::<Launcher>()._tasks.push(task);
+}
+
+/// Whether a changed file is the extension's own code or manifest, not one
+/// the launcher writes beside it (declarations) or an editor's temporary.
+fn is_source_change(path: &Path) -> bool {
+    let name = path
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    !(name.ends_with(".d.ts")
+        || name == "jsconfig.json"
+        || name == "launcher.schema.json"
+        || name.ends_with('~')
+        || name.starts_with(".#")
+        || path
+            .components()
+            .any(|part| part.as_os_str() == ".git" || part.as_os_str() == "node_modules"))
+}
+
+fn reload_changed(paths: &[PathBuf], cx: &mut App) {
+    let catalog = cx.global::<Launcher>().catalog.clone();
+    let mut extensions: Vec<(SharedString, PathBuf)> = Vec::new();
+    for path in paths.iter().filter(|path| is_source_change(path)) {
+        let changed = catalog
+            .commands()
+            .map(|(extension, _)| extension)
+            .find(|extension| path.starts_with(extension.root()));
+        // A new extension's directory is not in the catalog yet.
+        let Some(extension) = changed else {
+            cx.global_mut::<Launcher>().catalog_is_stale = true;
+            continue;
+        };
+        if !extensions.iter().any(|(id, _)| id == extension.id()) {
+            extensions.push((extension.id().clone(), extension.root().to_path_buf()));
+        }
+    }
+    if extensions.is_empty() && !cx.global::<Launcher>().catalog_is_stale {
+        return;
+    }
+    for (id, root) in &extensions {
+        tracing::info!("reloading `{id}` from {}", root.display());
+        if let Err(error) = crate::extensions::write_declarations(root) {
+            tracing::warn!("{error:#}");
+        }
+        cx.global::<Launcher>().extensions.unload_extension(id);
+    }
+    // The pages to open again, read before the window is rebuilt.
+    let reopen: Vec<LaunchRequest> = cx
+        .global::<Launcher>()
+        .window
+        .as_ref()
+        .map(|open| {
+            let view = open.view.read(cx);
+            extensions
+                .iter()
+                .filter_map(|(id, _)| view.open_request_of(id, cx))
+                .collect()
+        })
+        .unwrap_or_default();
+    let launcher = cx.global_mut::<Launcher>();
+    launcher.catalog = Rc::new(Catalog::discover(&launcher.roots()));
+    launcher.catalog_is_stale = false;
+    let visible = launcher.is_visible;
+    for (id, _) in &extensions {
+        super::background::restart_extension(id, cx);
+    }
+    super::background::sync(cx);
+    if visible {
+        // The window holds the catalog it was built with.
+        hide_now(cx);
+        close_window(cx);
+        show_now(cx);
+        if let Some(request) = reopen.into_iter().next() {
+            with_window(cx, |window, view, cx| {
+                view.update(cx, |view, cx| view.open_command(request, window, cx))
+            });
+        }
+    } else {
+        close_window(cx);
+    }
 }
 
 /// The saved settings, or the defaults where the launcher is not running
@@ -579,6 +718,7 @@ fn show_now(cx: &mut App) {
         launcher.catalog = Rc::new(Catalog::discover(&launcher.roots()));
         launcher.catalog_is_stale = false;
         close_window(cx);
+        super::background::sync(cx);
     }
     // The window may have been closed by the window manager.
     let windows = cx.windows();

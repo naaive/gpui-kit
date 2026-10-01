@@ -1,9 +1,15 @@
 //! The small visual vocabulary every region shares: pictures and tags.
 
+use std::{
+    cell::RefCell,
+    collections::HashMap,
+    path::{Path, PathBuf},
+};
+
 use gpui_kit::{
-    AnyElement, Hsla, IntoElement, ObjectFit, ParentElement as _, SharedString, Styled as _,
-    StyledImage as _,
-    component::{Icon, Sizable as _, tag::Tag},
+    AnyElement, Hsla, IntoElement, ObjectFit, ParentElement as _, SharedString, SharedUri,
+    Styled as _, StyledImage as _,
+    component::{Icon, Sizable as _, Theme, tag::Tag},
     div, img,
     prelude::FluentBuilder as _,
     px,
@@ -22,8 +28,45 @@ pub(super) enum PictureSize {
 }
 
 /// Draws an image: a theme-tinted Lucide icon or an image file.
-pub(super) fn picture(image: &Image, size: PictureSize, color: Hsla) -> AnyElement {
+pub(super) fn picture(image: &Image, size: PictureSize, color: Hsla, theme: &Theme) -> AnyElement {
     match (image, size) {
+        (Image::TintedIcon(name, tone), size) => picture(
+            &Image::Icon(name.clone()),
+            size,
+            tone_color(*tone, color, theme),
+            theme,
+        ),
+        (Image::Url(url), size) => img(SharedUri::from(url.clone()))
+            .map(|image| match size {
+                PictureSize::Row => image.size_4(),
+                PictureSize::Cell => image.size_full(),
+            })
+            .object_fit(ObjectFit::Contain)
+            .into_any_element(),
+        (Image::FileIcon(path), size) => match file_icon(path) {
+            Some(icon) => picture(&Image::File(icon), size, color, theme),
+            None => picture(&Image::Icon(fallback_icon(path)), size, color, theme),
+        },
+        (Image::Circle(inner), size) => div()
+            .map(|frame| match size {
+                PictureSize::Row => frame.size_4(),
+                PictureSize::Cell => frame.size_full(),
+            })
+            .rounded_full()
+            .overflow_hidden()
+            .child(match inner.as_ref() {
+                // An image fills the circle; a cropped icon would lose its edges.
+                Image::File(path) => img(path.clone())
+                    .size_full()
+                    .object_fit(ObjectFit::Cover)
+                    .into_any_element(),
+                Image::Url(url) => img(SharedUri::from(url.clone()))
+                    .size_full()
+                    .object_fit(ObjectFit::Cover)
+                    .into_any_element(),
+                other => picture(other, size, color, theme),
+            })
+            .into_any_element(),
         (Image::Icon(name), PictureSize::Row) => {
             icon(name).size_4().text_color(color).into_any_element()
         }
@@ -61,6 +104,42 @@ pub(super) fn picture(image: &Image, size: PictureSize, color: Hsla) -> AnyEleme
             .border_1()
             .border_color(color.opacity(0.2))
             .into_any_element(),
+    }
+}
+
+/// The color a tone gives an icon; neutral keeps the surrounding color.
+fn tone_color(tone: Tone, color: Hsla, theme: &Theme) -> Hsla {
+    match tone {
+        Tone::Neutral => color,
+        Tone::Accent => theme.primary,
+        Tone::Success => theme.success,
+        Tone::Warning => theme.warning,
+        Tone::Danger => theme.danger,
+    }
+}
+
+thread_local! {
+    /// Icons already looked up, so a row drawn every frame asks the system once.
+    static FILE_ICONS: RefCell<HashMap<PathBuf, Option<PathBuf>>> = RefCell::default();
+}
+
+/// The system's icon for `path`, cached; the first lookup reads a PNG the
+/// launcher keeps on disk once extracted.
+fn file_icon(path: &Path) -> Option<PathBuf> {
+    FILE_ICONS.with(|icons| {
+        icons
+            .borrow_mut()
+            .entry(path.to_path_buf())
+            .or_insert_with(|| crate::sources::applications::file_icon(path))
+            .clone()
+    })
+}
+
+/// A Lucide icon standing in where the system has no icon for a file.
+fn fallback_icon(path: &Path) -> SharedString {
+    match path.is_dir() {
+        true => "folder".into(),
+        false => "file".into(),
     }
 }
 

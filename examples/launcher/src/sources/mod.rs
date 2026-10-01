@@ -52,6 +52,16 @@ impl CommandSource for ExtensionCommands<'_> {
         self.catalog
             .commands()
             .map(|(extension, command)| {
+                // A command that runs on its own says so, and can be stopped.
+                let runs_alone = match command.mode() {
+                    crate::extensions::CommandMode::MenuBar => {
+                        Some(("Menu Bar", "Remove from Tray"))
+                    }
+                    _ if command.interval().is_some() => {
+                        Some(("Background", "Stop Running in Background"))
+                    }
+                    _ => None,
+                };
                 let item = Item::new(
                     ItemId::new(command.id().to_string()),
                     command.title().clone(),
@@ -62,7 +72,9 @@ impl CommandSource for ExtensionCommands<'_> {
                         .cloned()
                         .unwrap_or_else(|| extension.name().clone()),
                 )
-                .with_accessory(Accessory::text("Command"))
+                .with_accessory(Accessory::text(
+                    runs_alone.map_or("Command", |(label, _)| label),
+                ))
                 .with_action(Action::new(
                     "Open Command",
                     Effect::Launch(LaunchRequest::new(command.id().clone())),
@@ -82,6 +94,25 @@ impl CommandSource for ExtensionCommands<'_> {
                         .with_shortcut("secondary-shift-,"),
                     ),
                     false => item,
+                };
+                let item = match runs_alone {
+                    Some((_, stop)) => {
+                        let id = command.id().clone();
+                        item.with_action(Action::new(
+                            stop,
+                            Effect::Run(crate::model::RunHandler::new(move |(), _, cx| {
+                                crate::shell::background::deactivate(&id, cx);
+                                crate::shell::launcher::perform(
+                                    Effect::ShowToast(crate::model::Toast::new(
+                                        crate::model::ToastStyle::Success,
+                                        "Stopped",
+                                    )),
+                                    cx,
+                                );
+                            })),
+                        ))
+                    }
+                    None => item,
                 };
                 let item = match command.icon() {
                     Some(icon) => item.with_icon(icon.clone()),

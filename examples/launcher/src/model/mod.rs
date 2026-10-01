@@ -11,6 +11,7 @@ mod callback;
 mod detail;
 mod form;
 mod image;
+mod menu_bar;
 mod page;
 
 pub use action::{
@@ -21,4 +22,5 @@ pub use callback::{Callback, FormHandler, PushHandler, RunHandler, TextHandler};
 pub use detail::{DetailModel, Metadata, MetadataValue, Tag};
 pub use form::{Choice, Control, Field, FormModel, FormValue, FormValues};
 pub use image::{Image, Tone};
+pub use menu_bar::{MenuBarEntry, MenuBarItem, MenuBarModel, MenuBarSection};
 pub use page::{Accessory, Dropdown, Item, ItemId, Layout, ListModel, PageModel, Section};

@@ -93,6 +93,10 @@ impl Extension {
                 arguments: command.arguments,
                 fallback: command.fallback,
                 preferences: command.preferences,
+                interval: command
+                    .interval
+                    .as_deref()
+                    .and_then(super::manifest::parse_interval),
             })
             .collect();
         Ok(Self {
@@ -133,6 +137,7 @@ pub struct ExtensionCommand {
     icon: Option<SharedString>,
     keywords: Vec<SharedString>,
     module: String,
+    interval: Option<std::time::Duration>,
 }
 
 impl ExtensionCommand {
@@ -171,6 +176,11 @@ impl ExtensionCommand {
 
     pub fn is_fallback(&self) -> bool {
         self.fallback
+    }
+
+    /// How often the launcher runs the command on its own.
+    pub fn interval(&self) -> Option<std::time::Duration> {
+        self.interval
     }
 
     /// Settings of this command only; see also [`Extension::preferences`].

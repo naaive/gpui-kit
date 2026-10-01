@@ -64,6 +64,15 @@ impl Application {
         }
     }
 
+    pub fn name(&self) -> &SharedString {
+        &self.name
+    }
+
+    /// The bundle, desktop entry or shortcut the application was found as.
+    pub fn location(&self) -> &std::path::Path {
+        &self.location
+    }
+
     /// The id defaults to the location; a desktop entry is identified by its
     /// desktop file id instead, which survives moving between data dirs.
     #[cfg_attr(not(any(target_os = "linux", test)), allow(dead_code))]

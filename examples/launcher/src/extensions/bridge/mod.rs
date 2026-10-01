@@ -31,7 +31,6 @@ use anyhow::{Context as _, Result, anyhow};
 use gpui_kit::{AnyElement, SharedString};
 use gpui_shell::{ComponentRegistry, FrozenComponentRegistry};
 
-#[cfg(test)]
 pub use host_api::LaunchType;
 pub use host_api::{CommandMetadata, ExtensionContext, HostApi};
 pub use utils::{UTILS_MODULE, utils_declarations, utils_module_source};
@@ -63,6 +62,18 @@ pub fn take_page_model(element: &mut AnyElement) -> Result<PageModel, String> {
         failure.unwrap_or_else(|| {
             "a command's `render` must return a `List`, `Detail` or `Form` from the \
              `launcher` module"
+                .into()
+        })
+    })
+}
+
+/// Takes the menu out of the element a `menu-bar` command's `render`
+/// produced, or explains what was returned instead.
+pub fn take_menu_bar(element: &mut AnyElement) -> Result<crate::model::MenuBarModel, String> {
+    let failure = carrier::take_failure();
+    carrier::take::<crate::model::MenuBarModel>(element).ok_or_else(|| {
+        failure.unwrap_or_else(|| {
+            "a `menu-bar` command's `render` must return a `MenuBarExtra` from the `launcher`              module"
                 .into()
         })
     })

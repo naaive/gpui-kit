@@ -10,7 +10,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use anyhow::Result;
+use anyhow::{Context as _, Result};
 use gpui_kit::{
     App, AppContext as _, ClipboardEntry, ClipboardItem, Context, Entity, ExternalPaths,
     SharedString, Subscription, Task, Window,
@@ -557,6 +557,25 @@ fn read_preview(path: &Path, limit: usize, lines: usize) -> Option<String> {
 }
 
 /// Quick Look: the preview of `file` on a page of its own, larger.
+/// Quick Look of any file, as an extension's `Action.quick_look` asks.
+pub fn quick_look_path(path: &Path, cx: &mut App) -> Result<PageHandle> {
+    let metadata =
+        std::fs::metadata(path).with_context(|| format!("cannot read {}", path.display()))?;
+    let modified = metadata
+        .modified()
+        .ok()
+        .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+        .map_or(0, |since| since.as_secs());
+    let file = index::FileEntry::new(
+        path.to_path_buf(),
+        metadata.is_dir(),
+        metadata.len(),
+        modified,
+    );
+    let thumbnail = file_thumbnail(path);
+    Ok(quick_look_page(&file, thumbnail, cx))
+}
+
 fn quick_look_page(
     file: &index::FileEntry,
     thumbnail: Option<PathBuf>,

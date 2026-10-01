@@ -119,7 +119,7 @@ impl PreferencesPage {
                 FormValue::Text(text) if text.trim().is_empty() => None,
                 FormValue::Text(text) => Some(Value::String(text.to_string())),
                 FormValue::Bool(value) => Some(Value::Bool(*value)),
-                FormValue::Empty => None,
+                FormValue::Empty | FormValue::List(_) => None,
             });
             // A field the form did not report keeps its value.
             let reported = submitted.is_some();

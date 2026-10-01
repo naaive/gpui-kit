@@ -471,7 +471,7 @@ impl Page for ArgumentsPage {
 fn text(values: &FormValues, id: &str) -> String {
     match values.get(id) {
         Some(FormValue::Text(text)) => text.to_string(),
-        Some(FormValue::Empty | FormValue::Bool(_)) | None => String::new(),
+        Some(FormValue::Empty | FormValue::Bool(_) | FormValue::List(_)) | None => String::new(),
     }
 }
 

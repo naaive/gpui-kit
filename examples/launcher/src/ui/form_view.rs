@@ -7,20 +7,25 @@
 
 use std::collections::HashMap;
 
-use chrono::NaiveDate;
+use chrono::{NaiveDate, NaiveDateTime};
 use gpui_kit::{
     AnyElement, App, AppContext as _, Context, Entity, FocusHandle, Focusable as _,
-    InteractiveElement as _, IntoElement, ParentElement as _, SharedString,
+    InteractiveElement as _, IntoElement, ParentElement as _, PathPromptOptions, SharedString,
     StatefulInteractiveElement as _, Styled as _, Subscription, Window,
     component::{
-        ActiveTheme as _, IndexPath, RopeExt as _,
+        ActiveTheme as _, IndexPath, RopeExt as _, Sizable as _,
+        button::Button,
         checkbox::Checkbox,
+        combobox::{Combobox, ComboboxEvent, ComboboxState},
         date_picker::{DatePicker, DatePickerEvent, DatePickerState},
         h_flex,
         input::{
             IndentInline, Input, InputEvent, InputState, OutdentInline, Textarea, TextareaState,
         },
+        searchable_list::SearchableVec,
         select::{Select, SelectEvent, SelectItem, SelectState},
+        separator::Separator,
+        time_field::TimePrecision,
         v_flex,
     },
     div,
@@ -35,6 +40,8 @@ use crate::{
 
 /// The format of `Control::Date` values.
 const DATE_FORMAT: &str = "%Y-%m-%d";
+/// The format of `Control::DateTime` values.
+const DATE_TIME_FORMAT: &str = "%Y-%m-%dT%H:%M";
 
 /// A dropdown choice as the Select component lists it.
 #[derive(Clone)]
@@ -71,6 +78,11 @@ enum FieldState {
     Checkbox(bool),
     Dropdown(Entity<SelectState<Vec<ChoiceItem>>>),
     Date(Entity<DatePickerState>),
+    DateTime(Entity<DatePickerState>),
+    Files(Vec<SharedString>),
+    Tags(Entity<ComboboxState<SearchableVec<ChoiceItem>>>),
+    /// A separator or a description: nothing to edit.
+    Static,
 }
 
 impl FieldState {
@@ -86,6 +98,13 @@ impl FieldState {
                 | (Self::Checkbox(_), Control::Checkbox { .. })
                 | (Self::Dropdown(_), Control::Dropdown { .. })
                 | (Self::Date(_), Control::Date { .. })
+                | (Self::DateTime(_), Control::DateTime { .. })
+                | (Self::Files(_), Control::Files { .. })
+                | (Self::Tags(_), Control::Tags { .. })
+                | (
+                    Self::Static,
+                    Control::Separator | Control::Description { .. }
+                )
         )
     }
 
@@ -101,6 +120,10 @@ impl FieldState {
                 .map(FormValue::Text)
                 .unwrap_or(FormValue::Empty),
             Self::Date(picker) => date_value(picker.read(cx).date_time().start()),
+            Self::DateTime(picker) => date_time_value(picker.read(cx).date_time().start()),
+            Self::Files(paths) => FormValue::List(paths.clone()),
+            Self::Tags(tags) => FormValue::List(tags.read(cx).selected_values()),
+            Self::Static => FormValue::Empty,
         }
     }
 
@@ -109,16 +132,24 @@ impl FieldState {
             Self::Text(input) => Some(input.focus_handle(cx)),
             Self::TextArea(input) => Some(input.focus_handle(cx)),
             Self::Dropdown(select) => Some(select.focus_handle(cx)),
-            Self::Date(picker) => Some(picker.focus_handle(cx)),
-            // The checkbox keeps its own focus handle; it is reached by Tab.
-            Self::Checkbox(_) => None,
+            Self::Date(picker) | Self::DateTime(picker) => Some(picker.focus_handle(cx)),
+            Self::Tags(tags) => Some(tags.focus_handle(cx)),
+            // The checkbox and the file button keep their own focus handles;
+            // they are reached by Tab.
+            Self::Checkbox(_) | Self::Files(_) | Self::Static => None,
         }
     }
 }
 
-fn date_value(value: Option<chrono::NaiveDateTime>) -> FormValue {
+fn date_value(value: Option<NaiveDateTime>) -> FormValue {
     value
         .map(|value| FormValue::Text(value.date().format(DATE_FORMAT).to_string().into()))
+        .unwrap_or(FormValue::Empty)
+}
+
+fn date_time_value(value: Option<NaiveDateTime>) -> FormValue {
+    value
+        .map(|value| FormValue::Text(value.format(DATE_TIME_FORMAT).to_string().into()))
         .unwrap_or(FormValue::Empty)
 }
 
@@ -134,6 +165,7 @@ impl FormFields {
     pub(super) fn values(&self, form: &FormModel, cx: &App) -> FormValues {
         form.fields()
             .iter()
+            .filter(|field| field.control().is_input())
             .fold(FormValues::new(), |values, field| {
                 let value = self
                     .fields
@@ -164,7 +196,13 @@ impl FormFields {
                 let end = input.text().offset_to_position(input.text().len());
                 input.set_cursor_position(end, window, cx);
             }),
-            FieldState::Checkbox(_) | FieldState::Dropdown(_) | FieldState::Date(_) => {
+            FieldState::Checkbox(_)
+            | FieldState::Dropdown(_)
+            | FieldState::Date(_)
+            | FieldState::DateTime(_)
+            | FieldState::Files(_)
+            | FieldState::Tags(_)
+            | FieldState::Static => {
                 if let Some(handle) = state.focus_handle(cx) {
                     handle.focus(window, cx);
                 }
@@ -297,7 +335,94 @@ impl LauncherWindow {
                 );
                 (FieldState::Date(picker), Some(subscription))
             }
+            Control::DateTime { value } => {
+                let value = value
+                    .as_ref()
+                    .and_then(|value| NaiveDateTime::parse_from_str(value, DATE_TIME_FORMAT).ok());
+                let picker = cx.new(|cx| {
+                    let mut picker =
+                        DatePickerState::new(window, cx).time_precision(TimePrecision::Minute);
+                    if let Some(value) = value {
+                        picker.set_date_time(value, window, cx);
+                    }
+                    picker
+                });
+                let subscription = cx.subscribe_in(
+                    &picker,
+                    window,
+                    move |this, _, event: &DatePickerEvent, window, cx| {
+                        let DatePickerEvent::Change(value) = event;
+                        this.field_changed(entry, &id, date_time_value(value.start()), window, cx);
+                    },
+                );
+                (FieldState::DateTime(picker), Some(subscription))
+            }
+            Control::Files { value, .. } => (FieldState::Files(value.clone()), None),
+            Control::Tags { choices, value } => {
+                let selected = value
+                    .iter()
+                    .filter_map(|value| choice_index(choices, Some(value)))
+                    .collect();
+                let items = SearchableVec::new(choice_items(choices));
+                let tags = cx.new(|cx| {
+                    ComboboxState::new(items, selected, window, cx)
+                        .multiple(true)
+                        .searchable(true)
+                });
+                let subscription = cx.subscribe_in(
+                    &tags,
+                    window,
+                    move |this, _, event: &ComboboxEvent<SearchableVec<ChoiceItem>>, window, cx| {
+                        if let ComboboxEvent::Change(values) = event {
+                            let value = FormValue::List(values.clone());
+                            this.field_changed(entry, &id, value, window, cx);
+                        }
+                    },
+                );
+                (FieldState::Tags(tags), Some(subscription))
+            }
+            Control::Separator | Control::Description { .. } => (FieldState::Static, None),
         }
+    }
+
+    /// Asks the system's open panel for files or folders, and keeps what was
+    /// chosen; cancelling keeps the earlier choice.
+    fn choose_files(
+        &mut self,
+        entry: EntryId,
+        id: SharedString,
+        directories: bool,
+        multiple: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let chosen = cx.prompt_for_paths(PathPromptOptions {
+            files: !directories,
+            directories,
+            multiple,
+            prompt: None,
+        });
+        cx.spawn_in(window, async move |this, cx| {
+            let Ok(Ok(Some(paths))) = chosen.await else {
+                return;
+            };
+            let paths: Vec<SharedString> = paths
+                .into_iter()
+                .map(|path| path.to_string_lossy().into_owned().into())
+                .collect();
+            this.update_in(cx, |this, window, cx| {
+                if let Some(FieldState::Files(value)) = this
+                    .forms
+                    .get_mut(&entry)
+                    .and_then(|fields| fields.fields.get_mut(&id))
+                {
+                    *value = paths.clone();
+                }
+                this.field_changed(entry, &id, FormValue::List(paths), window, cx);
+            })
+            .ok();
+        })
+        .detach();
     }
 
     /// Reports an edit to the field's `on_change`, read from the model the
@@ -407,6 +532,74 @@ impl LauncherWindow {
                 .accessibility_label(field.title().clone())
                 .into_any_element(),
             (Some(FieldState::Date(picker)), _) => DatePicker::new(picker).into_any_element(),
+            (Some(FieldState::DateTime(picker)), _) => DatePicker::new(picker).into_any_element(),
+            (Some(FieldState::Tags(tags)), _) => Combobox::new(tags)
+                .placeholder("Choose…")
+                .into_any_element(),
+            (
+                Some(FieldState::Files(paths)),
+                Control::Files {
+                    directories,
+                    multiple,
+                    ..
+                },
+            ) => {
+                let (id, directories, multiple) = (field.id().clone(), *directories, *multiple);
+                let names: Vec<String> = paths
+                    .iter()
+                    .map(|path| {
+                        std::path::Path::new(path.as_ref())
+                            .file_name()
+                            .map(|name| name.to_string_lossy().into_owned())
+                            .unwrap_or_else(|| path.to_string())
+                    })
+                    .collect();
+                h_flex()
+                    .h_8()
+                    .gap_2()
+                    .child(
+                        Button::new(keyed_id("choose", field.id().clone()))
+                            .small()
+                            .outline()
+                            .label(match (directories, multiple) {
+                                (true, false) => "Choose Folder…",
+                                (true, true) => "Choose Folders…",
+                                (false, false) => "Choose File…",
+                                (false, true) => "Choose Files…",
+                            })
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                this.choose_files(
+                                    entry,
+                                    id.clone(),
+                                    directories,
+                                    multiple,
+                                    window,
+                                    cx,
+                                );
+                            })),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .truncate()
+                            .text_sm()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(match names.is_empty() {
+                                true => "None".to_owned(),
+                                false => names.join(", "),
+                            }),
+                    )
+                    .into_any_element()
+            }
+            (Some(FieldState::Static), Control::Separator) => {
+                return Separator::horizontal().into_any_element();
+            }
+            (Some(FieldState::Static), Control::Description { text }) => div()
+                .text_sm()
+                .text_color(cx.theme().muted_foreground)
+                .child(text.clone())
+                .into_any_element(),
             // State is created before the first draw; a mismatch lasts one frame.
             _ => div().into_any_element(),
         };

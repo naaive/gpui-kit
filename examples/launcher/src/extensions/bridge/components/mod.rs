@@ -11,6 +11,7 @@ mod action;
 mod detail;
 mod form;
 mod list;
+mod menu_bar;
 mod shared;
 
 use gpui_shell::{ComponentRegistry, RegistryError};
@@ -22,5 +23,6 @@ pub(super) fn register(registry: &mut ComponentRegistry) -> Result<(), RegistryE
     detail::register(registry)?;
     form::register(registry)?;
     action::register(registry)?;
+    menu_bar::register(registry)?;
     Ok(())
 }

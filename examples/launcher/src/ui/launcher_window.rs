@@ -160,6 +160,12 @@ impl LauncherWindow {
         extensions.set_effect_handler(move |effect, cx| {
             let launcher = launcher.clone();
             cx.defer(move |cx| {
+                // The window closes when the launcher hides; what a command
+                // running in the background asks for is done without it.
+                if launcher.upgrade().is_none() {
+                    crate::shell::background::perform(effect, cx);
+                    return;
+                }
                 handle
                     .update(cx, |_, window, cx| {
                         launcher
@@ -803,6 +809,73 @@ impl LauncherWindow {
                 cx.reveal_path(&path);
                 self.close(window, cx);
             }
+            Effect::OpenWith {
+                target,
+                application,
+            } => match crate::shell::platform::open_with(&target, &application) {
+                Ok(()) => self.close(window, cx),
+                Err(error) => show_toast(
+                    &Toast::new(ToastStyle::Failure, "Couldn’t open it")
+                        .with_message(format!("{error:#}")),
+                    window,
+                    cx,
+                ),
+            },
+            Effect::Trash(paths) => {
+                let count = paths.len();
+                let task =
+                    cx.background_spawn(async move { crate::shell::platform::trash(&paths) });
+                cx.spawn_in(window, async move |_, cx| {
+                    let result = task.await;
+                    cx.update(|window, cx| {
+                        let toast = match result {
+                            Ok(()) => Toast::new(
+                                ToastStyle::Success,
+                                match count {
+                                    1 => "Moved to Trash".to_owned(),
+                                    count => format!("Moved {count} items to Trash"),
+                                },
+                            ),
+                            Err(error) => Toast::new(ToastStyle::Failure, "Couldn’t move to Trash")
+                                .with_message(format!("{error:#}")),
+                        };
+                        show_toast(&toast, window, cx);
+                    })
+                    .ok();
+                })
+                .detach();
+            }
+            Effect::QuickLook(path) => match crate::file_search::quick_look_path(&path, cx) {
+                Ok(page) => self.push(page, window, cx),
+                Err(error) => show_toast(
+                    &Toast::new(ToastStyle::Failure, "Couldn’t show the file")
+                        .with_message(format!("{error:#}")),
+                    window,
+                    cx,
+                ),
+            },
+            Effect::CreateQuicklink { name, link } => {
+                match crate::quicklinks::create_quicklink_page_with(&name, &link, cx) {
+                    Ok(page) => self.push(page, window, cx),
+                    Err(error) => show_toast(
+                        &Toast::new(ToastStyle::Failure, "Couldn’t open the form")
+                            .with_message(format!("{error:#}")),
+                        window,
+                        cx,
+                    ),
+                }
+            }
+            Effect::CreateSnippet { name, text } => {
+                match crate::snippets::create_snippet_page_with(&name, &text, cx) {
+                    Ok(page) => self.push(page, window, cx),
+                    Err(error) => show_toast(
+                        &Toast::new(ToastStyle::Failure, "Couldn’t open the form")
+                            .with_message(format!("{error:#}")),
+                        window,
+                        cx,
+                    ),
+                }
+            }
             Effect::Copy(text) => {
                 cx.write_to_clipboard(ClipboardItem::new_string(text.to_string()));
                 show_toast(
@@ -883,6 +956,7 @@ impl LauncherWindow {
         window.open_alert_dialog(cx, move |alert, _, _| {
             let effect = confirmation.effect().clone();
             let launcher = launcher.clone();
+            let on_cancel = confirmation.on_cancel().cloned();
             alert
                 .title(confirmation.title().clone())
                 .when_some(confirmation.message().cloned(), |this, message| {
@@ -893,6 +967,12 @@ impl LauncherWindow {
                 .ok_text(confirmation.confirm_title().clone())
                 .when(confirmation.is_destructive(), |this| {
                     this.ok_variant(ButtonVariant::Danger)
+                })
+                .when_some(on_cancel, |this, on_cancel| {
+                    this.on_cancel(move |_, window, cx| {
+                        on_cancel.run(window, cx);
+                        true
+                    })
                 })
                 .on_ok(move |_, window, cx| {
                     let effect = effect.clone();
@@ -909,6 +989,15 @@ impl LauncherWindow {
                     true
                 })
         });
+    }
+
+    /// The request that opened the lowest page of `extension` on the stack,
+    /// if one is open: reloading the extension opens it again.
+    pub fn open_request_of(&self, extension: &str, cx: &gpui_kit::App) -> Option<LaunchRequest> {
+        self.navigator
+            .entries()
+            .filter_map(|entry| entry.page().launch_request(cx))
+            .find(|request| request.command().extension().as_ref() == extension)
     }
 
     /// Returns to a fresh root search with the search field focused, as the
@@ -968,12 +1057,40 @@ impl LauncherWindow {
             );
             return;
         };
+        // A menu-bar command lives in the tray, loaded in the background
+        // window; opening it runs it again now.
+        if command.mode() == crate::extensions::CommandMode::MenuBar {
+            match crate::shell::background::run(request.clone(), cx) {
+                Ok(Some(page)) => self.push(page, window, cx),
+                Ok(None) => show_toast(
+                    &Toast::new(
+                        ToastStyle::Success,
+                        format!("{} is in the tray", command.title()),
+                    ),
+                    window,
+                    cx,
+                ),
+                Err(error) => show_toast(
+                    &Toast::new(ToastStyle::Failure, "Couldn’t open the command")
+                        .with_message(format!("{error:#}")),
+                    window,
+                    cx,
+                ),
+            }
+            return;
+        }
         match self
             .extensions
             .open(extension, command, request, window, cx)
         {
             Ok(Opened::Page(page)) => self.push(page, window, cx),
-            Ok(Opened::Background) => {}
+            Ok(Opened::Background) => {
+                if command.interval().is_some() {
+                    crate::shell::background::activate(command.id(), cx);
+                }
+            }
+            // Opened in the background window above; not reached.
+            Ok(Opened::MenuBar(view)) => self.extensions.stop(&view, cx),
             Err(error) => {
                 tracing::error!("{error:#}");
                 show_toast(
@@ -1562,6 +1679,8 @@ mod tests {
                 "com.gpui-kit.links/checklist:Command",
                 "com.gpui-kit.links/search-docs:Command",
                 "com.gpui-kit.links/copy-date:Command",
+                "com.gpui-kit.links/tray-links:Menu Bar",
+                "com.gpui-kit.links/weekend:Background",
                 "com.gpui-kit.notes/search-notes:Command",
                 "com.gpui-kit.notes/create-note:Command",
                 "# System",

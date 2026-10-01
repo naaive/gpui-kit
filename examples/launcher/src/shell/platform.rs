@@ -1,6 +1,9 @@
 //! Platform services with a defined fallback where a platform lacks them.
 
+mod files;
 mod hud;
+
+pub use files::{open_with, trash};
 
 use std::{process::Command, time::Duration};
 

@@ -286,6 +286,12 @@ pub(super) fn form_value_data(value: &FormValue) -> ComponentDataValue {
         FormValue::Empty => ComponentDataValue::Null,
         FormValue::Text(text) => ComponentDataValue::String(text.to_string()),
         FormValue::Bool(value) => ComponentDataValue::Boolean(*value),
+        FormValue::List(values) => ComponentDataValue::Array(
+            values
+                .iter()
+                .map(|value| ComponentDataValue::String(value.to_string()))
+                .collect(),
+        ),
     }
 }
 

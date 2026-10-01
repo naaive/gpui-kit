@@ -3,7 +3,8 @@
 //! `launcher://extensions/<extension-id>/<command-name>?arguments=<JSON>`
 //! opens a command, the way Raycast's deep links do, so a script, a browser
 //! or another application can start one. `arguments` is a URL-encoded JSON
-//! object whose values fill the command's arguments.
+//! object whose values fill the command's arguments; `context` is any
+//! URL-encoded JSON, which the command reads as `launch().context`.
 
 use anyhow::{Context as _, Result, anyhow, bail};
 use percent_encoding::percent_decode_str;
@@ -39,7 +40,13 @@ pub fn parse(link: &str) -> Result<LaunchRequest> {
     let [extension, command] = segments.as_slice() else {
         bail!("`{link}` must name exactly an extension and a command");
     };
-    let request = LaunchRequest::new(CommandId::new(extension.clone(), command.clone()));
+    let mut request = LaunchRequest::new(CommandId::new(extension.clone(), command.clone()));
+    if let Some((_, context)) = url.query_pairs().find(|(key, _)| key == "context") {
+        request = request.with_context(
+            serde_json::from_str(&context)
+                .with_context(|| format!("the `context` of `{link}` is not JSON"))?,
+        );
+    }
 
     let Some((_, arguments)) = url.query_pairs().find(|(key, _)| key == "arguments") else {
         return Ok(request);
@@ -94,6 +101,11 @@ mod tests {
             .map(|(name, value)| format!("{name}={value}"))
             .collect();
         assert_eq!(arguments, ["count=3", "exact=true", "query=a b+c"]);
+
+        let request =
+            parse("launcher://extensions/com.example/open?context=%7B%22id%22%3A7%7D").unwrap();
+        assert_eq!(request.context(), Some(&serde_json::json!({ "id": 7 })));
+        assert!(parse("launcher://extensions/com.example/open?context=nope").is_err());
     }
 
     #[test]

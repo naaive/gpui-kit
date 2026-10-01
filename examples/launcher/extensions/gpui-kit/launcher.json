@@ -33,6 +33,24 @@
       "keywords": ["iso", "today", "clipboard"],
       "module": "commands/copy-date.js",
       "mode": "no-view"
+    },
+    {
+      "name": "tray-links",
+      "title": "GPUI Kit Links in Tray",
+      "icon": "book-open",
+      "keywords": ["menu bar", "tray"],
+      "module": "commands/tray-links.js",
+      "mode": "menu-bar",
+      "interval": "1h"
+    },
+    {
+      "name": "weekend",
+      "title": "Days Until the Weekend",
+      "icon": "calendar-clock",
+      "keywords": ["countdown", "saturday"],
+      "module": "commands/weekend.js",
+      "mode": "no-view",
+      "interval": "1h"
     }
   ]
 }

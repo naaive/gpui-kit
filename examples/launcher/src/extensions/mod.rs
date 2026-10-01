@@ -16,12 +16,14 @@ mod host;
 pub mod install;
 mod lifecycle;
 mod manifest;
+mod oauth;
 mod pages;
 mod paths;
 mod permissions;
 mod preferences;
+mod scaffold;
 
-pub use bridge::{render_for_extension, take_page_model, write_declarations};
+pub use bridge::{render_for_extension, take_menu_bar, take_page_model, write_declarations};
 pub use catalog::{Catalog, Extension, ExtensionCommand};
 pub use host::{ExtensionHost, Opened};
 #[cfg(test)]
@@ -33,6 +35,7 @@ pub use manifest::{
 pub use paths::DataDirectory;
 #[cfg(test)]
 pub use preferences::{MemorySecrets, SecretStore};
+pub use scaffold::{Template, create as create_extension, lint as lint_extension};
 
 use std::fmt;
 
@@ -73,6 +76,10 @@ impl fmt::Display for CommandId {
 pub struct LaunchRequest {
     command: CommandId,
     arguments: std::collections::BTreeMap<SharedString, SharedString>,
+    /// Any JSON the launching code hands over, as `launch().context`.
+    context: Option<Box<serde_json::Value>>,
+    /// Whether the launcher started the command on its own schedule.
+    background: bool,
 }
 
 impl LaunchRequest {
@@ -80,7 +87,35 @@ impl LaunchRequest {
         Self {
             command,
             arguments: Default::default(),
+            context: None,
+            background: false,
         }
+    }
+
+    /// A run the launcher starts on a command's `interval`, not the user.
+    pub fn in_background(mut self) -> Self {
+        self.background = true;
+        self
+    }
+
+    pub fn is_background(&self) -> bool {
+        self.background
+    }
+
+    pub fn launch_type(&self) -> bridge::LaunchType {
+        match self.background {
+            true => bridge::LaunchType::Background,
+            false => bridge::LaunchType::UserInitiated,
+        }
+    }
+
+    pub fn with_context(mut self, context: serde_json::Value) -> Self {
+        self.context = Some(Box::new(context));
+        self
+    }
+
+    pub fn context(&self) -> Option<&serde_json::Value> {
+        self.context.as_deref()
     }
 
     pub fn with_argument(

@@ -13,6 +13,14 @@ pub enum Image {
     Glyph(SharedString),
     /// A swatch of a color, as `0xRRGGBBAA`.
     Color(u32),
+    /// An image on the web, fetched once and kept in the cache.
+    Url(SharedString),
+    /// The icon the system shows for a file, folder or application.
+    FileIcon(PathBuf),
+    /// A Lucide icon drawn in a tone instead of the text color.
+    TintedIcon(SharedString, Tone),
+    /// Another image clipped to a circle, such as an avatar.
+    Circle(Box<Image>),
 }
 
 impl Image {
@@ -20,6 +28,9 @@ impl Image {
     /// (contains a path separator or has an image extension), otherwise a
     /// Lucide icon name.
     pub fn parse(value: &str) -> Self {
+        if value.starts_with("https://") || value.starts_with("http://") {
+            return Self::Url(value.to_owned().into());
+        }
         let is_file = value.contains('/')
             || value.contains('\\')
             || [".png", ".jpg", ".jpeg", ".svg", ".gif", ".webp"]
@@ -72,6 +83,10 @@ mod tests {
         assert_eq!(
             Image::parse("logo.SVG"),
             Image::File(PathBuf::from("logo.SVG"))
+        );
+        assert_eq!(
+            Image::parse("https://example.com/a.png"),
+            Image::Url("https://example.com/a.png".into())
         );
     }
 }

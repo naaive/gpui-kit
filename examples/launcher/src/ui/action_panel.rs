@@ -308,6 +308,7 @@ fn entry_row(
                             true => theme.danger,
                             false => theme.muted_foreground,
                         },
+                        theme,
                     ))
                 }),
         )

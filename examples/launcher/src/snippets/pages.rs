@@ -153,7 +153,7 @@ fn item(snippet: &Snippet) -> Item {
 fn text(values: &FormValues, id: &str) -> String {
     match values.get(id) {
         Some(FormValue::Text(text)) => text.to_string(),
-        Some(FormValue::Empty | FormValue::Bool(_)) | None => String::new(),
+        Some(FormValue::Empty | FormValue::Bool(_) | FormValue::List(_)) | None => String::new(),
     }
 }
 
@@ -340,6 +340,19 @@ impl Page for SnippetFormPage {
 /// The Create Snippet command.
 pub fn create_snippet_page(_: &mut Window, cx: &mut App) -> Result<PageHandle> {
     let page = SnippetFormPage::new(None, cx)?;
+    Ok(pages::handle(cx.new(|_| page)))
+}
+
+/// The Create Snippet form filled in, as an extension's
+/// `Action.create_snippet` asks; nothing is saved until the user submits.
+pub fn create_snippet_page_with(name: &str, text: &str, cx: &mut App) -> Result<PageHandle> {
+    let mut page = SnippetFormPage::new(None, cx)?;
+    page.draft = Some(
+        FormValues::new()
+            .with(NAME, FormValue::Text(name.to_owned().into()))
+            .with(TEXT, FormValue::Text(text.to_owned().into()))
+            .with(KEYWORD, FormValue::Text(SharedString::default())),
+    );
     Ok(pages::handle(cx.new(|_| page)))
 }
 

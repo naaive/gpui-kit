@@ -35,6 +35,9 @@ pub enum Opened {
     /// toast, which needs the window, or with a HUD (`show_hud`), which hides
     /// it — the same choice Raycast leaves to the command.
     Background,
+    /// A menu-bar command's view, loaded until [`ExtensionHost::stop`]; the
+    /// caller shows what it renders in the tray.
+    MenuBar(Entity<ScriptView>),
 }
 
 type EffectHandler = Rc<dyn Fn(Effect, &mut App)>;
@@ -121,7 +124,11 @@ pub(super) struct Services {
 pub struct LaunchContext {
     command: CommandId,
     arguments: BTreeMap<SharedString, SharedString>,
+    /// What the launching code passed as `context`.
+    context: Option<serde_json::Value>,
+    launch_type: bridge::LaunchType,
     preferences: ResolvedPreferences,
+    root: PathBuf,
     data_dir: PathBuf,
     cache_dir: PathBuf,
     development: bool,
@@ -148,6 +155,18 @@ impl LaunchContext {
 
     pub fn cache_dir(&self) -> &Path {
         &self.cache_dir
+    }
+
+    /// The request this launch answers, to open it again.
+    fn request(&self) -> LaunchRequest {
+        let request = self.arguments.iter().fold(
+            LaunchRequest::new(self.command.clone()),
+            |request, (name, value)| request.with_argument(name.clone(), value.clone()),
+        );
+        match &self.context {
+            Some(context) => request.with_context(context.clone()),
+            None => request,
+        }
     }
 }
 
@@ -188,7 +207,12 @@ impl LaunchSink {
 /// `launcher/api` is built per launch, so `launch()` answers for the command
 /// whose code is calling at any time — in `init`, in `render`, in a callback
 /// three seconds later — rather than for whichever command was opened last.
-fn host_modules(context: &LaunchContext, sink: &LaunchSink) -> Vec<HostModule> {
+fn host_modules(
+    context: &LaunchContext,
+    grant: &gpui_shell::Capabilities,
+    secrets: Rc<dyn super::preferences::SecretStore>,
+    sink: &LaunchSink,
+) -> Vec<HostModule> {
     let sink = sink.clone();
     let metadata = sink.clone();
     let api = context
@@ -200,6 +224,11 @@ fn host_modules(context: &LaunchContext, sink: &LaunchSink) -> Vec<HostModule> {
             |api, (name, value)| api.with_argument(name.clone(), value.clone()),
         )
         .with_preferences(context.preferences().clone().into_iter().collect())
+        .with_context_value(context.context.clone())
+        .with_launch_type(context.launch_type)
+        .with_paths(&context.root, context.data_dir())
+        .with_capabilities(grant.clone())
+        .with_secrets(secrets)
         .with_cache_directory(context.cache_dir())
         .with_development(context.development)
         .with_locale(locale())
@@ -291,7 +320,7 @@ impl HostState {
             .launches
             .borrow()
             .get(&launch)
-            .is_some_and(|launch| launch.mode == CommandMode::NoView);
+            .is_some_and(|launch| launch.mode != CommandMode::View);
         if is_background {
             self.remove(launch);
         }
@@ -531,7 +560,10 @@ impl ExtensionHost {
         let context = LaunchContext {
             command: command.id().clone(),
             arguments: request.arguments().clone(),
+            context: request.context().cloned(),
+            launch_type: request.launch_type(),
             preferences: services.preferences.resolve(extension, command)?,
+            root: extension.root().to_path_buf(),
             data_dir: services.data.extension_data_dir(&id),
             cache_dir: services.data.cache_dir(&id),
             development: services
@@ -561,7 +593,8 @@ impl ExtensionHost {
             && let Some(launch) = state.reusable(&context, &approved)
         {
             let view = state.launches.borrow()[&launch].view.clone();
-            let page = cx.new(|cx| ScriptPage::new(title, view, cx));
+            let request = context.request();
+            let page = cx.new(|cx| ScriptPage::new(title, view, cx).with_request(request));
             state.track_page(launch, &page, cx);
             return Ok(Opened::Page(pages::handle(page)));
         }
@@ -575,20 +608,23 @@ impl ExtensionHost {
             state: Rc::downgrade(state),
             launch,
         };
-        let policy = host_modules(&context, &sink).into_iter().try_fold(
-            match storage {
-                Some(shared) => Policy::new().with_storage_of(&shared),
-                None => Policy::new()
-                    .with_storage_path(state.services.data.storage_path(extension.id())),
-            }
-            .with_application(extension.id())
-            .with_capabilities(grant),
-            |policy, module| {
-                policy
-                    .with_host_module(module)
-                    .map_err(|error| anyhow!("{error}"))
-            },
-        );
+        let secrets = state.services.preferences.secrets();
+        let policy = host_modules(&context, &grant, secrets, &sink)
+            .into_iter()
+            .try_fold(
+                match storage {
+                    Some(shared) => Policy::new().with_storage_of(&shared),
+                    None => Policy::new()
+                        .with_storage_path(state.services.data.storage_path(extension.id())),
+                }
+                .with_application(extension.id())
+                .with_capabilities(grant),
+                |policy, module| {
+                    policy
+                        .with_host_module(module)
+                        .map_err(|error| anyhow!("{error}"))
+                },
+            );
         let mounted = policy.and_then(|policy| {
             let policy = Rc::new(policy);
             let application = self
@@ -628,9 +664,15 @@ impl ExtensionHost {
 
         match command.mode() {
             CommandMode::View => {
-                let page = cx.new(|cx| ScriptPage::new(title, view, cx));
+                let request = state.launches.borrow()[&launch].context.request();
+                let page = cx.new(|cx| ScriptPage::new(title, view, cx).with_request(request));
                 state.track_page(launch, &page, cx);
                 Ok(Opened::Page(pages::handle(page)))
+            }
+            CommandMode::MenuBar => {
+                // Loaded until the tray lets it go; its timers keep running.
+                state.lifecycle.borrow_mut().acquire(launch);
+                Ok(Opened::MenuBar(view))
             }
             CommandMode::NoView => {
                 // The command may already have finished during `init`; its
@@ -648,6 +690,30 @@ impl ExtensionHost {
                 .detach();
                 Ok(Opened::Background)
             }
+        }
+    }
+
+    /// Unloads every launch of `extension`, so its next launch reads its code
+    /// again: what reloading an extension in development needs.
+    pub fn unload_extension(&self, extension: &str) {
+        let launches: Vec<LaunchId> = self
+            .state
+            .launches
+            .borrow()
+            .iter()
+            .filter(|(_, launch)| launch.context.command.extension().as_ref() == extension)
+            .map(|(id, _)| *id)
+            .collect();
+        for launch in launches {
+            self.state.remove(launch);
+        }
+    }
+
+    /// Unloads a menu-bar command's view: its timers and tasks stop.
+    pub fn stop(&self, view: &Entity<ScriptView>, cx: &App) {
+        let policy = view.read(cx).policy();
+        if let Some(launch) = self.state.launch_for(&policy) {
+            self.state.remove(launch);
         }
     }
 

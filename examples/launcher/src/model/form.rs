@@ -149,6 +149,27 @@ pub enum Control {
     Date {
         value: Option<SharedString>,
     },
+    /// An ISO 8601 date and time of day, `YYYY-MM-DDTHH:MM`.
+    DateTime {
+        value: Option<SharedString>,
+    },
+    /// Files or folders chosen in the system's open panel.
+    Files {
+        value: Vec<SharedString>,
+        directories: bool,
+        multiple: bool,
+    },
+    /// Any number of choices, such as labels.
+    Tags {
+        choices: Vec<Choice>,
+        value: Vec<SharedString>,
+    },
+    /// A line between groups of fields; it has no value.
+    Separator,
+    /// Text explaining the fields around it; it has no value.
+    Description {
+        text: SharedString,
+    },
 }
 
 impl Control {
@@ -159,11 +180,19 @@ impl Control {
             | Self::TextArea { value, .. }
             | Self::Password { value, .. } => FormValue::Text(value.clone()),
             Self::Checkbox { value, .. } => FormValue::Bool(*value),
-            Self::Dropdown { value, .. } | Self::Date { value } => value
+            Self::Dropdown { value, .. } | Self::Date { value } | Self::DateTime { value } => value
                 .clone()
                 .map(FormValue::Text)
                 .unwrap_or(FormValue::Empty),
+            Self::Files { value, .. } | Self::Tags { value, .. } => FormValue::List(value.clone()),
+            Self::Separator | Self::Description { .. } => FormValue::Empty,
         }
+    }
+
+    /// Whether the user edits this control; a separator or a description
+    /// only arranges the form and submits nothing.
+    pub fn is_input(&self) -> bool {
+        !matches!(self, Self::Separator | Self::Description { .. })
     }
 }
 
@@ -196,6 +225,8 @@ pub enum FormValue {
     Empty,
     Text(SharedString),
     Bool(bool),
+    /// Several strings: chosen files, or tags.
+    List(Vec<SharedString>),
 }
 
 /// The values of a form, by field id.

@@ -253,6 +253,11 @@ pub struct PreferenceStore {
 }
 
 impl PreferenceStore {
+    /// Where password preferences, and an extension's OAuth tokens, are kept.
+    pub fn secrets(&self) -> Rc<dyn SecretStore> {
+        self.secrets.clone()
+    }
+
     pub fn new(path: PathBuf, secrets: Rc<dyn SecretStore>) -> Self {
         Self { path, secrets }
     }

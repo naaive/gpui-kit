@@ -259,7 +259,7 @@ impl LauncherWindow {
                     .items_center()
                     .justify_center()
                     .when_some(item.image(), |this, image| {
-                        this.child(picture(image, PictureSize::Row, muted))
+                        this.child(picture(image, PictureSize::Row, muted, theme))
                     }),
             )
             .child(
@@ -320,7 +320,7 @@ impl LauncherWindow {
                         false => theme.transparent,
                     })
                     .when_some(item.image(), |this, image| {
-                        this.child(picture(image, PictureSize::Cell, theme.foreground))
+                        this.child(picture(image, PictureSize::Cell, theme.foreground, theme))
                     }),
             )
             .child(
@@ -388,8 +388,9 @@ fn accessory_element(
     ix: usize,
     accessory: &Accessory,
     muted: gpui_kit::Hsla,
-    _: &Context<LauncherWindow>,
+    cx: &Context<LauncherWindow>,
 ) -> AnyElement {
+    let theme = cx.theme();
     let content = match (accessory.tone(), accessory.label()) {
         (Some(tone), Some(text)) => tag(text.clone(), tone),
         (_, text) => h_flex()
@@ -397,7 +398,7 @@ fn accessory_element(
             .text_sm()
             .text_color(muted)
             .when_some(accessory.picture(), |this, image| {
-                this.child(picture(image, PictureSize::Row, muted))
+                this.child(picture(image, PictureSize::Row, muted, theme))
             })
             .when_some(text.cloned(), |this, text| this.child(text))
             .into_any_element(),

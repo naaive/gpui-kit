@@ -67,7 +67,7 @@ impl SettingsPage {
         match self.draft.as_ref().and_then(|draft| draft.get(id)) {
             Some(FormValue::Text(text)) => text.clone(),
             Some(FormValue::Empty) => SharedString::default(),
-            Some(FormValue::Bool(_)) | None => saved.into(),
+            Some(FormValue::Bool(_) | FormValue::List(_)) | None => saved.into(),
         }
     }
 

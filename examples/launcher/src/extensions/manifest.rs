@@ -44,6 +44,32 @@ pub enum CommandMode {
     /// Runs without a page: the View's `init` does the work and reports back
     /// with a HUD or toast; its `render` is never shown.
     NoView,
+    /// Shows an icon and a menu in the system tray (the menu bar on macOS):
+    /// the View's `render` returns a `MenuBarExtra`. It starts with the
+    /// launcher and stays loaded.
+    MenuBar,
+}
+
+/// The shortest `interval` of a `no-view` command, so a background command
+/// cannot keep the computer busy.
+pub const MIN_NO_VIEW_INTERVAL: std::time::Duration = std::time::Duration::from_secs(60);
+/// The shortest `interval` of a `menu-bar` command.
+pub const MIN_MENU_BAR_INTERVAL: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// Reads an interval such as `90s`, `10m`, `1h` or `1d`.
+pub fn parse_interval(value: &str) -> Option<std::time::Duration> {
+    let value = value.trim();
+    let split = value.find(|c: char| !c.is_ascii_digit())?;
+    let (number, unit) = value.split_at(split);
+    let number: u64 = number.parse().ok()?;
+    let seconds = match unit {
+        "s" => number,
+        "m" => number * 60,
+        "h" => number * 3600,
+        "d" => number * 86_400,
+        _ => return None,
+    };
+    (seconds > 0).then(|| std::time::Duration::from_secs(seconds))
 }
 
 /// Something the user types before a command runs, such as a search query.
@@ -136,6 +162,11 @@ pub struct CommandManifest {
     /// Settings of this command only.
     #[serde(default)]
     pub preferences: Vec<PreferenceManifest>,
+    /// How often the launcher runs a `no-view` or `menu-bar` command on its
+    /// own, such as `10m`: a number and `s`, `m`, `h` or `d`. At least `1m`
+    /// for `no-view`, `10s` for `menu-bar`.
+    #[serde(default)]
+    pub interval: Option<String>,
 }
 
 /// The JSON Schema of `launcher.json`, for editor validation.
@@ -217,6 +248,7 @@ impl LauncherManifest {
                 );
             }
             validate_arguments(&at, command)?;
+            validate_interval(&at, command)?;
             validate_preferences(
                 &format!("{at}.preferences"),
                 &command.preferences,
@@ -262,6 +294,40 @@ fn validate_arguments(at: &str, command: &CommandManifest) -> Result<()> {
                  {at}.arguments"
             ),
         }
+    }
+    Ok(())
+}
+
+fn validate_interval(at: &str, command: &CommandManifest) -> Result<()> {
+    let Some(interval) = &command.interval else {
+        return Ok(());
+    };
+    let Some(duration) = parse_interval(interval) else {
+        bail!(
+            "{at}.interval `{interval}` must be a number and `s`, `m`, `h` or `d`, such as `10m`"
+        );
+    };
+    let minimum = match command.mode {
+        CommandMode::View => {
+            bail!("{at}.interval is only for `no-view` and `menu-bar` commands");
+        }
+        CommandMode::NoView => MIN_NO_VIEW_INTERVAL,
+        CommandMode::MenuBar => MIN_MENU_BAR_INTERVAL,
+    };
+    if duration < minimum {
+        bail!(
+            "{at}.interval `{interval}` is shorter than the {}s a {} command may use",
+            minimum.as_secs(),
+            match command.mode {
+                CommandMode::MenuBar => "`menu-bar`",
+                _ => "`no-view`",
+            }
+        );
+    }
+    if command.arguments.iter().any(|argument| argument.required) {
+        bail!(
+            "{at}.interval runs the command on its own, so none of its arguments may be required"
+        );
     }
     Ok(())
 }
@@ -510,6 +576,44 @@ mod tests {
                 ""
             ))
             .contains("must therefore be a `text` argument")
+        );
+    }
+
+    #[test]
+    fn test_validates_intervals() {
+        assert_eq!(
+            parse_interval("90s"),
+            Some(std::time::Duration::from_secs(90))
+        );
+        assert_eq!(
+            parse_interval("2h"),
+            Some(std::time::Duration::from_secs(7200))
+        );
+        assert_eq!(parse_interval("0m"), None);
+        assert_eq!(parse_interval("10 minutes"), None);
+        let parsed =
+            LauncherManifest::parse(&manifest(r#", "mode": "menu-bar", "interval": "30s""#, ""))
+                .unwrap();
+        assert_eq!(parsed.commands[0].mode, CommandMode::MenuBar);
+        assert!(
+            error(&manifest(r#", "interval": "10m""#, ""))
+                .contains("only for `no-view` and `menu-bar`")
+        );
+        assert!(
+            error(&manifest(r#", "mode": "no-view", "interval": "30s""#, ""))
+                .contains("shorter than the 60s")
+        );
+        assert!(
+            error(&manifest(r#", "mode": "no-view", "interval": "often""#, ""))
+                .contains("must be a number")
+        );
+        assert!(
+            error(&manifest(
+                r#", "mode": "no-view", "interval": "5m",
+                   "arguments": [{ "name": "q", "placeholder": "Q", "required": true }]"#,
+                ""
+            ))
+            .contains("none of its arguments may be required")
         );
     }
 

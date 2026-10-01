@@ -8,7 +8,9 @@ mod clipboard_backup;
 mod expansion;
 mod pages;
 
-pub use pages::{create_snippet_page, search_snippets_page, snippet_items};
+pub use pages::{
+    create_snippet_page, create_snippet_page_with, search_snippets_page, snippet_items,
+};
 
 use std::path::PathBuf;
 

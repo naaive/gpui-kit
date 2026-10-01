@@ -14,13 +14,17 @@
 use std::{
     cell::{Cell, RefCell},
     collections::BTreeMap,
+    future::Future,
     path::{Path, PathBuf},
+    pin::Pin,
     rc::Rc,
 };
 
 use anyhow::Result;
-use gpui_kit::{App, SharedString};
-use gpui_shell::{HostArguments, HostError, HostModule, HostObject, HostValue};
+use gpui_kit::{App, AppContext as _, SharedString};
+use gpui_shell::{
+    Capabilities, HostArguments, HostError, HostModule, HostObject, HostResult, HostValue,
+};
 use serde_json::{Map, Value};
 
 use super::{
@@ -28,9 +32,12 @@ use super::{
     components::parse_toast_style,
 };
 use crate::{
-    extensions::{CommandId, LaunchRequest},
-    model::{Effect, Toast, ToastStyle},
+    extensions::{CommandId, LaunchRequest, oauth, preferences::SecretStore},
+    model::{Confirmation, Effect, RunHandler, Toast, ToastStyle},
 };
+
+/// What an asynchronous host function hands the runtime to await.
+type Pending = Pin<Box<dyn Future<Output = HostResult> + Send>>;
 
 pub const MODULE: &str = "launcher/api";
 
@@ -49,8 +56,10 @@ export interface Launch {
   arguments: { [name: string]: string };
   /** The extension's and the command's preferences, by preference name. */
   preferences: { [name: string]: Json };
-  /** Whether the user opened the command or the launcher ran it on its own. */
-  launch_type: "user_initiated";
+  /** Whether the user opened the command, or the launcher ran it on its `interval`. */
+  launch_type: "user_initiated" | "background";
+  /** What the command that launched this one passed as `context`, or `null`. */
+  context: Json;
 }
 
 export interface ToastOptions {
@@ -60,6 +69,46 @@ export interface ToastOptions {
   style?: "info" | "success" | "failure" | "progress";
   /** Toasts with the same id replace each other. */
   id?: string;
+  /** The title of a button on the toast; the promise answers `"primary"` when it is pressed. */
+  primary_action?: string;
+}
+
+export interface AlertOptions {
+  title: string;
+  message?: string;
+  /** The confirming button's title; defaults to `Confirm`. */
+  primary_action?: string;
+  /** Draws the confirming button as destructive. */
+  destructive?: boolean;
+}
+
+export interface Application {
+  name: string;
+  /** The program, bundle or shortcut, as a path. */
+  path: string;
+}
+
+export interface OAuthClient {
+  /** Names the tokens among this extension's providers, such as `github`. */
+  provider: string;
+  authorize_url: string;
+  /** Must be allowed for POST by the extension's network grant. */
+  token_url: string;
+  client_id: string;
+  scope?: string;
+  /** More query parameters of the authorize URL. */
+  extra_parameters?: { [name: string]: string };
+}
+
+export interface OAuthTokens {
+  access_token: string;
+  refresh_token?: string;
+  id_token?: string;
+  scope?: string;
+  /** Unix milliseconds. */
+  expires_at?: number;
+  /** True a minute before `expires_at`, so a request made with it does not fail midway. */
+  is_expired: boolean;
 }
 
 export interface Environment {
@@ -69,12 +118,24 @@ export interface Environment {
   launcher_version: string;
   /** True while the extension is loaded for development. */
   development: boolean;
+  /** The extension's directory, where its images and other files are. */
+  assets_path: string;
+  /** A directory the extension may keep files in; read and write it with `fs` under `${dataDir}`. */
+  support_path: string;
 }
 
 /** The command this page was opened for, with its arguments and preferences. */
 export function launch(): Launch;
-/** Shows a message in the launcher. `show_toast(title, style)` is accepted too. */
-export function show_toast(options: ToastOptions | string, style?: ToastOptions["style"]): void;
+/**
+ * Shows a message in the launcher. `show_toast(title, style)` is accepted too.
+ * Answers `"primary"` when the toast's button is pressed, `null` when the toast goes away.
+ */
+export function show_toast(
+  options: ToastOptions | string,
+  style?: ToastOptions["style"],
+): Promise<"primary" | null>;
+/** Asks the user to confirm; answers whether they did. */
+export function confirm_alert(options: AlertOptions): Promise<boolean>;
 /** Hides the launcher and shows a short message. */
 export function show_hud(text: string): void;
 /** Hides the launcher. */
@@ -83,14 +144,34 @@ export function close_main_window(): void;
 export function pop(): void;
 /** Returns to the root search. */
 export function pop_to_root(): void;
-/** Opens a URL in the default browser, or a file or folder with its default application. */
-export function open(target: string): void;
+/** Opens a URL, file or folder with its default application, or with `application` (a path or a name). */
+export function open(target: string, application?: string): void;
 /** Copies text to the clipboard. */
 export function copy(text: string): void;
 /** Pastes text into the application that was frontmost, then hides the launcher. */
 export function paste(text: string): void;
-/** Opens another command of this extension, or `extension-id/command` of another. */
-export function launch_command(name: string, arguments?: { [name: string]: string }): void;
+/** Opens another command of this extension, or `extension-id/command` of another, with arguments and any JSON `context`. */
+export function launch_command(
+  name: string,
+  arguments?: { [name: string]: string },
+  context?: Json,
+): void;
+/** The text selected in the application that was in front when the launcher was summoned, or `null`. */
+export function selected_text(): string | null;
+/** The files selected in the file manager window that was in front (Explorer, Finder). */
+export function selected_files(): Promise<string[]>;
+/** The application that was in front when the launcher was summoned, or `null`. */
+export function frontmost_application(): Application | null;
+/** The installed applications. */
+export function applications(): Promise<Application[]>;
+/** Signs in with OAuth 2.0 (authorization code with PKCE) in the browser, and keeps the tokens in the system keychain. */
+export function oauth_authorize(client: OAuthClient): Promise<OAuthTokens>;
+/** The tokens kept for `provider`, or `null` before signing in. */
+export function oauth_tokens(provider: string): OAuthTokens | null;
+/** Exchanges the refresh token for new tokens, and keeps them. */
+export function oauth_refresh(client: OAuthClient): Promise<OAuthTokens>;
+/** Forgets the tokens of `provider`: signing out. */
+export function oauth_remove_tokens(provider: string): void;
 /** The launcher's appearance, locale and version. */
 export function environment(): Environment;
 /** A value this extension cached, or `null`. */
@@ -110,18 +191,20 @@ pub type EffectSink = Rc<dyn Fn(Effect, &mut App)>;
 /// Where metadata updates go; the root search shows them.
 pub type MetadataSink = Rc<dyn Fn(CommandId, CommandMetadata, &mut App)>;
 
-/// How a command was opened. The launcher runs nothing on its own schedule,
-/// so every launch is the user's; the type leaves room for scheduled runs.
+/// How a command was opened: by the user, or by the launcher on the
+/// command's `interval`.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum LaunchType {
     #[default]
     UserInitiated,
+    Background,
 }
 
 impl LaunchType {
     fn as_str(self) -> &'static str {
         match self {
             Self::UserInitiated => "user_initiated",
+            Self::Background => "background",
         }
     }
 }
@@ -167,6 +250,10 @@ struct ContextState {
     cache_limit: Cell<usize>,
     effects: RefCell<Option<EffectSink>>,
     metadata: RefCell<Option<MetadataSink>>,
+    root: RefCell<Option<PathBuf>>,
+    data_directory: RefCell<Option<PathBuf>>,
+    capabilities: RefCell<Capabilities>,
+    secrets: RefCell<Option<Rc<dyn SecretStore>>>,
 }
 
 #[derive(Clone, Default)]
@@ -174,6 +261,7 @@ struct Launch {
     command: Option<SharedString>,
     arguments: BTreeMap<SharedString, SharedString>,
     launch_type: LaunchType,
+    context: Option<Value>,
 }
 
 impl ExtensionContext {
@@ -189,7 +277,44 @@ impl ExtensionContext {
             cache_limit: Cell::new(cache::DEFAULT_LIMIT),
             effects: RefCell::new(None),
             metadata: RefCell::new(None),
+            root: RefCell::new(None),
+            data_directory: RefCell::new(None),
+            capabilities: RefCell::new(Capabilities::new()),
+            secrets: RefCell::new(None),
         }))
+    }
+
+    /// The `context` the launching code passed.
+    pub fn with_context_value(self, context: Option<Value>) -> Self {
+        self.0.launch.borrow_mut().context = context;
+        self
+    }
+
+    pub fn with_launch_type(self, launch_type: LaunchType) -> Self {
+        self.0.launch.borrow_mut().launch_type = launch_type;
+        self
+    }
+
+    /// The extension's directory and its data directory, which
+    /// `environment()` reports.
+    pub fn with_paths(self, root: impl Into<PathBuf>, data: impl Into<PathBuf>) -> Self {
+        self.0.root.replace(Some(root.into()));
+        self.0.data_directory.replace(Some(data.into()));
+        self
+    }
+
+    /// The grant the launch runs under; the launcher checks the requests it
+    /// makes on the extension's behalf, such as an OAuth token exchange,
+    /// against it.
+    pub fn with_capabilities(self, capabilities: Capabilities) -> Self {
+        self.0.capabilities.replace(capabilities);
+        self
+    }
+
+    /// Where OAuth tokens are kept.
+    pub fn with_secrets(self, secrets: Rc<dyn SecretStore>) -> Self {
+        self.0.secrets.replace(Some(secrets));
+        self
     }
 
     /// The command `launch()` reports.
@@ -266,6 +391,7 @@ impl ExtensionContext {
             command: Some(request.command().command().clone()),
             arguments: request.arguments().clone(),
             launch_type,
+            context: request.context().cloned(),
         });
         super::note_launched(&self.0.extension);
     }
@@ -315,6 +441,13 @@ impl ExtensionContext {
                 json_to_host(&Value::Object(self.0.preferences.borrow().clone())),
             )
             .field("launch_type", launch.launch_type.as_str())
+            .field(
+                "context",
+                launch
+                    .context
+                    .as_ref()
+                    .map_or(HostValue::Null, json_to_host),
+            )
             .into())
     }
 
@@ -335,7 +468,157 @@ impl ExtensionContext {
             .field("locale", self.locale().to_string())
             .field("launcher_version", env!("CARGO_PKG_VERSION"))
             .field("development", self.is_development())
+            .field("assets_path", path_text(&self.0.root.borrow()))
+            .field("support_path", path_text(&self.0.data_directory.borrow()))
             .into()
+    }
+
+    fn secrets(&self, function: &str) -> Result<Rc<dyn SecretStore>, HostError> {
+        self.0.secrets.borrow().clone().ok_or_else(|| {
+            HostError::new(format!(
+                "{function}: the launcher gave this extension no keychain"
+            ))
+        })
+    }
+
+    fn stored_tokens(&self, provider: &str) -> Result<Option<oauth::Tokens>, HostError> {
+        let account = oauth::account(&self.0.extension, provider);
+        let Some(saved) = self
+            .secrets("oauth_tokens")?
+            .read(&account)
+            .map_err(|error| HostError::new(format!("{error:#}")))?
+        else {
+            return Ok(None);
+        };
+        serde_json::from_str(&saved)
+            .map(Some)
+            .map_err(|error| HostError::new(format!("the kept tokens are unreadable: {error}")))
+    }
+
+    /// The OAuth client an extension describes, its token endpoint checked
+    /// against the extension's network grant: the launcher makes that request
+    /// for it, and must not reach further than the extension could itself.
+    fn oauth_client(
+        &self,
+        function: &str,
+        value: &HostValue,
+    ) -> Result<(String, oauth::Client), HostError> {
+        let fields = value.as_object().ok_or_else(|| {
+            HostError::new(format!(
+                "{function} expects {{ provider, authorize_url, token_url, client_id }}, not {}",
+                value.describe()
+            ))
+        })?;
+        let text = |field: &str| -> Result<Option<String>, HostError> {
+            match fields
+                .iter()
+                .find(|(key, _)| key == field)
+                .map(|(_, value)| value)
+            {
+                None | Some(HostValue::Null) => Ok(None),
+                Some(HostValue::Str(text)) => Ok(Some(text.clone())),
+                Some(other) => Err(HostError::new(format!(
+                    "{function}: `{field}` must be a string, not {}",
+                    other.describe()
+                ))),
+            }
+        };
+        let required = |field: &str| {
+            text(field)?
+                .filter(|text| !text.trim().is_empty())
+                .ok_or_else(|| HostError::new(format!("{function}: `{field}` is required")))
+        };
+        let url = |field: &str| -> Result<url::Url, HostError> {
+            let value = required(field)?;
+            url::Url::parse(&value)
+                .map_err(|error| HostError::new(format!("{function}: `{field}`: {error}")))
+        };
+        let provider = required("provider")?;
+        let token_url = url("token_url")?;
+        let allowed = self.0.capabilities.borrow().may_request(
+            token_url.scheme(),
+            token_url.host_str().unwrap_or_default(),
+            token_url.port(),
+            "POST",
+            token_url.path(),
+        );
+        if !allowed {
+            return Err(HostError::new(format!(
+                "{function}: `gpui-shell.json` does not allow POST to {token_url}; add it to \
+                 `capabilities.network.http`"
+            )));
+        }
+        let extra = match fields
+            .iter()
+            .find(|(key, _)| key == "extra_parameters")
+            .map(|(_, value)| value)
+        {
+            None | Some(HostValue::Null) => Vec::new(),
+            Some(HostValue::Object(parameters)) => parameters
+                .iter()
+                .map(|(name, value)| match value {
+                    HostValue::Str(value) => Ok((name.clone(), value.clone())),
+                    other => Err(HostError::new(format!(
+                        "{function}: parameter `{name}` must be a string, not {}",
+                        other.describe()
+                    ))),
+                })
+                .collect::<Result<_, _>>()?,
+            Some(other) => {
+                return Err(HostError::new(format!(
+                    "{function}: `extra_parameters` must be an object, not {}",
+                    other.describe()
+                )));
+            }
+        };
+        Ok((
+            provider,
+            oauth::Client {
+                authorize_url: url("authorize_url")?,
+                token_url,
+                client_id: required("client_id")?,
+                scope: text("scope")?,
+                extra,
+            },
+        ))
+    }
+
+    /// Runs `work` off the main thread, keeps the tokens it got under
+    /// `provider` on the main thread (the keychain store lives there), and
+    /// answers them.
+    fn keep_tokens(
+        &self,
+        provider: String,
+        work: impl FnOnce() -> Result<oauth::Tokens> + Send + 'static,
+    ) -> Result<Pending, HostError> {
+        let secrets = self.secrets("oauth")?;
+        let account = oauth::account(&self.0.extension, &provider);
+        let (sender, receiver) = smol::channel::bounded::<HostResult>(1);
+        gpui_shell::with_current_app(move |cx| {
+            let work = cx.background_spawn(async move { work() });
+            cx.spawn(async move |_| {
+                let result = work.await.and_then(|tokens| {
+                    secrets.write(&account, &serde_json::to_string(&tokens)?)?;
+                    Ok(tokens)
+                });
+                sender
+                    .send(
+                        result
+                            .map(|tokens| tokens_value(&tokens))
+                            .map_err(|error| HostError::new(format!("{error:#}"))),
+                    )
+                    .await
+                    .ok();
+            })
+            .detach();
+        })
+        .ok_or_else(|| HostError::new("oauth: the launcher is not running"))?;
+        Ok(Box::pin(async move {
+            receiver
+                .recv()
+                .await
+                .unwrap_or_else(|_| Err(HostError::new("the sign-in was cancelled")))
+        }))
     }
 
     fn with_cache<R>(
@@ -370,6 +653,30 @@ impl ExtensionContext {
     }
 }
 
+fn path_text(path: &Option<PathBuf>) -> String {
+    path.as_ref()
+        .map(|path| path.display().to_string())
+        .unwrap_or_default()
+}
+
+fn tokens_value(tokens: &oauth::Tokens) -> HostValue {
+    let mut value = serde_json::to_value(tokens).unwrap_or(Value::Null);
+    if let Value::Object(fields) = &mut value {
+        fields.insert(
+            "is_expired".into(),
+            Value::Bool(tokens.is_expired(oauth::now_ms())),
+        );
+    }
+    json_to_host(&value)
+}
+
+fn application_value(name: &str, path: &Path) -> HostValue {
+    HostObject::new()
+        .field("name", name.to_owned())
+        .field("path", path.display().to_string())
+        .into()
+}
+
 /// The `launcher/api` host module; each extension gets an instance of its own.
 pub struct HostApi;
 
@@ -393,12 +700,130 @@ fn module(context: ContextSource) -> HostModule {
                 body(&context()?, arguments)
             })
         };
+    let asynchronous =
+        |name: &'static str,
+         body: fn(&ExtensionContext, &HostArguments) -> Result<Pending, HostError>| {
+            let context = context.clone();
+            (name, move |arguments: &HostArguments| {
+                // A function that answers with a promise refuses through it
+                // too, so `await` and `.catch` see every failure alike.
+                Ok::<Pending, HostError>(
+                    body(&context()?, arguments)
+                        .unwrap_or_else(|error| Box::pin(async move { Err(error) })),
+                )
+            })
+        };
+    let asynchronous_functions = [
+        asynchronous("show_toast", |context, arguments| {
+            let (toast, action) = parse_toast(arguments)?;
+            let Some(action) = action else {
+                context.request(Effect::ShowToast(toast));
+                return Ok(Box::pin(async { Ok(HostValue::Null) }));
+            };
+            let (sender, receiver) = smol::channel::bounded::<bool>(1);
+            let (pressed, dismissed) = (sender.clone(), sender);
+            let toast = toast
+                .with_action(
+                    action,
+                    RunHandler::new(move |(), _, _| {
+                        pressed.try_send(true).ok();
+                    }),
+                )
+                .with_on_dismiss(RunHandler::new(move |(), _, _| {
+                    dismissed.try_send(false).ok();
+                }));
+            context.request(Effect::ShowToast(toast));
+            Ok(Box::pin(async move {
+                Ok(match receiver.recv().await {
+                    Ok(true) => HostValue::from("primary"),
+                    _ => HostValue::Null,
+                })
+            }))
+        }),
+        asynchronous("confirm_alert", |context, arguments| {
+            let confirmation = parse_alert(arguments.value(0)?)?;
+            let (sender, receiver) = smol::channel::bounded::<bool>(1);
+            let (yes, no) = (sender.clone(), sender);
+            let alert = confirmation;
+            let confirmation = Confirmation::new(
+                alert.title,
+                Effect::Run(RunHandler::new(move |(), _, _| {
+                    yes.try_send(true).ok();
+                })),
+            )
+            .with_confirm_title(alert.primary)
+            .destructive(alert.destructive)
+            .with_on_cancel(RunHandler::new(move |(), _, _| {
+                no.try_send(false).ok();
+            }));
+            let confirmation = match alert.message {
+                Some(message) => confirmation.with_message(message),
+                None => confirmation,
+            };
+            context.request(Effect::Confirm(confirmation));
+            // A dialog closed with Escape drops both senders: not confirmed.
+            Ok(Box::pin(async move {
+                Ok(HostValue::Bool(receiver.recv().await.unwrap_or(false)))
+            }))
+        }),
+        asynchronous("selected_files", |_, _| {
+            let window = crate::window_layout::frontmost();
+            Ok(Box::pin(async move {
+                let files =
+                    smol::unblock(move || crate::file_manager::selected_files(window)).await;
+                Ok(HostValue::Array(
+                    files
+                        .iter()
+                        .map(|path| HostValue::from(path.display().to_string()))
+                        .collect(),
+                ))
+            }))
+        }),
+        asynchronous("applications", |_, _| {
+            Ok(Box::pin(async move {
+                let applications = smol::unblock(|| {
+                    crate::sources::applications::scan(
+                        &crate::sources::applications::default_directories(),
+                    )
+                })
+                .await;
+                Ok(HostValue::Array(
+                    applications
+                        .iter()
+                        .map(|application| {
+                            application_value(application.name(), application.location())
+                        })
+                        .collect(),
+                ))
+            }))
+        }),
+        asynchronous("oauth_authorize", |context, arguments| {
+            let (provider, client) =
+                context.oauth_client("oauth_authorize", arguments.value(0)?)?;
+            let (pending, url) = oauth::Pending::start(client)
+                .map_err(|error| HostError::new(format!("{error:#}")))?;
+            context.request(Effect::OpenUrl(url.to_string().into()));
+            context.keep_tokens(provider, move || pending.finish())
+        }),
+        asynchronous("oauth_refresh", |context, arguments| {
+            let (provider, client) = context.oauth_client("oauth_refresh", arguments.value(0)?)?;
+            let previous = context.stored_tokens(&provider)?.ok_or_else(|| {
+                HostError::new(format!(
+                    "oauth_refresh: there are no tokens for `{provider}`"
+                ))
+            })?;
+            context.keep_tokens(provider, move || {
+                oauth::refresh(&client.token_url, &client.client_id, &previous)
+            })
+        }),
+    ];
+    let module = asynchronous_functions
+        .into_iter()
+        .fold(HostModule::new(MODULE), |module, (name, body)| {
+            module.async_function(name, body)
+        });
     [
         function("launch", |context, _| context.launch_value()),
-        function("show_toast", |context, arguments| {
-            context.request(Effect::ShowToast(parse_toast(arguments)?));
-            Ok(HostValue::Null)
-        }),
         function("show_hud", |context, arguments| {
             context.request(Effect::ShowHud(arguments.string(0)?.to_owned().into()));
             Ok(HostValue::Null)
@@ -416,7 +841,59 @@ fn module(context: ContextSource) -> HostModule {
             Ok(HostValue::Null)
         }),
         function("open", |context, arguments| {
-            context.request(open_effect(arguments.string(0)?)?);
+            let target = arguments.string(0)?;
+            let effect = match arguments.get(1) {
+                None | Some(HostValue::Null) => open_effect(target)?,
+                Some(HostValue::Str(application)) if !application.trim().is_empty() => {
+                    Effect::OpenWith {
+                        target: target.trim().to_owned().into(),
+                        application: application.clone().into(),
+                    }
+                }
+                Some(other) => {
+                    return Err(HostError::new(format!(
+                        "open: the application must be a path or a name, not {}",
+                        other.describe()
+                    )));
+                }
+            };
+            context.request(effect);
+            Ok(HostValue::Null)
+        }),
+        function("selected_text", |_, _| {
+            Ok(crate::selection::latest().map_or(HostValue::Null, HostValue::from))
+        }),
+        function("frontmost_application", |_, _| {
+            #[cfg(target_os = "windows")]
+            {
+                let path = crate::window_layout::frontmost()
+                    .and_then(crate::switch_windows::window_executable);
+                Ok(path
+                    .map(|path| {
+                        let name = path
+                            .file_stem()
+                            .map(|name| name.to_string_lossy().into_owned())
+                            .unwrap_or_default();
+                        application_value(&name, &path)
+                    })
+                    .unwrap_or(HostValue::Null))
+            }
+            #[cfg(not(target_os = "windows"))]
+            {
+                Ok(HostValue::Null)
+            }
+        }),
+        function("oauth_tokens", |context, arguments| {
+            Ok(context
+                .stored_tokens(arguments.string(0)?)?
+                .map_or(HostValue::Null, |tokens| tokens_value(&tokens)))
+        }),
+        function("oauth_remove_tokens", |context, arguments| {
+            let account = oauth::account(context.extension(), arguments.string(0)?);
+            context
+                .secrets("oauth_remove_tokens")?
+                .delete(&account)
+                .map_err(|error| HostError::new(format!("{error:#}")))?;
             Ok(HostValue::Null)
         }),
         function("copy", |context, arguments| {
@@ -466,15 +943,57 @@ fn module(context: ContextSource) -> HostModule {
         }),
     ]
     .into_iter()
-    .fold(HostModule::new(MODULE), |module, (name, body)| {
-        module.function(name, body)
-    })
+    .fold(module, |module, (name, body)| module.function(name, body))
     .declarations(DECLARATIONS)
 }
 
-/// `show_toast({ title, message?, style?, id? })`, or the older
-/// `show_toast(title, style?)`.
-fn parse_toast(arguments: &HostArguments) -> Result<Toast, HostError> {
+/// `confirm_alert({ title, message?, primary_action?, destructive? })`.
+struct Alert {
+    title: String,
+    message: Option<String>,
+    primary: String,
+    destructive: bool,
+}
+
+fn parse_alert(options: &HostValue) -> Result<Alert, HostError> {
+    let fields = options.as_object().ok_or_else(|| {
+        HostError::new(format!(
+            "confirm_alert expects {{ title, message?, primary_action?, destructive? }}, not {}",
+            options.describe()
+        ))
+    })?;
+    let mut alert = Alert {
+        title: String::new(),
+        message: None,
+        primary: "Confirm".into(),
+        destructive: false,
+    };
+    for (field, value) in fields {
+        match (field.as_str(), value) {
+            ("title", HostValue::Str(text)) => alert.title = text.clone(),
+            ("primary_action", HostValue::Str(text)) if !text.trim().is_empty() => {
+                alert.primary = text.clone()
+            }
+            ("message", HostValue::Str(text)) => alert.message = Some(text.clone()),
+            ("destructive", HostValue::Bool(value)) => alert.destructive = *value,
+            ("message" | "primary_action" | "destructive", HostValue::Null) => {}
+            (field, other) => {
+                return Err(HostError::new(format!(
+                    "confirm_alert: `{field}` cannot be {}",
+                    other.describe()
+                )));
+            }
+        }
+    }
+    if alert.title.trim().is_empty() {
+        return Err(HostError::new("confirm_alert: `title` is required"));
+    }
+    Ok(alert)
+}
+
+/// `show_toast({ title, message?, style?, id?, primary_action? })`, or the
+/// older `show_toast(title, style?)`; with the button's title, if any.
+fn parse_toast(arguments: &HostArguments) -> Result<(Toast, Option<String>), HostError> {
     let style = |value: Option<&HostValue>| -> Result<ToastStyle, HostError> {
         match value {
             None | Some(HostValue::Null) => Ok(ToastStyle::Info),
@@ -487,7 +1006,7 @@ fn parse_toast(arguments: &HostArguments) -> Result<Toast, HostError> {
     };
     let options = arguments.value(0)?;
     if let HostValue::Str(title) = options {
-        return Ok(Toast::new(style(arguments.get(1))?, title.clone()));
+        return Ok((Toast::new(style(arguments.get(1))?, title.clone()), None));
     }
     if options.as_object().is_none() {
         return Err(HostError::new(format!(
@@ -515,7 +1034,8 @@ fn parse_toast(arguments: &HostArguments) -> Result<Toast, HostError> {
     if let Some(id) = text("id")? {
         toast = toast.with_id(id);
     }
-    Ok(toast)
+    let action = text("primary_action")?.filter(|title| !title.trim().is_empty());
+    Ok((toast, action))
 }
 
 /// A URL when the target starts with a scheme, otherwise a path; `~/` is the
@@ -562,6 +1082,10 @@ fn parse_launch_command(
         None => CommandId::new(extension.clone(), name.to_owned()),
     };
     let mut request = LaunchRequest::new(id);
+    match arguments.get(2) {
+        None | Some(HostValue::Null) => {}
+        Some(context) => request = request.with_context(host_to_json(context)),
+    }
     match arguments.get(1) {
         None | Some(HostValue::Null) => {}
         Some(HostValue::Object(fields)) => {
@@ -641,6 +1165,12 @@ fn host_to_json(value: &HostValue) -> Value {
     match value {
         HostValue::Null => Value::Null,
         HostValue::Bool(value) => Value::Bool(*value),
+        // A whole number stays one, as `JSON.stringify` writes it.
+        HostValue::Number(number)
+            if number.fract() == 0.0 && number.abs() < 9_007_199_254_740_992.0 =>
+        {
+            Value::Number((*number as i64).into())
+        }
         HostValue::Number(number) => serde_json::Number::from_f64(*number)
             .map(Value::Number)
             .unwrap_or(Value::Null),
@@ -687,7 +1217,8 @@ mod tests {
             HostValue::from("Saved"),
             HostValue::from("success"),
         ]))
-        .unwrap();
+        .unwrap()
+        .0;
         assert_eq!(toast.style(), ToastStyle::Success);
         assert_eq!(toast.title().as_ref(), "Saved");
 
@@ -697,7 +1228,8 @@ mod tests {
             ("style", "progress".into()),
             ("id", "sync".into()),
         ])]))
-        .unwrap();
+        .unwrap()
+        .0;
         assert_eq!(toast.style(), ToastStyle::Progress);
         assert_eq!(toast.message().map(|m| m.as_ref()), Some("3 of 10"));
         assert_eq!(toast.id().map(|id| id.as_ref()), Some("sync"));
@@ -706,9 +1238,12 @@ mod tests {
             ("title", "Hi".into()),
             ("style", "loud".into()),
         ])]))
+        .map(|(toast, _)| toast)
         .unwrap_err();
         assert!(error.message().contains("unknown toast style"), "{error}");
-        let error = parse_toast(&arguments([object(&[])])).unwrap_err();
+        let error = parse_toast(&arguments([object(&[])]))
+            .map(|(toast, _)| toast)
+            .unwrap_err();
         assert!(error.message().contains("`title` is required"), "{error}");
     }
 

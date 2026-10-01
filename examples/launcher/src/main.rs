@@ -15,6 +15,7 @@ mod customizations;
 mod dictionary;
 mod emoji;
 mod extensions;
+mod file_manager;
 mod file_search;
 mod focus;
 mod format;
@@ -57,6 +58,14 @@ use crate::{
 };
 
 fn main() -> ExitCode {
+    // `LAUNCHER_LOG=info` (or any `tracing` filter) prints what the launcher
+    // and extensions report to stderr: why a command did not load, a reload.
+    if let Ok(filter) = std::env::var("LAUNCHER_LOG") {
+        tracing_subscriber::fmt()
+            .with_env_filter(tracing_subscriber::EnvFilter::new(filter))
+            .with_writer(std::io::stderr)
+            .init();
+    }
     let current_directory = std::env::current_dir().unwrap_or_default();
     let command = match cli::parse(std::env::args().skip(1), &current_directory) {
         Ok(Command::Help) => {
@@ -84,6 +93,38 @@ fn main() -> ExitCode {
                 Err(error) => {
                     eprintln!("launcher: {error:#}");
                     ExitCode::FAILURE
+                }
+            };
+        }
+        Command::New {
+            directory,
+            template,
+        } => {
+            return match extensions::create_extension(directory, *template) {
+                Ok(written) => {
+                    for path in written {
+                        println!("{}", path.display());
+                    }
+                    println!("\nTry it: launcher dev {}", directory.display());
+                    ExitCode::SUCCESS
+                }
+                Err(error) => {
+                    eprintln!("launcher: {error:#}");
+                    ExitCode::FAILURE
+                }
+            };
+        }
+        Command::Lint(directory) => {
+            let problems = extensions::lint_extension(directory);
+            for problem in &problems {
+                let level = if problem.error { "error" } else { "warning" };
+                println!("{level}: {}", problem.message);
+            }
+            return match problems.iter().any(|problem| problem.error) {
+                true => ExitCode::FAILURE,
+                false => {
+                    println!("{} is ready", directory.display());
+                    ExitCode::SUCCESS
                 }
             };
         }

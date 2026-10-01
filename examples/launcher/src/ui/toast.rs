@@ -1,9 +1,12 @@
 //! Toasts: asynchronous status that needs no decision.
 
+use std::{cell::Cell, rc::Rc};
+
 use gpui_kit::{
     App, Window,
     component::{
-        WindowExt as _,
+        Sizable as _, WindowExt as _,
+        button::{Button, ButtonVariants as _},
         notification::{Notification, NotificationType},
     },
     prelude::FluentBuilder as _,
@@ -33,5 +36,34 @@ pub(super) fn show_toast(toast: &Toast, window: &mut Window, cx: &mut App) {
         .when(toast.style() == ToastStyle::Progress, |this| {
             this.autohide(false)
         });
+    // The button and the dismissal each report once, and pressing the button
+    // closes the toast without also reporting a dismissal.
+    let pressed = Rc::new(Cell::new(false));
+    let notification = match toast.action().cloned() {
+        Some((title, handler)) => {
+            let pressed = pressed.clone();
+            notification.action(move |_, _, _| {
+                let (handler, pressed) = (handler.clone(), pressed.clone());
+                Button::new("toast-action")
+                    .small()
+                    .primary()
+                    .label(title.clone())
+                    .on_click(move |_, window, cx| {
+                        if !pressed.replace(true) {
+                            handler.run(window, cx);
+                        }
+                    })
+            })
+        }
+        None => notification,
+    };
+    let notification = match toast.on_dismiss().cloned() {
+        Some(handler) => notification.on_close(move |window, cx| {
+            if !pressed.replace(true) {
+                handler.run(window, cx);
+            }
+        }),
+        None => notification,
+    };
     window.push_notification(notification, cx);
 }

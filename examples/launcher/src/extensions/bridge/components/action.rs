@@ -13,9 +13,9 @@ use gpui_shell::{
 };
 
 use super::shared::{
-    RUN_CALLBACK, carry, describe, empty_constructor, form_values_data, optional_string, payload,
-    recorded, reject_style, reporting, resolved, run_handler, string_method, strings_constructor,
-    taken, unit_method,
+    RUN_CALLBACK, TEXT_CALLBACK, carry, describe, empty_constructor, form_values_data,
+    optional_string, payload, recorded, reject_style, reporting, resolved, run_handler,
+    string_method, strings_constructor, taken, text_handler, unit_method,
 };
 use crate::{
     extensions::{CommandId, LaunchRequest, bridge::current_extension, host::page_from_callback},
@@ -244,6 +244,24 @@ enum EffectOp {
     OpenUrl(String),
     Open(String),
     Reveal(String),
+    OpenWith {
+        target: String,
+        application: String,
+    },
+    Trash(Vec<String>),
+    QuickLook(String),
+    CreateQuicklink {
+        name: String,
+        link: String,
+    },
+    CreateSnippet {
+        text: String,
+        name: Option<String>,
+    },
+    PickDate {
+        callback: ComponentArgument,
+        include_time: bool,
+    },
     Copy(String),
     Paste(String),
     Toast {
@@ -270,6 +288,12 @@ impl EffectOp {
             Self::OpenUrl(_) => "open_url",
             Self::Open(_) => "open",
             Self::Reveal(_) => "reveal",
+            Self::OpenWith { .. } => "open_with",
+            Self::Trash(_) => "trash",
+            Self::QuickLook(_) => "quick_look",
+            Self::CreateQuicklink { .. } => "create_quicklink",
+            Self::CreateSnippet { .. } => "create_snippet",
+            Self::PickDate { .. } => "pick_date",
             Self::Copy(_) => "copy",
             Self::Paste(_) => "paste",
             Self::Toast { .. } => "toast",
@@ -285,8 +309,9 @@ impl EffectOp {
     }
 }
 
-const EFFECT_METHODS: &str = "open_url, open, reveal, copy, paste, toast, hud, run, submit, \
-                              push, launch, pop, pop_to_root or close_window";
+const EFFECT_METHODS: &str = "open_url, open, reveal, open_with, trash, quick_look, \
+                              create_quicklink, create_snippet, pick_date, copy, paste, toast, \
+                              hud, run, submit, push, launch, pop, pop_to_root or close_window";
 
 fn effect_string(
     name: &'static str,
@@ -355,6 +380,132 @@ fn action() -> ComponentDescriptor {
                 "reveal",
                 "Shows a file in the file manager.",
                 EffectOp::Reveal,
+            ),
+            MethodDescriptor::new(
+                "open_with",
+                vec![
+                    ArgumentDescriptor::new("target", ArgumentSchema::String),
+                    ArgumentDescriptor::new("application", ArgumentSchema::String),
+                ],
+                |arguments| match arguments {
+                    [
+                        ComponentArgument::String(target),
+                        ComponentArgument::String(application),
+                    ] if !target.trim().is_empty() && !application.trim().is_empty() => Ok(
+                        ComponentPayload::new(ActionOp::Effect(EffectOp::OpenWith {
+                            target: target.clone(),
+                            application: application.clone(),
+                        })),
+                    ),
+                    _ => Err("open_with expects a target and an application".into()),
+                },
+            )
+            .with_documentation(
+                "Opens a file, folder or URL with an application: a path to it, or its name \
+                 as the system knows it, such as `notepad` or `Safari`.",
+            ),
+            MethodDescriptor::new(
+                "trash",
+                vec![ArgumentDescriptor::new(
+                    "paths",
+                    ArgumentSchema::Array(Box::new(ArgumentSchema::String)),
+                )],
+                |arguments| match arguments {
+                    [ComponentArgument::Array(paths)] if !paths.is_empty() => {
+                        let paths = paths
+                            .iter()
+                            .map(|path| match path {
+                                ComponentArgument::String(path) if !path.trim().is_empty() => {
+                                    Ok(path.clone())
+                                }
+                                _ => Err("trash expects paths as non-empty strings".to_owned()),
+                            })
+                            .collect::<Result<Vec<_>, _>>()?;
+                        Ok(ComponentPayload::new(ActionOp::Effect(EffectOp::Trash(
+                            paths,
+                        ))))
+                    }
+                    _ => Err("trash expects a non-empty array of paths".into()),
+                },
+            )
+            .with_documentation(
+                "Moves files or folders to the Trash (the Recycle Bin on Windows), where the \
+                 user can put them back. Performed by the launcher, so it needs no `fs` grant.",
+            ),
+            effect_string(
+                "quick_look",
+                "Shows a file large: an image, text, or the system's preview of a document.",
+                EffectOp::QuickLook,
+            ),
+            MethodDescriptor::new(
+                "create_quicklink",
+                vec![
+                    ArgumentDescriptor::new("name", ArgumentSchema::String),
+                    ArgumentDescriptor::new("link", ArgumentSchema::String),
+                ],
+                |arguments| match arguments {
+                    [
+                        ComponentArgument::String(name),
+                        ComponentArgument::String(link),
+                    ] if !link.trim().is_empty() => Ok(ComponentPayload::new(ActionOp::Effect(
+                        EffectOp::CreateQuicklink {
+                            name: name.clone(),
+                            link: link.clone(),
+                        },
+                    ))),
+                    _ => Err("create_quicklink expects a name and a non-empty link".into()),
+                },
+            )
+            .with_documentation(
+                "Opens Create Quicklink filled in with a name and a link, which may hold \
+                 `{argument}`; the user saves it.",
+            ),
+            MethodDescriptor::new(
+                "create_snippet",
+                vec![
+                    ArgumentDescriptor::new("text", ArgumentSchema::String),
+                    ArgumentDescriptor::new(
+                        "name",
+                        ArgumentSchema::Optional(Box::new(ArgumentSchema::String)),
+                    ),
+                ],
+                |arguments| match arguments {
+                    [ComponentArgument::String(text), name] if !text.trim().is_empty() => Ok(
+                        ComponentPayload::new(ActionOp::Effect(EffectOp::CreateSnippet {
+                            text: text.clone(),
+                            name: optional_string(name),
+                        })),
+                    ),
+                    _ => Err("create_snippet expects a non-empty text and a name".into()),
+                },
+            )
+            .with_documentation("Opens Create Snippet filled in with the text; the user saves it."),
+            MethodDescriptor::new(
+                "pick_date",
+                vec![
+                    ArgumentDescriptor::new("callback", ArgumentSchema::Callback(TEXT_CALLBACK)),
+                    ArgumentDescriptor::new(
+                        "include_time",
+                        ArgumentSchema::Optional(Box::new(ArgumentSchema::Boolean)),
+                    ),
+                ],
+                |arguments| match arguments {
+                    [callback @ ComponentArgument::Callback(_), include_time] => Ok(
+                        ComponentPayload::new(ActionOp::Effect(EffectOp::PickDate {
+                            callback: callback.clone(),
+                            include_time: matches!(
+                                include_time,
+                                ComponentArgument::Optional(Some(value))
+                                    if **value == ComponentArgument::Boolean(true)
+                            ),
+                        })),
+                    ),
+                    _ => Err("pick_date expects a function and whether to include a time".into()),
+                },
+            )
+            .with_documentation(
+                "Asks for a date, then calls back with it as `YYYY-MM-DD`, or \
+                 `YYYY-MM-DDTHH:MM` when `include_time` is true; for \"Snooze Until…\".",
             ),
             effect_string("copy", "Copies text to the clipboard.", EffectOp::Copy),
             effect_string(
@@ -609,6 +760,38 @@ fn effect_model(
         EffectOp::OpenUrl(url) => Effect::OpenUrl(url.into()),
         EffectOp::Open(path) => Effect::OpenPath(path.into()),
         EffectOp::Reveal(path) => Effect::RevealPath(path.into()),
+        EffectOp::OpenWith {
+            target,
+            application,
+        } => Effect::OpenWith {
+            target: target.into(),
+            application: application.into(),
+        },
+        EffectOp::Trash(paths) => Effect::Trash(paths.into_iter().map(Into::into).collect()),
+        EffectOp::QuickLook(path) => Effect::QuickLook(path.into()),
+        EffectOp::CreateQuicklink { name, link } => Effect::CreateQuicklink {
+            name: name.into(),
+            link: link.into(),
+        },
+        EffectOp::CreateSnippet { text, name } => Effect::CreateSnippet {
+            name: name.unwrap_or_default().into(),
+            text: text.into(),
+        },
+        EffectOp::PickDate {
+            callback,
+            include_time,
+        } => {
+            let on_pick = text_handler(request.resolve_callback(&callback)?, "Action.pick_date");
+            let page_title: SharedString = title.to_owned().into();
+            Effect::Push(PushHandler::new(move |_, cx| {
+                Ok(crate::pages::pick_date_page(
+                    page_title.clone(),
+                    include_time,
+                    on_pick.clone(),
+                    cx,
+                ))
+            }))
+        }
         EffectOp::Copy(text) => Effect::Copy(text.into()),
         EffectOp::Paste(text) => Effect::Paste(text.into()),
         EffectOp::Toast {

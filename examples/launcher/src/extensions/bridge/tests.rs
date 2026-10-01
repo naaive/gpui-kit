@@ -16,12 +16,13 @@ use gpui::{Empty, Entity, TestAppContext, VisualTestContext};
 use gpui_kit::{AppContext as _, IntoElement as _, ParentElement as _, Styled as _};
 use gpui_shell::{Capabilities, ScriptView, ShellRuntime, plugin::PluginManifest, policy::Policy};
 
-use super::{ExtensionContext, HostApi, components, take_page_model};
+use super::{ExtensionContext, HostApi, components, take_menu_bar, take_page_model};
 use crate::{
     extensions::{Catalog, CommandId, LaunchRequest},
     model::{
         Accessory, ActionEntry, ActionStyle, Control, DetailModel, Effect, FormModel, FormValue,
-        FormValues, Image, Item, Layout, ListModel, MetadataValue, PageModel, ToastStyle, Tone,
+        FormValues, Image, Item, Layout, ListModel, MenuBarEntry, MenuBarModel, MetadataValue,
+        PageModel, ToastStyle, Tone,
     },
 };
 
@@ -71,6 +72,23 @@ impl Mounted {
             let view = self.view.clone();
             let result = result.clone();
             cx.new(|_| Probe { view, result })
+        });
+        self.cx.draw(
+            gpui::point(gpui::px(0.), gpui::px(0.)),
+            gpui::size(gpui::px(800.), gpui::px(600.)),
+            |_, _| gpui::div().size_full().child(probe),
+        );
+        result.take().expect("the probe rendered")
+    }
+
+    /// Renders a `menu-bar` command and takes its menu apart, as the tray
+    /// does.
+    fn menu_bar(&mut self) -> Result<MenuBarModel, String> {
+        let result = Rc::new(RefCell::new(None));
+        let probe = self.cx.update(|_, cx| {
+            let view = self.view.clone();
+            let result = result.clone();
+            cx.new(|_| MenuProbe { view, result })
         });
         self.cx.draw(
             gpui::point(gpui::px(0.), gpui::px(0.)),
@@ -137,6 +155,26 @@ impl gpui::Render for Probe {
             None => take_page_model(&mut element),
         };
         self.result.replace(Some(result));
+        gpui::Empty
+    }
+}
+
+/// Renders a command's view the way the tray does and keeps the menu.
+struct MenuProbe {
+    view: Entity<ScriptView>,
+    result: Rc<RefCell<Option<Result<MenuBarModel, String>>>>,
+}
+
+impl gpui::Render for MenuProbe {
+    fn render(
+        &mut self,
+        window: &mut gpui::Window,
+        cx: &mut gpui::Context<Self>,
+    ) -> impl gpui::IntoElement {
+        let mut element = self
+            .view
+            .update(cx, |view, cx| view.render(window, cx).into_any_element());
+        self.result.replace(Some(take_menu_bar(&mut element)));
         gpui::Empty
     }
 }
@@ -661,6 +699,390 @@ export default class Main extends View {
     );
 }
 
+/// The actions an extension gets from the launcher's own features, and the
+/// item options for icons and dates.
+#[gpui::test]
+fn test_launcher_actions_and_item_options(cx: &mut TestAppContext) {
+    let mut mounted = mount(
+        cx,
+        "launcher-actions",
+        &main_js(
+            r#"
+import { View } from "gpui-kit";
+import { Action, List, ListItem } from "launcher";
+
+export default class Main extends View {
+  init() { this.picked = "none"; }
+  render() {
+    return new List().children([
+      new ListItem("file", this.picked)
+        .file_icon("C:/Windows/notepad.exe")
+        .accessory_date("2020-01-02")
+        .action(new Action("Open With").open_with("/tmp/a.txt", "notepad"))
+        .action(new Action("Trash").trash(["/tmp/a.txt", "/tmp/b.txt"]))
+        .action(new Action("Quick Look").quick_look("/tmp/a.png"))
+        .action(new Action("Save Link").create_quicklink("Docs", "https://gpui-kit.com/{argument}"))
+        .action(new Action("Save Snippet").create_snippet("Hello"))
+        .action(new Action("Snooze").pick_date((date, cx) => { this.picked = date; cx.notify(); }, true)),
+      new ListItem("avatar", "Avatar").icon("https://example.com/a.png").icon_mask("circle"),
+      new ListItem("tinted", "Tinted").icon("star").icon_tone("warning"),
+    ]);
+  }
+}
+"#,
+        ),
+    );
+    let list = mounted.list();
+    let items: Vec<&Item> = list.items().collect();
+    assert_eq!(
+        items[0].image(),
+        Some(&Image::FileIcon("C:/Windows/notepad.exe".into()))
+    );
+    let date = &items[0].accessories()[0];
+    assert_eq!(date.label().map(|label| label.as_ref()), Some("2020-01-02"));
+    assert_eq!(
+        date.tooltip().map(|tooltip| tooltip.as_ref()),
+        Some("2020-01-02")
+    );
+    assert_eq!(
+        items[1].image(),
+        Some(&Image::Circle(Box::new(Image::Url(
+            "https://example.com/a.png".into()
+        ))))
+    );
+    assert_eq!(
+        items[2].image(),
+        Some(&Image::TintedIcon("star".into(), Tone::Warning))
+    );
+
+    let effects: Vec<Effect> = items[0]
+        .actions()
+        .actions()
+        .map(|action| action.effect().clone())
+        .collect();
+    assert!(matches!(
+        &effects[0],
+        Effect::OpenWith { target, application }
+            if target.as_ref() == "/tmp/a.txt" && application.as_ref() == "notepad"
+    ));
+    assert!(matches!(&effects[1], Effect::Trash(paths) if paths.len() == 2));
+    assert!(matches!(&effects[2], Effect::QuickLook(path) if path == Path::new("/tmp/a.png")));
+    assert!(matches!(
+        &effects[3],
+        Effect::CreateQuicklink { name, link }
+            if name.as_ref() == "Docs" && link.as_ref() == "https://gpui-kit.com/{argument}"
+    ));
+    assert!(matches!(
+        &effects[4],
+        Effect::CreateSnippet { name, text } if name.is_empty() && text.as_ref() == "Hello"
+    ));
+
+    // Picking a date pushes a form with a date and time; choosing calls back.
+    let Effect::Push(push) = effects[5].clone() else {
+        panic!("pick_date pushes a page");
+    };
+    let page = mounted
+        .cx
+        .update(|window, cx| push.build(window, cx))
+        .unwrap();
+    let PageModel::Form(form) = mounted.cx.update(|window, cx| page.model(window, cx)) else {
+        panic!("a form");
+    };
+    assert!(matches!(
+        form.fields()[0].control(),
+        Control::DateTime { value: None }
+    ));
+    let Effect::SubmitForm(choose) = form.actions().primary().unwrap().effect().clone() else {
+        panic!("choosing submits");
+    };
+    mounted.call(|window, cx| {
+        choose.call(
+            FormValues::new().with("date", FormValue::Text("2026-10-02T09:30".into())),
+            window,
+            cx,
+        )
+    });
+    assert_eq!(
+        mounted.list().items().next().unwrap().title().as_ref(),
+        "2026-10-02T09:30"
+    );
+}
+
+/// Choosing files, tags and a time; arranging fields; and what a submit
+/// handler receives for them.
+#[gpui::test]
+fn test_form_pickers_and_arrangement(cx: &mut TestAppContext) {
+    let mut mounted = mount(
+        cx,
+        "form-pickers",
+        &main_js(
+            r#"
+import { View } from "gpui-kit";
+import {
+  Action, ActionPanel, DatePicker, FilePicker, Form, FormDescription, FormSeparator, TagPicker,
+  TagPickerItem,
+} from "launcher";
+
+export default class Main extends View {
+  init() { this.submitted = null; }
+  render() {
+    return new Form().children([
+      new FormDescription("Choose what to back up."),
+      new FilePicker("folders", "Folders").directories().multiple().value(["/tmp/a", "/tmp/b"]),
+      new FormSeparator(),
+      new TagPicker("labels", "Labels").value(["work"]).children([
+        new TagPickerItem("work", "Work"),
+        new TagPickerItem("home", "Home"),
+      ]),
+      new DatePicker("at", "At").include_time().value("2026-10-01T08:15"),
+      new FormDescription("Note", this.submitted ?? "not yet"),
+    ]).actions(new ActionPanel().child(new Action("Save").submit((values, cx) => {
+      this.submitted = JSON.stringify(values);
+      cx.notify();
+    })));
+  }
+}
+"#,
+        ),
+    );
+    let form = mounted.form();
+    let controls: Vec<&Control> = form.fields().iter().map(|field| field.control()).collect();
+    assert!(
+        matches!(controls[0], Control::Description { text } if text.as_ref() == "Choose what to back up.")
+    );
+    assert!(matches!(
+        controls[1],
+        Control::Files { value, directories: true, multiple: true } if value.len() == 2
+    ));
+    assert!(matches!(controls[2], Control::Separator));
+    assert!(matches!(
+        controls[3],
+        Control::Tags { choices, value } if choices.len() == 2 && value.len() == 1
+    ));
+    assert!(matches!(
+        controls[4],
+        Control::DateTime { value: Some(value) } if value.as_ref() == "2026-10-01T08:15"
+    ));
+    let ids: Vec<&str> = form
+        .fields()
+        .iter()
+        .map(|field| field.id().as_ref())
+        .collect();
+    assert_eq!(ids, ["#0", "folders", "#2", "labels", "at", "#5"]);
+
+    let Effect::SubmitForm(submit) = form.actions().primary().unwrap().effect().clone() else {
+        panic!("submit");
+    };
+    let values = FormValues::new()
+        .with(
+            "folders",
+            FormValue::List(vec!["/tmp/a".into(), "/tmp/b".into()]),
+        )
+        .with("labels", FormValue::List(vec!["work".into()]))
+        .with("at", FormValue::Text("2026-10-01T08:15".into()));
+    mounted.call(|window, cx| submit.call(values, window, cx));
+    let form = mounted.form();
+    let Control::Description { text } = form.fields()[5].control() else {
+        panic!("description");
+    };
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(text).unwrap(),
+        serde_json::json!({
+            "at": "2026-10-01T08:15",
+            "folders": ["/tmp/a", "/tmp/b"],
+            "labels": ["work"],
+        })
+    );
+
+    mounted.remount(
+        "form-pickers-bad",
+        &main_js(
+            r#"
+import { View } from "gpui-kit";
+import { Form, TagPicker, TagPickerItem } from "launcher";
+export default class Main extends View {
+  render() {
+    return new Form().child(
+      new TagPicker("labels", "Labels").value(["missing"]).child(new TagPickerItem("work", "Work")),
+    );
+  }
+}
+"#,
+        ),
+    );
+    let error = mounted.model().unwrap_err();
+    assert!(
+        error.contains("no TagPickerItem with the value `missing`"),
+        "{error}"
+    );
+}
+
+/// A `menu-bar` command's render, taken apart as the tray reads it.
+#[gpui::test]
+fn test_menu_bar_extra(cx: &mut TestAppContext) {
+    let mut mounted = mount(
+        cx,
+        "menu-bar",
+        &main_js(
+            r#"
+import { View } from "gpui-kit";
+import {
+  Action, MenuBarExtra, MenuBarItem, MenuBarSection, MenuBarSeparator, MenuBarSubmenu,
+} from "launcher";
+
+export default class Main extends View {
+  init() { this.count = 3; }
+  render() {
+    return new MenuBarExtra().icon("bell").title(`${this.count}`).tooltip("Unread").children([
+      new MenuBarItem("Mark All Read").action(new Action("Read").run((cx) => {
+        this.count = 0;
+        cx.notify();
+      })),
+      new MenuBarSeparator(),
+      new MenuBarSection("Inbox").children([
+        new MenuBarItem("Hello").subtitle("Ada").checked(true),
+        new MenuBarSubmenu("More").children([
+          new MenuBarItem("Archive"),
+          new MenuBarSeparator(),
+          new MenuBarItem("Delete"),
+        ]),
+      ]),
+    ]);
+  }
+}
+"#,
+        ),
+    );
+    let menu = mounted.menu_bar().unwrap();
+    assert_eq!(menu.icon(), Some(&Image::Icon("bell".into())));
+    assert_eq!(menu.title().map(|title| title.as_ref()), Some("3"));
+    assert_eq!(menu.sections().len(), 2);
+    assert_eq!(
+        menu.sections()[1].title().map(|title| title.as_ref()),
+        Some("Inbox")
+    );
+    let MenuBarEntry::Item(hello) = &menu.sections()[1].entries()[0] else {
+        panic!("an item");
+    };
+    assert_eq!(
+        hello.subtitle().map(|subtitle| subtitle.as_ref()),
+        Some("Ada")
+    );
+    assert_eq!(hello.checked(), Some(true));
+    let MenuBarEntry::Submenu { entries, .. } = &menu.sections()[1].entries()[1] else {
+        panic!("a submenu");
+    };
+    assert!(matches!(entries[1], MenuBarEntry::Separator));
+
+    let MenuBarEntry::Item(read) = &menu.sections()[0].entries()[0] else {
+        panic!("an item");
+    };
+    let Effect::Run(run) = read.action().unwrap().effect().clone() else {
+        panic!("run");
+    };
+    mounted.call(|window, cx| run.run(window, cx));
+    assert_eq!(
+        mounted
+            .menu_bar()
+            .unwrap()
+            .title()
+            .map(|title| title.as_ref()),
+        Some("0")
+    );
+    assert!(mounted.model().is_err(), "a MenuBarExtra is not a page");
+}
+
+/// The functions that answer later: a confirmation, a toast's button, and
+/// requests the launcher refuses for the extension.
+#[gpui::test]
+fn test_host_api_promises_and_launch_context(cx: &mut TestAppContext) {
+    let mut mounted = mount(
+        cx,
+        "api-async",
+        &main_js(
+            r#"
+import { View } from "gpui-kit";
+import { Detail } from "launcher";
+import {
+  confirm_alert, environment, launch_command, oauth_authorize, open, selected_text, show_toast,
+} from "launcher/api";
+
+export default class Main extends View {
+  init(_props, cx) {
+    this.events = [];
+    const note = (event) => { this.events.push(event); cx.notify(); };
+    confirm_alert({ title: "Delete it?", message: "Gone for good", primary_action: "Delete", destructive: true })
+      .then((confirmed) => note(`confirmed ${confirmed}`));
+    show_toast({ title: "Deleted", primary_action: "Undo" }).then((choice) => note(`toast ${choice}`));
+    show_toast("Plain").then((choice) => note(`plain ${choice}`));
+    oauth_authorize({
+      provider: "github",
+      authorize_url: "https://github.com/login/oauth/authorize",
+      token_url: "https://github.com/login/oauth/access_token",
+      client_id: "abc",
+    }).catch((error) => note(`oauth ${String(error).includes("does not allow POST")}`));
+    launch_command("detail", {}, { id: 7, tags: ["a"] });
+    open("/tmp/a.txt", "notepad");
+    note(`selected ${selected_text()}`);
+    note(`paths ${typeof environment().assets_path}`);
+  }
+  render() {
+    return new Detail(this.events.join("\n"));
+  }
+}
+"#,
+        ),
+    );
+    let events = |mounted: &mut Mounted| -> Vec<String> {
+        mounted
+            .detail()
+            .markdown()
+            .lines()
+            .map(str::to_owned)
+            .collect()
+    };
+    let initial = events(&mut mounted);
+    assert!(initial.contains(&"plain null".to_owned()), "{initial:?}");
+    assert!(initial.contains(&"oauth true".to_owned()), "{initial:?}");
+    assert!(initial.contains(&"paths string".to_owned()), "{initial:?}");
+    assert!(initial.iter().any(|event| event.starts_with("selected")));
+
+    let effects = mounted.effects();
+    let Some(Effect::Confirm(confirmation)) = effects.first().cloned() else {
+        panic!("a confirmation first: {effects:?}");
+    };
+    assert_eq!(confirmation.confirm_title().as_ref(), "Delete");
+    assert!(confirmation.is_destructive());
+    assert_eq!(
+        confirmation.message().map(|message| message.as_ref()),
+        Some("Gone for good")
+    );
+    let Effect::ShowToast(toast) = effects[1].clone() else {
+        panic!("a toast with a button");
+    };
+    let (title, undo) = toast.action().cloned().unwrap();
+    assert_eq!(title.as_ref(), "Undo");
+    assert!(matches!(
+        &effects[3],
+        Effect::Launch(request)
+            if request.context() == Some(&serde_json::json!({ "id": 7, "tags": ["a"] }))
+    ));
+    assert!(matches!(
+        &effects[4],
+        Effect::OpenWith { application, .. } if application.as_ref() == "notepad"
+    ));
+
+    let Effect::Run(confirm) = confirmation.effect().clone() else {
+        panic!("confirming runs");
+    };
+    mounted.call(|window, cx| confirm.run(window, cx));
+    mounted.call(|window, cx| undo.run(window, cx));
+    mounted.settle();
+    let events = events(&mut mounted);
+    assert!(events.contains(&"confirmed true".to_owned()), "{events:?}");
+    assert!(events.contains(&"toast primary".to_owned()), "{events:?}");
+}
+
 /// Each page renders one misuse; the model says what was wrong with it.
 #[gpui::test]
 fn test_misused_nodes_explain_themselves(cx: &mut TestAppContext) {
@@ -792,6 +1214,7 @@ export default class Main extends View {
                 "arguments": { "query": "gpui" },
                 "preferences": { "greeting": "Hello" },
                 "launch_type": "user_initiated",
+                "context": null,
             },
             "cached": { "value": 42, "list": [1, "two", null] },
             "removed": [true, false],
