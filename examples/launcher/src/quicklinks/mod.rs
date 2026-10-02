@@ -86,12 +86,22 @@ impl Quicklink {
     }
 
     /// What opening the link with `values` does: a URL opens in its
-    /// application, anything else is a file or folder.
-    pub fn open_effect(&self, values: &[(String, String)], clipboard: Option<&str>) -> Effect {
+    /// application, a web page in `browser` when one is chosen, and anything
+    /// else is a file or folder.
+    pub fn open_effect(
+        &self,
+        values: &[(String, String)],
+        clipboard: Option<&str>,
+        browser: Option<&str>,
+    ) -> Effect {
         let target = self.expand(values, clipboard);
-        match is_url(&target) {
-            true => Effect::OpenUrl(target.into()),
-            false => Effect::OpenPath(expand_home(target.trim())),
+        match (is_url(&target), browser) {
+            (true, Some(browser)) if is_web_page(&target) => Effect::OpenWith {
+                target: target.into(),
+                application: browser.to_owned().into(),
+            },
+            (true, _) => Effect::OpenUrl(target.into()),
+            (false, _) => Effect::OpenPath(expand_home(target.trim())),
         }
     }
 }
@@ -107,6 +117,16 @@ fn is_url(link: &str) -> bool {
         && scheme
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.'))
+}
+
+/// An `http:` or `https:` URL, which a browser opens; other schemes, such
+/// as `mailto:` or `vscode:`, belong to their own application.
+fn is_web_page(link: &str) -> bool {
+    link.trim().split_once(':').is_some_and(|(scheme, _)| {
+        ["http", "https"]
+            .iter()
+            .any(|web| scheme.eq_ignore_ascii_case(web))
+    })
 }
 
 fn expand_home(path: &str) -> PathBuf {
@@ -257,10 +277,37 @@ mod tests {
             folder.expand(&[(String::new(), "a b".into())], Some("x")),
             r"C:\work\a b\{unknown}"
         );
-        assert!(matches!(folder.open_effect(&[], None), Effect::OpenPath(_)));
-        assert!(matches!(search.open_effect(&[], None), Effect::OpenUrl(_)));
+        assert!(matches!(
+            folder.open_effect(&[], None, None),
+            Effect::OpenPath(_)
+        ));
+        assert!(matches!(
+            search.open_effect(&[], None, None),
+            Effect::OpenUrl(_)
+        ));
         assert!(is_url("vscode://file/a"));
         assert!(!is_url(r"C:\Users"));
+    }
+
+    #[test]
+    fn test_a_chosen_browser_opens_web_pages_only() {
+        let browser = Some("firefox");
+        let page = Quicklink::new("Docs", "https://gpui-kit.com");
+        assert!(matches!(
+            page.open_effect(&[], None, browser),
+            Effect::OpenWith { target, application }
+                if target == "https://gpui-kit.com" && application == "firefox"
+        ));
+        let mail = Quicklink::new("Mail", "mailto:a@b.c");
+        assert!(matches!(
+            mail.open_effect(&[], None, browser),
+            Effect::OpenUrl(_)
+        ));
+        let folder = Quicklink::new("Home", "~");
+        assert!(matches!(
+            folder.open_effect(&[], None, browser),
+            Effect::OpenPath(_)
+        ));
     }
 
     #[test]

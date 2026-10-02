@@ -406,7 +406,9 @@ impl Page for SchedulePage {
         };
         let settings = Action::new(
             "Add Calendars in Settings",
-            Effect::Push(PushHandler::new(crate::shell::settings::settings_page)),
+            Effect::Run(RunHandler::new(|(), _, cx| {
+                crate::settings_window::open_extension("built-in:Calendar & Reminders".into(), cx)
+            })),
         )
         .with_image(Image::Icon("settings".into()))
         .with_shortcut("secondary-comma");

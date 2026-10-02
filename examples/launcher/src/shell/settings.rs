@@ -6,138 +6,169 @@
 //! defaults are used without overwriting it, so a hand edit with a typo is
 //! not silently lost.
 
-mod page;
-
-use std::{
-    collections::BTreeMap,
-    path::{Path, PathBuf},
-};
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context as _, Result};
-use gpui_kit::{App, SharedString, Window};
 use serde::{Deserialize, Serialize};
 
-pub use page::SettingsPage;
-
-use super::hotkey::{DEFAULT_SHORTCUT, parse_shortcut};
-use crate::{
-    model::{FormValue, FormValues},
-    pages::{self, PageHandle},
-};
-
-/// Builds the settings page.
-pub fn settings_page(_window: &mut Window, cx: &mut App) -> Result<PageHandle> {
-    Ok(pages::handle(SettingsPage::new(cx)))
-}
+use super::hotkey::DEFAULT_SHORTCUT;
 
 /// Where `settings.json` lives, if the platform has a data directory.
 pub fn settings_path() -> Option<PathBuf> {
     super::data_directory().map(|directory| directory.join("settings.json"))
 }
 
-#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Appearance {
-    /// Follows the system's light or dark appearance.
-    #[default]
-    System,
-    Light,
-    Dark,
+/// A setting with a fixed set of choices, stored by `value` and shown by
+/// `title`.
+macro_rules! choices {
+    (
+        $(#[$meta:meta])*
+        pub enum $name:ident {
+            $( $(#[$variant_meta:meta])* $variant:ident => ($value:literal, $title:literal), )+
+        }
+    ) => {
+        $(#[$meta])*
+        #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+        #[serde(rename_all = "snake_case")]
+        pub enum $name {
+            $( $(#[$variant_meta])* $variant, )+
+        }
+
+        // Not every setting is read back by both its value and its title.
+        #[allow(dead_code)]
+        impl $name {
+            pub const ALL: &[Self] = &[$(Self::$variant),+];
+
+            pub fn value(self) -> &'static str {
+                match self { $(Self::$variant => $value,)+ }
+            }
+
+            pub fn title(self) -> &'static str {
+                match self { $(Self::$variant => $title,)+ }
+            }
+
+            pub fn from_value(value: &str) -> Option<Self> {
+                Self::ALL.iter().copied().find(|choice| choice.value() == value)
+            }
+
+            pub fn from_title(title: &str) -> Option<Self> {
+                Self::ALL.iter().copied().find(|choice| choice.title() == title)
+            }
+        }
+    };
 }
 
-impl Appearance {
-    pub const ALL: [Self; 3] = [Self::System, Self::Light, Self::Dark];
-
-    /// The value a form submits for this appearance.
-    pub fn value(self) -> &'static str {
-        match self {
-            Self::System => "system",
-            Self::Light => "light",
-            Self::Dark => "dark",
-        }
-    }
-
-    pub fn title(self) -> &'static str {
-        match self {
-            Self::System => "System",
-            Self::Light => "Light",
-            Self::Dark => "Dark",
-        }
-    }
-
-    fn from_value(value: &str) -> Option<Self> {
-        Self::ALL
-            .into_iter()
-            .find(|appearance| appearance.value() == value)
-    }
-}
-
-/// How the launcher opens: whole, or as just its search field until
-/// something is typed.
-#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum WindowMode {
-    #[default]
-    Default,
-    Compact,
-}
-
-impl WindowMode {
-    pub const ALL: [Self; 2] = [Self::Default, Self::Compact];
-
-    pub fn value(self) -> &'static str {
-        match self {
-            Self::Default => "default",
-            Self::Compact => "compact",
-        }
-    }
-
-    pub fn title(self) -> &'static str {
-        match self {
-            Self::Default => "Default",
-            Self::Compact => "Compact",
-        }
-    }
-
-    fn from_value(value: &str) -> Option<Self> {
-        Self::ALL.into_iter().find(|mode| mode.value() == value)
+choices! {
+    /// How large the launcher draws its text.
+    pub enum TextSize {
+        #[default]
+        Standard => ("standard", "Standard"),
+        Large => ("large", "Large"),
     }
 }
 
-/// When the launcher, summoned again, starts over at the root search
-/// rather than on the command it was left on.
-#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum PopToRoot {
-    Immediately,
-    #[default]
-    After90Seconds,
-    Never,
+impl TextSize {
+    /// The window's `rem`, from which every size in the launcher is derived.
+    pub fn rem(self) -> f32 {
+        match self {
+            Self::Standard => 16.,
+            Self::Large => 17.5,
+        }
+    }
+}
+
+choices! {
+    /// The display the launcher opens on.
+    pub enum ShowOn {
+        #[default]
+        MouseScreen => ("mouse", "Screen containing the pointer"),
+        ActiveWindowScreen => ("active_window", "Screen with the active window"),
+        PrimaryScreen => ("primary", "Primary screen"),
+    }
+}
+
+choices! {
+    /// What Esc does on a command's page.
+    pub enum EscapeKey {
+        #[default]
+        NavigateBack => ("back", "Go back, then close the window"),
+        Close => ("close", "Close the window"),
+    }
+}
+
+choices! {
+    /// The keys, besides the arrows, that move the selection.
+    pub enum NavigationKeys {
+        #[default]
+        Emacs => ("emacs", "Ctrl-N and Ctrl-P"),
+        Vim => ("vim", "Ctrl-J and Ctrl-K"),
+    }
+}
+
+choices! {
+    /// How loosely the root search matches what is typed.
+    pub enum SearchSensitivity {
+        /// Only titles that contain the words typed.
+        Low => ("low", "Low"),
+        #[default]
+        Medium => ("medium", "Medium"),
+        /// Letters may be spread across the title.
+        High => ("high", "High"),
+    }
+}
+
+choices! {
+    /// What Enter does to a Clipboard History entry.
+    pub enum ClipboardAction {
+        #[default]
+        Paste => ("paste", "Paste to Active App"),
+        Copy => ("copy", "Copy to Clipboard"),
+    }
+}
+
+choices! {
+    /// How the calculator writes and reads decimal numbers.
+    pub enum DecimalSeparator {
+        /// As the system's region does.
+        #[default]
+        Auto => ("auto", "System"),
+        Dot => ("dot", "Dot (1,234.5)"),
+        Comma => ("comma", "Comma (1.234,5)"),
+    }
+}
+
+choices! {
+    pub enum Appearance {
+        /// Follows the system's light or dark appearance.
+        #[default]
+        System => ("system", "System"),
+        Light => ("light", "Light"),
+        Dark => ("dark", "Dark"),
+    }
+}
+
+choices! {
+    /// How the launcher opens: whole, or as just its search field until
+    /// something is typed.
+    pub enum WindowMode {
+        #[default]
+        Default => ("default", "Default"),
+        Compact => ("compact", "Compact"),
+    }
+}
+
+choices! {
+    /// When the launcher, summoned again, starts over at the root search
+    /// rather than on the command it was left on.
+    pub enum PopToRoot {
+        Immediately => ("immediately", "Immediately"),
+        #[default]
+        After90Seconds => ("after_90_seconds", "After 90 Seconds"),
+        Never => ("never", "Never"),
+    }
 }
 
 impl PopToRoot {
-    pub const ALL: [Self; 3] = [Self::Immediately, Self::After90Seconds, Self::Never];
-
-    pub fn value(self) -> &'static str {
-        match self {
-            Self::Immediately => "immediately",
-            Self::After90Seconds => "after_90_seconds",
-            Self::Never => "never",
-        }
-    }
-
-    pub fn title(self) -> &'static str {
-        match self {
-            Self::Immediately => "Immediately",
-            Self::After90Seconds => "After 90 Seconds",
-            Self::Never => "Never",
-        }
-    }
-
-    fn from_value(value: &str) -> Option<Self> {
-        Self::ALL.into_iter().find(|when| when.value() == value)
-    }
-
     /// Whether a launcher hidden `hidden_for` ago comes back where it was.
     pub fn keeps(self, hidden_for: std::time::Duration) -> bool {
         match self {
@@ -183,7 +214,41 @@ pub struct Settings {
     light_theme: Option<String>,
     /// The theme for dark appearance.
     dark_theme: Option<String>,
+    /// Whether the launcher starts when you sign in.
+    launch_at_login: bool,
+    /// Whether the launcher keeps an icon in the menu bar or tray.
+    show_tray_icon: bool,
+    text_size: TextSize,
+    /// Whether the compact window lists favorites before anything is typed.
+    favorites_in_compact: bool,
+    show_on: ShowOn,
+    escape_key: EscapeKey,
+    navigation_keys: NavigationKeys,
+    search_sensitivity: SearchSensitivity,
+    /// An HTTP proxy for the launcher's and extensions' requests, such as
+    /// `http://127.0.0.1:7890`; `None` uses the system's.
+    proxy: Option<String>,
+    clipboard_action: ClipboardAction,
+    decimal_separator: DecimalSeparator,
+    /// Folders Search Files looks in; empty for the home folder.
+    file_search_roots: Vec<String>,
+    /// Folder names Search Files skips, such as `node_modules`.
+    file_search_excluded: Vec<String>,
+    /// The browser quicklinks open in, by application path or name; `None`
+    /// for the system's default.
+    quicklink_browser: Option<String>,
 }
+
+/// Folders Search Files skips unless told otherwise: build output and
+/// dependencies nobody searches for by name.
+pub const DEFAULT_EXCLUDED_FOLDERS: [&str; 6] = [
+    "node_modules",
+    "target",
+    ".git",
+    "AppData",
+    "Library",
+    "__pycache__",
+];
 
 /// Password managers, whose copies are left out unless the user says
 /// otherwise; most also mark their copies private.
@@ -234,24 +299,35 @@ impl Default for Settings {
             calendar_feeds: Vec::new(),
             light_theme: None,
             dark_theme: None,
+            launch_at_login: false,
+            show_tray_icon: true,
+            text_size: TextSize::default(),
+            favorites_in_compact: true,
+            show_on: ShowOn::default(),
+            escape_key: EscapeKey::default(),
+            navigation_keys: NavigationKeys::default(),
+            search_sensitivity: SearchSensitivity::default(),
+            proxy: None,
+            clipboard_action: ClipboardAction::default(),
+            decimal_separator: DecimalSeparator::default(),
+            file_search_roots: Vec::new(),
+            file_search_excluded: DEFAULT_EXCLUDED_FOLDERS.map(str::to_owned).to_vec(),
+            quicklink_browser: None,
         }
     }
 }
 
 impl Settings {
-    #[cfg(test)]
     pub fn with_summon_shortcut(mut self, shortcut: impl Into<String>) -> Self {
         self.summon_shortcut = shortcut.into();
         self
     }
 
-    #[cfg(test)]
     pub fn with_appearance(mut self, appearance: Appearance) -> Self {
         self.appearance = appearance;
         self
     }
 
-    #[cfg(test)]
     pub fn with_extension_directory(mut self, directory: Option<PathBuf>) -> Self {
         self.extension_directory = directory;
         self
@@ -331,6 +407,188 @@ impl Settings {
         self
     }
 
+    pub fn launch_at_login(&self) -> bool {
+        self.launch_at_login
+    }
+
+    pub fn shows_tray_icon(&self) -> bool {
+        self.show_tray_icon
+    }
+
+    pub fn text_size(&self) -> TextSize {
+        self.text_size
+    }
+
+    pub fn shows_favorites_in_compact(&self) -> bool {
+        self.favorites_in_compact
+    }
+
+    pub fn show_on(&self) -> ShowOn {
+        self.show_on
+    }
+
+    pub fn escape_key(&self) -> EscapeKey {
+        self.escape_key
+    }
+
+    pub fn navigation_keys(&self) -> NavigationKeys {
+        self.navigation_keys
+    }
+
+    pub fn search_sensitivity(&self) -> SearchSensitivity {
+        self.search_sensitivity
+    }
+
+    pub fn proxy(&self) -> Option<&str> {
+        self.proxy.as_deref()
+    }
+
+    pub fn clipboard_action(&self) -> ClipboardAction {
+        self.clipboard_action
+    }
+
+    pub fn decimal_separator(&self) -> DecimalSeparator {
+        self.decimal_separator
+    }
+
+    pub fn file_search_roots(&self) -> &[String] {
+        &self.file_search_roots
+    }
+
+    pub fn file_search_excluded(&self) -> &[String] {
+        &self.file_search_excluded
+    }
+
+    pub fn quicklink_browser(&self) -> Option<&str> {
+        self.quicklink_browser.as_deref()
+    }
+
+    pub fn with_window_mode(mut self, mode: WindowMode) -> Self {
+        self.window_mode = mode;
+        self
+    }
+
+    pub fn with_pop_to_root(mut self, when: PopToRoot) -> Self {
+        self.pop_to_root = when;
+        self
+    }
+
+    pub fn with_store_source(mut self, source: Option<String>) -> Self {
+        self.store_source = source;
+        self
+    }
+
+    pub fn with_clipboard_history(mut self, record: bool) -> Self {
+        self.clipboard_history = record;
+        self
+    }
+
+    /// Days clipboard entries are kept; 0 keeps them until deleted.
+    pub fn with_clipboard_retention_days(mut self, days: u32) -> Self {
+        self.clipboard_retention_days = days;
+        self
+    }
+
+    pub fn with_snippet_expansion(mut self, expand: bool) -> Self {
+        self.snippet_expansion = expand;
+        self
+    }
+
+    pub fn with_window_gap(mut self, gap: u32) -> Self {
+        self.window_gap = gap;
+        self
+    }
+
+    pub fn with_hyper_key(mut self, hyper_key: crate::hyper_key::HyperKey) -> Self {
+        self.hyper_key = hyper_key;
+        self
+    }
+
+    pub fn with_clipboard_ignored_apps(mut self, apps: Vec<String>) -> Self {
+        self.clipboard_ignored_apps = apps;
+        self
+    }
+
+    pub fn with_snippet_ignored_apps(mut self, apps: Vec<String>) -> Self {
+        self.snippet_ignored_apps = apps;
+        self
+    }
+
+    pub fn with_calendar_feeds(mut self, feeds: Vec<String>) -> Self {
+        self.calendar_feeds = feeds;
+        self
+    }
+
+    pub fn with_launch_at_login(mut self, launch: bool) -> Self {
+        self.launch_at_login = launch;
+        self
+    }
+
+    pub fn with_show_tray_icon(mut self, show: bool) -> Self {
+        self.show_tray_icon = show;
+        self
+    }
+
+    pub fn with_text_size(mut self, size: TextSize) -> Self {
+        self.text_size = size;
+        self
+    }
+
+    pub fn with_favorites_in_compact(mut self, show: bool) -> Self {
+        self.favorites_in_compact = show;
+        self
+    }
+
+    pub fn with_show_on(mut self, show_on: ShowOn) -> Self {
+        self.show_on = show_on;
+        self
+    }
+
+    pub fn with_escape_key(mut self, escape_key: EscapeKey) -> Self {
+        self.escape_key = escape_key;
+        self
+    }
+
+    pub fn with_navigation_keys(mut self, keys: NavigationKeys) -> Self {
+        self.navigation_keys = keys;
+        self
+    }
+
+    pub fn with_search_sensitivity(mut self, sensitivity: SearchSensitivity) -> Self {
+        self.search_sensitivity = sensitivity;
+        self
+    }
+
+    pub fn with_proxy(mut self, proxy: Option<String>) -> Self {
+        self.proxy = proxy;
+        self
+    }
+
+    pub fn with_clipboard_action(mut self, action: ClipboardAction) -> Self {
+        self.clipboard_action = action;
+        self
+    }
+
+    pub fn with_decimal_separator(mut self, separator: DecimalSeparator) -> Self {
+        self.decimal_separator = separator;
+        self
+    }
+
+    pub fn with_file_search_roots(mut self, roots: Vec<String>) -> Self {
+        self.file_search_roots = roots;
+        self
+    }
+
+    pub fn with_file_search_excluded(mut self, folders: Vec<String>) -> Self {
+        self.file_search_excluded = folders;
+        self
+    }
+
+    pub fn with_quicklink_browser(mut self, browser: Option<String>) -> Self {
+        self.quicklink_browser = browser;
+        self
+    }
+
     pub fn calendar_feeds(&self) -> &[String] {
         &self.calendar_feeds
     }
@@ -386,202 +644,6 @@ impl Settings {
     }
 }
 
-/// The ids of the settings form's fields.
-pub(crate) mod field {
-    pub const SUMMON_SHORTCUT: &str = "summon_shortcut";
-    pub const APPEARANCE: &str = "appearance";
-    pub const WINDOW_MODE: &str = "window_mode";
-    pub const POP_TO_ROOT: &str = "pop_to_root";
-    pub const EXTENSION_DIRECTORY: &str = "extension_directory";
-    pub const STORE_SOURCE: &str = "store_source";
-    pub const CLIPBOARD_HISTORY: &str = "clipboard_history";
-    pub const CLIPBOARD_RETENTION: &str = "clipboard_retention_days";
-    pub const SNIPPET_EXPANSION: &str = "snippet_expansion";
-    pub const WINDOW_GAP: &str = "window_gap";
-    pub const HYPER_KEY: &str = "hyper_key";
-    pub const CLIPBOARD_IGNORED_APPS: &str = "clipboard_ignored_apps";
-    pub const SNIPPET_IGNORED_APPS: &str = "snippet_ignored_apps";
-    pub const CALENDAR_FEEDS: &str = "calendar_feeds";
-}
-
-/// Validation messages by field id.
-pub type FieldErrors = BTreeMap<&'static str, SharedString>;
-
-/// Reads a submitted settings form.
-///
-/// A field missing from `values` keeps its value from `current`, so a form
-/// renderer that submits only what changed cannot reset the others.
-pub fn from_form(values: &FormValues, current: &Settings) -> Result<Settings, FieldErrors> {
-    let mut errors = FieldErrors::new();
-    let text = |id: &str| match values.get(id) {
-        Some(FormValue::Text(text)) => Some(text.trim().to_string()),
-        Some(FormValue::Empty) => Some(String::new()),
-        Some(FormValue::Bool(_) | FormValue::List(_)) | None => None,
-    };
-
-    let summon_shortcut = match text(field::SUMMON_SHORTCUT) {
-        Some(shortcut) => match parse_shortcut(&shortcut) {
-            Ok(_) => shortcut,
-            Err(error) => {
-                errors.insert(field::SUMMON_SHORTCUT, error.to_string().into());
-                current.summon_shortcut.clone()
-            }
-        },
-        None => current.summon_shortcut.clone(),
-    };
-
-    let appearance = match text(field::APPEARANCE) {
-        Some(value) => Appearance::from_value(&value).unwrap_or_else(|| {
-            errors.insert(field::APPEARANCE, "Choose System, Light or Dark.".into());
-            current.appearance
-        }),
-        None => current.appearance,
-    };
-
-    let window_mode = match text(field::WINDOW_MODE) {
-        Some(value) => WindowMode::from_value(&value).unwrap_or_else(|| {
-            errors.insert(field::WINDOW_MODE, "Choose Default or Compact.".into());
-            current.window_mode
-        }),
-        None => current.window_mode,
-    };
-
-    let pop_to_root = match text(field::POP_TO_ROOT) {
-        Some(value) => PopToRoot::from_value(&value).unwrap_or_else(|| {
-            errors.insert(field::POP_TO_ROOT, "Choose when to start over.".into());
-            current.pop_to_root
-        }),
-        None => current.pop_to_root,
-    };
-
-    let extension_directory = match text(field::EXTENSION_DIRECTORY) {
-        Some(path) if path.is_empty() => None,
-        Some(path) => {
-            let directory = expand_home(&path);
-            if directory.is_dir() {
-                Some(directory)
-            } else {
-                errors.insert(
-                    field::EXTENSION_DIRECTORY,
-                    "No folder exists at this path.".into(),
-                );
-                current.extension_directory.clone()
-            }
-        }
-        None => current.extension_directory.clone(),
-    };
-
-    let store_source = match text(field::STORE_SOURCE) {
-        Some(source) if source.is_empty() => None,
-        Some(source) => match crate::extensions::store::StoreSource::parse(&source) {
-            Ok(_) => Some(source),
-            Err(error) => {
-                errors.insert(field::STORE_SOURCE, format!("{error:#}").into());
-                current.store_source.clone()
-            }
-        },
-        None => current.store_source.clone(),
-    };
-
-    let clipboard_history = match values.get(field::CLIPBOARD_HISTORY) {
-        Some(FormValue::Bool(record)) => *record,
-        _ => current.clipboard_history,
-    };
-    let snippet_expansion = match values.get(field::SNIPPET_EXPANSION) {
-        Some(FormValue::Bool(expand)) => *expand,
-        _ => current.snippet_expansion,
-    };
-    let clipboard_retention_days = match text(field::CLIPBOARD_RETENTION) {
-        Some(days) => match days.parse::<u32>() {
-            Ok(days) if RETENTION_DAYS.iter().any(|(known, _)| *known == days) => days,
-            _ => {
-                errors.insert(
-                    field::CLIPBOARD_RETENTION,
-                    "Choose how long to keep entries.".into(),
-                );
-                current.clipboard_retention_days
-            }
-        },
-        None => current.clipboard_retention_days,
-    };
-
-    let window_gap = match text(field::WINDOW_GAP) {
-        Some(gap) => match gap.parse::<u32>() {
-            Ok(gap) if WINDOW_GAPS.iter().any(|(known, _)| *known == gap) => gap,
-            _ => {
-                errors.insert(field::WINDOW_GAP, "Choose a gap.".into());
-                current.window_gap
-            }
-        },
-        None => current.window_gap,
-    };
-
-    let clipboard_ignored_apps = match text(field::CLIPBOARD_IGNORED_APPS) {
-        Some(list) => parse_app_list(&list),
-        None => current.clipboard_ignored_apps.clone(),
-    };
-
-    let snippet_ignored_apps = match text(field::SNIPPET_IGNORED_APPS) {
-        Some(list) => parse_app_list(&list),
-        None => current.snippet_ignored_apps.clone(),
-    };
-
-    let calendar_feeds = match text(field::CALENDAR_FEEDS) {
-        Some(list) => {
-            let feeds: Vec<String> = list
-                .lines()
-                .map(str::trim)
-                .filter(|feed| !feed.is_empty())
-                .map(str::to_owned)
-                .collect();
-            let invalid = feeds.iter().find(|feed| {
-                !(feed.starts_with("https://")
-                    || feed.starts_with("http://")
-                    || feed.starts_with("webcal://")
-                    || expand_home(feed).is_file())
-            });
-            if let Some(invalid) = invalid {
-                errors.insert(
-                    field::CALENDAR_FEEDS,
-                    format!("“{invalid}” is neither a web address nor a file.").into(),
-                );
-            }
-            feeds
-        }
-        None => current.calendar_feeds.clone(),
-    };
-
-    let hyper_key = match text(field::HYPER_KEY) {
-        Some(value) => crate::hyper_key::HyperKey::from_value(&value).unwrap_or_else(|| {
-            errors.insert(field::HYPER_KEY, "Choose what Caps Lock does.".into());
-            current.hyper_key
-        }),
-        None => current.hyper_key,
-    };
-
-    if !errors.is_empty() {
-        return Err(errors);
-    }
-    Ok(Settings {
-        summon_shortcut,
-        appearance,
-        window_mode,
-        pop_to_root,
-        extension_directory,
-        store_source,
-        clipboard_history,
-        clipboard_retention_days,
-        snippet_expansion,
-        window_gap,
-        hyper_key,
-        clipboard_ignored_apps,
-        snippet_ignored_apps,
-        calendar_feeds,
-        light_theme: current.light_theme.clone(),
-        dark_theme: current.dark_theme.clone(),
-    })
-}
-
 /// `KeePass.exe, 1password` → `["keepass", "1password"]`.
 pub fn parse_app_list(list: &str) -> Vec<String> {
     let mut apps: Vec<String> = Vec::new();
@@ -608,14 +670,6 @@ pub fn expand_home(path: &str) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn form(entries: &[(&'static str, &str)]) -> FormValues {
-        entries
-            .iter()
-            .fold(FormValues::new(), |values, (id, text)| {
-                values.with(*id, FormValue::Text(text.to_string().into()))
-            })
-    }
 
     #[test]
     fn test_settings_builder_and_defaults() {
@@ -661,56 +715,6 @@ mod tests {
 
         std::fs::write(&path, "{ not json").unwrap();
         assert!(Settings::load(&path).is_err());
-    }
-
-    #[test]
-    fn test_from_form() {
-        let directory = tempfile::tempdir().unwrap();
-        let current = Settings::default();
-        let settings = from_form(
-            &form(&[
-                (field::SUMMON_SHORTCUT, " ctrl-space "),
-                (field::APPEARANCE, "dark"),
-                (
-                    field::EXTENSION_DIRECTORY,
-                    directory.path().to_str().unwrap(),
-                ),
-            ]),
-            &current,
-        )
-        .unwrap();
-        assert_eq!(settings.summon_shortcut(), "ctrl-space");
-        assert_eq!(settings.appearance(), Appearance::Dark);
-        assert_eq!(settings.extension_directory(), Some(directory.path()));
-
-        let cleared = from_form(&form(&[(field::EXTENSION_DIRECTORY, "")]), &settings).unwrap();
-        assert_eq!(cleared.extension_directory(), None);
-        assert_eq!(
-            cleared.summon_shortcut(),
-            "ctrl-space",
-            "fields that were not submitted keep their values"
-        );
-    }
-
-    #[test]
-    fn test_from_form_reports_every_invalid_field() {
-        let errors = from_form(
-            &form(&[
-                (field::SUMMON_SHORTCUT, "k"),
-                (field::APPEARANCE, "sepia"),
-                (field::EXTENSION_DIRECTORY, "/no/such/launcher/extensions"),
-            ]),
-            &Settings::default(),
-        )
-        .unwrap_err();
-        assert_eq!(
-            errors.keys().copied().collect::<Vec<_>>(),
-            [
-                field::APPEARANCE,
-                field::EXTENSION_DIRECTORY,
-                field::SUMMON_SHORTCUT
-            ]
-        );
     }
 
     #[test]

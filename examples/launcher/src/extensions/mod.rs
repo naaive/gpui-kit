@@ -38,6 +38,7 @@ pub use manifest::{
 pub use paths::DataDirectory;
 #[cfg(test)]
 pub use preferences::{MemorySecrets, SecretStore};
+pub use preferences::{PreferenceScope, PreferenceStore};
 pub use scaffold::{Template, create as create_extension, lint as lint_extension};
 
 use std::fmt;

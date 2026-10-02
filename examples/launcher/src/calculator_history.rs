@@ -70,10 +70,11 @@ fn push(history: &mut Vec<Calculation>, calculation: Calculation) {
     history.truncate(LIMIT);
 }
 
-/// Remembers the calculation `query`, whose answer was just used.
-pub fn record(query: &str) {
+/// Remembers the calculation `query`, whose answer was just used, read in
+/// `notation` as the root search read it.
+pub fn record(query: &str, notation: calculator::Notation) {
     let expression = query.trim();
-    let Some((answer, display)) = calculator::answer(expression) else {
+    let Some((answer, display)) = calculator::answer(expression, notation) else {
         return;
     };
     let mut history = load();

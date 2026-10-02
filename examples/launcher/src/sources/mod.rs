@@ -19,7 +19,7 @@ use gpui_kit::SharedString;
 
 use crate::{
     extensions::{Catalog, LaunchRequest},
-    model::{Accessory, Action, Effect, Item, ItemId, PushHandler},
+    model::{Accessory, Action, Effect, Item, ItemId},
 };
 
 /// A collection of commands that does not depend on the query.
@@ -82,13 +82,15 @@ impl CommandSource for ExtensionCommands<'_> {
                 // Only an extension with settings has anything to configure.
                 let has_preferences =
                     !extension.preferences().is_empty() || !command.preferences().is_empty();
-                let id = command.id().clone();
+                // Raycast's Configure Extension opens the extension in
+                // settings, where its commands' aliases and hotkeys are too.
+                let id = command.id().to_string();
                 let item = match has_preferences {
                     true => item.with_action(
                         Action::new(
                             "Configure Extension",
-                            Effect::Push(PushHandler::new(move |window, cx| {
-                                crate::shell::launcher::preferences_page(&id, window, cx)
+                            Effect::Run(crate::model::RunHandler::new(move |(), _, cx| {
+                                crate::settings_window::open_extension(id.clone(), cx)
                             })),
                         )
                         .with_shortcut("secondary-shift-,"),

@@ -9,7 +9,10 @@ mod pages;
 
 pub use pages::{alias_page, hotkey_page};
 
-use std::{collections::BTreeMap, path::PathBuf};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    path::PathBuf,
+};
 
 use gpui_kit::{App, AppContext as _, Context, Entity, Global, Task};
 use serde::{Deserialize, Serialize};
@@ -30,6 +33,9 @@ struct CustomizationsFile {
     /// Shortcut (as GPUI writes it, `ctrl-alt-c`) by item id.
     #[serde(default)]
     hotkeys: BTreeMap<String, String>,
+    /// Items left out of the root search, and whose hotkeys do nothing.
+    #[serde(default)]
+    disabled: BTreeSet<String>,
 }
 
 pub struct Customizations {
@@ -102,6 +108,32 @@ impl Customizations {
             .hotkeys
             .iter()
             .map(|(item, shortcut)| (item.as_str(), shortcut.as_str()))
+    }
+
+    /// Whether `item` is left out of the root search.
+    pub fn is_disabled(&self, item: &str) -> bool {
+        self.file.disabled.contains(item)
+    }
+
+    pub fn disabled(&self) -> &BTreeSet<String> {
+        &self.file.disabled
+    }
+
+    /// Enables or disables every item in `items` at once, such as all the
+    /// commands of an extension.
+    pub fn set_enabled<'a>(
+        &mut self,
+        items: impl IntoIterator<Item = &'a str>,
+        enabled: bool,
+        cx: &mut Context<Self>,
+    ) {
+        for item in items {
+            match enabled {
+                true => self.file.disabled.remove(item),
+                false => self.file.disabled.insert(item.to_owned()),
+            };
+        }
+        self.changed(cx);
     }
 
     /// Sets `item`'s alias; an empty one removes it.

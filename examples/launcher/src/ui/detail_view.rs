@@ -207,7 +207,7 @@ fn metadata_column(
                     .gap_1()
                     .children(
                         tags.iter()
-                            .map(|value| tag(value.text().clone(), value.tone())),
+                            .map(|value| tag(value.text().clone(), value.tone(), cx.theme())),
                     )
                     .into_any_element()),
             }

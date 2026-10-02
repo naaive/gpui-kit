@@ -7,13 +7,12 @@
 
 use gpui_kit::{
     AnyElement, App, AppContext as _, Context, Entity, FocusHandle, InteractiveElement as _,
-    IntoElement, Keystroke, ParentElement as _, Role, SharedString,
-    StatefulInteractiveElement as _, Styled as _, WeakEntity, Window,
+    IntoElement, ParentElement as _, Role, SharedString, StatefulInteractiveElement as _,
+    Styled as _, WeakEntity, Window,
     component::{
         ActiveTheme as _, Icon, IconName, IndexPath, Sizable as _,
         command::{Command, CommandGroup, CommandItem, CommandState},
         h_flex,
-        kbd::Kbd,
     },
     div,
     prelude::FluentBuilder as _,
@@ -21,6 +20,7 @@ use gpui_kit::{
 
 use super::{
     LauncherWindow,
+    keycaps::keycaps,
     picture::{PictureSize, picture},
 };
 use crate::model::{Action, ActionEntry, ActionPanel, ActionStyle, ItemId, Submenu};
@@ -314,8 +314,8 @@ fn entry_row(
         )
         .child(div().flex_1().min_w_0().truncate().child(title))
         .when_some(
-            shortcut.and_then(|shortcut| Keystroke::parse(shortcut).ok()),
-            |this, keystroke| this.child(Kbd::new(keystroke)),
+            shortcut.and_then(|shortcut| keycaps(shortcut, cx)),
+            |this, caps| this.child(caps),
         )
         .when(opens_submenu, |this| {
             this.child(

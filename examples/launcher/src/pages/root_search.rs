@@ -16,7 +16,8 @@ use crate::{
     },
     quicklinks::{self, Quicklink},
     script_commands,
-    search::{Score, UsageStore, now, score_item, write_snapshot},
+    search::{Score, UsageStore, now, score_item_with, write_snapshot},
+    shell::settings::{SearchSensitivity, WindowMode},
     snippets,
     sources::{
         CommandSource, ExtensionCommands,
@@ -124,6 +125,8 @@ pub struct RootSearchPage {
     aliases: HashMap<String, String>,
     favorites: Vec<String>,
     hotkeys: HashMap<String, String>,
+    /// Items the user turned off in settings, left out of every list.
+    disabled: HashSet<String>,
     fallbacks: Vec<FallbackCommand>,
     /// The meeting about to start, offered above everything else.
     next_meeting: Option<crate::calendar::Occurrence>,
@@ -139,6 +142,8 @@ pub struct RootSearchPage {
     /// The list for the current query and data; rebuilt only when one of them
     /// changes, because the window asks for the model on every frame.
     list: Option<ListModel>,
+    /// The settings the list was built with; a change rebuilds it.
+    preferences: Preferences,
     started: bool,
     scanning: bool,
     scanned_at: Option<Instant>,
@@ -201,6 +206,7 @@ impl RootSearchPage {
             aliases: HashMap::new(),
             favorites: Vec::new(),
             hotkeys: HashMap::new(),
+            disabled: HashSet::new(),
             system,
             window_layouts,
             settings_pages,
@@ -212,6 +218,7 @@ impl RootSearchPage {
             usage: UsageStore::in_memory(),
             query: String::new(),
             list: None,
+            preferences: Preferences::default(),
             started: false,
             scanning: false,
             scanned_at: None,
@@ -347,6 +354,7 @@ impl RootSearchPage {
             .map(|(item, shortcut)| (item.to_owned(), shortcut.to_owned()))
             .collect();
         self.favorites = store.favorites().to_vec();
+        self.disabled = store.disabled().iter().cloned().collect();
     }
 
     /// An item as the root search shows it: with its alias and hotkey, and
@@ -610,6 +618,7 @@ impl RootSearchPage {
         self.collections()
             .into_iter()
             .flat_map(|collection| collection.items.iter())
+            .filter(|item| !self.disabled.contains(item.id().as_str()))
     }
 
     fn contains(&self, id: &ItemId) -> bool {
@@ -650,6 +659,18 @@ impl RootSearchPage {
             .filter(|item| !favorite_ids.contains(item.id()))
             .take(RECENT_ITEMS)
             .collect();
+        // The compact window lists only the favorites before anything is
+        // typed.
+        if self.preferences.favorites_only {
+            return match favorites.is_empty() {
+                true => list,
+                false => list.with_section(
+                    Section::new()
+                        .with_title("Favorites")
+                        .with_items(favorites.into_iter().map(|item| self.present(item))),
+                ),
+            };
+        }
         let mut shown: HashSet<&ItemId> = recent.iter().map(|item| item.id()).collect();
         shown.extend(favorite_ids);
         let list = match &self.focus_session {
@@ -697,7 +718,10 @@ impl RootSearchPage {
                             collection
                                 .items
                                 .iter()
-                                .filter(|item| !shown.contains(item.id()))
+                                .filter(|item| {
+                                    !shown.contains(item.id())
+                                        && !self.disabled.contains(item.id().as_str())
+                                })
                                 .map(|item| self.present(item)),
                         ),
                 )
@@ -723,7 +747,7 @@ impl RootSearchPage {
                     .is_some_and(|alias| alias.eq_ignore_ascii_case(query));
                 let score = match is_alias {
                     true => 0,
-                    false => score_item(query, item)?,
+                    false => score_item_with(query, item, self.preferences.sensitivity)?,
                 };
                 let rank = if is_alias {
                     f64::INFINITY
@@ -744,7 +768,7 @@ impl RootSearchPage {
         // Stable, so equal ranks keep collection order.
         matches.sort_by(|(a, _), (b, _)| b.total_cmp(a));
 
-        let list = match calculator::item(query) {
+        let list = match calculator::item(query, self.preferences.notation) {
             Some(answer) => {
                 list.with_section(Section::new().with_title("Calculator").with_item(answer))
             }
@@ -767,6 +791,27 @@ impl RootSearchPage {
                 section.with_items(quicklinks::fallback_items(&self.quicklink_data, query)),
             ),
             None => list,
+        }
+    }
+}
+
+/// What the launcher's settings change about the list.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+struct Preferences {
+    sensitivity: SearchSensitivity,
+    notation: calculator::Notation,
+    /// The compact window, with nothing typed, lists the favorites alone.
+    favorites_only: bool,
+}
+
+impl Preferences {
+    fn read(cx: &gpui_kit::App) -> Self {
+        let settings = crate::shell::launcher::settings(cx);
+        Self {
+            sensitivity: settings.search_sensitivity(),
+            notation: calculator::Notation::of(settings.decimal_separator()),
+            favorites_only: settings.window_mode() == WindowMode::Compact
+                && settings.shows_favorites_in_compact(),
         }
     }
 }
@@ -809,6 +854,11 @@ impl Page for RootSearchPage {
 
     fn model(&mut self, _: &mut Window, cx: &mut Context<Self>) -> PageModel {
         self.start(cx);
+        let preferences = Preferences::read(cx);
+        if preferences != self.preferences {
+            self.preferences = preferences;
+            self.list = None;
+        }
         let list = match self.list.take() {
             Some(list) => list,
             None => self.build_list(&self.query, now()),
@@ -840,7 +890,7 @@ impl Page for RootSearchPage {
     fn did_perform(&mut self, item: &ItemId, query: &str, cx: &mut Context<Self>) {
         self.start(cx);
         if self.options.platform_commands && item.as_str() == calculator::RESULT_ID {
-            crate::calculator_history::record(query);
+            crate::calculator_history::record(query, self.preferences.notation);
         }
         if !self.contains(item) {
             return;

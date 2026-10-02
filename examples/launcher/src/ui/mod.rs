@@ -8,9 +8,10 @@ mod action_panel;
 mod detail_view;
 mod footer;
 mod form_view;
+pub(crate) mod keycaps;
 mod launcher_window;
 mod list_view;
-mod picture;
+pub(crate) mod picture;
 mod toast;
 
 pub use launcher_window::{LauncherWindow, Snapshot};
@@ -37,6 +38,15 @@ actions!(
         Back,
         /// Shows or hides the actions of the selected item or page.
         ToggleActions,
+        /// Ctrl-P: moves the selection up when the Emacs keys are chosen in
+        /// settings.
+        EmacsSelectPrevious,
+        /// Ctrl-N: moves the selection down when the Emacs keys are chosen.
+        EmacsSelectNext,
+        /// Ctrl-K: moves the selection up when the Vim keys are chosen.
+        VimSelectPrevious,
+        /// Ctrl-J: moves the selection down when the Vim keys are chosen.
+        VimSelectNext,
     ]
 );
 
@@ -46,13 +56,18 @@ pub(crate) fn keyed_id(name: &'static str, key: impl Into<SharedString>) -> Elem
     ElementId::NamedChild(Arc::new(ElementId::from(name)), key.into())
 }
 
+/// Both pairs of navigation keys are bound; the one not chosen in settings
+/// lets its keystroke through, so switching takes effect without binding
+/// keys again.
 pub fn init(cx: &mut App) {
     let context = Some(CONTEXT);
     cx.bind_keys([
         KeyBinding::new("up", SelectPrevious, context),
         KeyBinding::new("down", SelectNext, context),
-        KeyBinding::new("ctrl-p", SelectPrevious, context),
-        KeyBinding::new("ctrl-n", SelectNext, context),
+        KeyBinding::new("ctrl-p", EmacsSelectPrevious, context),
+        KeyBinding::new("ctrl-n", EmacsSelectNext, context),
+        KeyBinding::new("ctrl-k", VimSelectPrevious, context),
+        KeyBinding::new("ctrl-j", VimSelectNext, context),
         KeyBinding::new("enter", Confirm, context),
         KeyBinding::new("secondary-enter", ConfirmSecondary, context),
         // A multi-line field takes Cmd/Ctrl-Enter for a line break and keeps

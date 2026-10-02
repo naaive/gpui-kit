@@ -19,6 +19,11 @@ use crate::{
     shell::launcher,
 };
 
+/// The launcher's own theme, used until another is chosen.
+const ORBIT: &str = include_str!("../themes/orbit.json");
+const ORBIT_LIGHT: &str = "Orbit Light";
+const ORBIT_DARK: &str = "Orbit Dark";
+
 /// The themes in GPUI Kit's `themes` folder.
 const BUNDLED: [&str; 21] = [
     include_str!("../../../themes/adventure.json"),
@@ -52,7 +57,7 @@ pub fn directory() -> Option<PathBuf> {
 /// Adds the bundled themes and the user's to the registry.
 pub fn register(cx: &mut App) {
     let registry = ThemeRegistry::global_mut(cx);
-    for source in BUNDLED {
+    for source in std::iter::once(ORBIT).chain(BUNDLED) {
         if let Err(error) = registry.load_themes_from_str(source) {
             tracing::warn!("cannot read a bundled theme: {error}");
         }
@@ -80,13 +85,34 @@ fn named(name: Option<&str>, cx: &App) -> Option<Rc<ThemeConfig>> {
     ThemeRegistry::global(cx).themes().get(name?).cloned()
 }
 
-/// Uses the chosen themes for light and dark appearance; a theme that no
-/// longer exists falls back to the default.
-pub fn apply(light: Option<&str>, dark: Option<&str>, cx: &mut App) {
+/// The theme used for an appearance when none is chosen, or the chosen one
+/// no longer exists: Orbit, or GPUI Kit's default should Orbit be missing.
+fn fallback(dark: bool, cx: &App) -> Rc<ThemeConfig> {
     let registry = ThemeRegistry::global(cx);
-    let light = named(light, cx).unwrap_or_else(|| registry.default_light_theme().clone());
-    let dark =
-        named(dark, cx).unwrap_or_else(|| ThemeRegistry::global(cx).default_dark_theme().clone());
+    let (name, default) = match dark {
+        true => (ORBIT_DARK, registry.default_dark_theme()),
+        false => (ORBIT_LIGHT, registry.default_light_theme()),
+    };
+    named(Some(name), cx).unwrap_or_else(|| default.clone())
+}
+
+/// The name of the theme in use for dark or light appearance.
+pub fn current_name(dark: bool, cx: &App) -> SharedString {
+    let settings = launcher::settings(cx);
+    match settings
+        .theme(dark)
+        .filter(|name| named(Some(name), cx).is_some())
+    {
+        Some(name) => name.to_owned().into(),
+        None => fallback(dark, cx).name.clone(),
+    }
+}
+
+/// Uses the chosen themes for light and dark appearance; a theme that no
+/// longer exists falls back to Orbit.
+pub fn apply(light: Option<&str>, dark: Option<&str>, cx: &mut App) {
+    let light = named(light, cx).unwrap_or_else(|| fallback(false, cx));
+    let dark = named(dark, cx).unwrap_or_else(|| fallback(true, cx));
     let mode = match cx.theme().is_dark() {
         true => ThemeMode::Dark,
         false => ThemeMode::Light,
@@ -97,6 +123,24 @@ pub fn apply(light: Option<&str>, dark: Option<&str>, cx: &mut App) {
     });
     // Loads the chosen theme of the current mode.
     Theme::change(mode, None, cx);
+}
+
+/// Sizes the launcher's text as settings say, now and after every theme
+/// change. The size is the theme's font size, which each window takes as its
+/// rem; a theme file may carry a size of its own, so it is put back whenever
+/// the theme changes.
+pub fn keep_text_size(cx: &mut App) {
+    apply_text_size(cx);
+    cx.observe_global::<Theme>(apply_text_size).detach();
+}
+
+/// Sets the theme's font size to the text size in settings. Writing only a
+/// different size keeps the theme observer from looping.
+pub fn apply_text_size(cx: &mut App) {
+    let size = gpui_kit::px(launcher::settings(cx).text_size().rem());
+    if cx.theme().font_size != size {
+        Theme::update(cx, |theme| theme.font_size = size);
+    }
 }
 
 pub fn change_theme_page(_: &mut Window, cx: &mut App) -> Result<PageHandle> {
@@ -124,7 +168,7 @@ fn choose(config: &Rc<ThemeConfig>, window: &mut Window, cx: &mut App) {
         });
     }
     let name = config.name.clone();
-    match launcher::update_settings(settings, window, cx) {
+    match launcher::update_settings(settings, Some(window), cx) {
         Ok(()) => launcher::perform(
             Effect::ShowToast(crate::model::Toast::new(
                 crate::model::ToastStyle::Success,
@@ -149,10 +193,10 @@ impl Page for ThemesPage {
         let registry = ThemeRegistry::global(cx);
         let themes = registry.sorted_themes();
         let current = |config: &ThemeConfig| {
-            let chosen = settings.theme(config.mode.is_dark());
-            match chosen {
-                Some(chosen) => chosen == config.name.as_ref(),
-                None => config.is_default,
+            let dark = config.mode.is_dark();
+            match settings.theme(dark) {
+                Some(chosen) if named(Some(chosen), cx).is_some() => chosen == config.name.as_ref(),
+                _ => fallback(dark, cx).name == config.name,
             }
         };
         let open_folder = Action::new(

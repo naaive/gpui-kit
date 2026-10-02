@@ -32,15 +32,6 @@ impl HyperKey {
         Self::CapsLockOnly,
     ];
 
-    pub fn value(self) -> &'static str {
-        match self {
-            Self::Off => "off",
-            Self::CapsLock => "caps_lock",
-            Self::CapsLockEscape => "caps_lock_escape",
-            Self::CapsLockOnly => "caps_lock_only",
-        }
-    }
-
     pub fn title(self) -> &'static str {
         match self {
             Self::Off => "Off",
@@ -48,10 +39,6 @@ impl HyperKey {
             Self::CapsLockEscape => "Caps Lock (a quick press is Esc)",
             Self::CapsLockOnly => "Caps Lock (a quick press does nothing)",
         }
-    }
-
-    pub fn from_value(value: &str) -> Option<Self> {
-        Self::ALL.into_iter().find(|key| key.value() == value)
     }
 }
 

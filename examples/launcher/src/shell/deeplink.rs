@@ -14,6 +14,19 @@ use crate::extensions::{CommandId, LaunchRequest};
 
 pub const SCHEME: &str = "launcher";
 
+/// What `launcher://settings` asks for: the settings window, at the
+/// extension or command in the path when there is one
+/// (`launcher://settings/com.example.notes`).
+pub fn settings_target(link: &str) -> Option<Option<String>> {
+    let url = Url::parse(link).ok()?;
+    if url.scheme() != SCHEME || url.host_str() != Some("settings") {
+        return None;
+    }
+    let target = url.path().trim_matches('/').to_owned();
+    let target = percent_decode_str(&target).decode_utf8().ok()?.into_owned();
+    Some((!target.is_empty()).then_some(target))
+}
+
 /// Parses a deep link into the request it makes.
 pub fn parse(link: &str) -> Result<LaunchRequest> {
     let url = Url::parse(link).with_context(|| format!("`{link}` is not a URL"))?;
@@ -76,6 +89,20 @@ pub fn parse(link: &str) -> Result<LaunchRequest> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_settings_links() {
+        assert_eq!(settings_target("launcher://settings"), Some(None));
+        assert_eq!(
+            settings_target("launcher://settings/com.example.notes"),
+            Some(Some("com.example.notes".into()))
+        );
+        assert_eq!(
+            settings_target("launcher://settings/system%2Fclipboard-history"),
+            Some(Some("system/clipboard-history".into()))
+        );
+        assert_eq!(settings_target("launcher://extensions/a/b"), None);
+    }
 
     #[test]
     fn test_parse_a_command_link() {

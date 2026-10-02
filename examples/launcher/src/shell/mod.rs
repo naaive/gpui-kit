@@ -5,6 +5,7 @@
 //! launcher states intent ("paste into the previous application") and never
 //! branches on the operating system.
 
+pub mod app_tray;
 pub mod background;
 pub mod backup;
 pub mod cli;

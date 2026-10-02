@@ -11,11 +11,8 @@ use gpui_kit::{
 };
 
 use super::{CommandSource, process::CommandLine};
-use crate::{
-    model::{
-        Accessory, Action, ActionStyle, Confirmation, Effect, Item, ItemId, PushHandler, RunHandler,
-    },
-    shell::settings::settings_page,
+use crate::model::{
+    Accessory, Action, ActionStyle, Confirmation, Effect, Item, ItemId, PushHandler, RunHandler,
 };
 
 /// The launcher's own commands, and the operating system's when enabled.
@@ -177,7 +174,9 @@ fn launcher_commands() -> [Item; 15] {
             .with_keyword("preferences")
             .with_action(Action::new(
                 "Open Settings",
-                Effect::Push(PushHandler::new(settings_page)),
+                Effect::Run(RunHandler::new(|(), _, cx| {
+                    crate::settings_window::open(cx)
+                })),
             )),
         command_item("system/extensions", "Manage Extensions", "layout-dashboard")
             .with_keyword("install")
@@ -896,8 +895,8 @@ mod tests {
     #[test]
     fn test_built_in_commands_by_short_name_or_full_id() {
         assert!(
-            matches!(built_in_command("settings"), Some(Effect::Push(_))),
-            "the short name is the launcher's own Settings"
+            matches!(built_in_command("settings"), Some(Effect::Run(_))),
+            "the short name is the launcher's own Settings, which opens its window"
         );
         assert!(built_in_command("system/quit").is_some());
         assert!(built_in_command("nothing/here").is_none());

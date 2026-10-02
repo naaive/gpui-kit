@@ -15,7 +15,7 @@ use crate::model::{Image, MenuBarEntry, MenuBarModel};
 const ICON_SIZE: u32 = 32;
 
 #[cfg(any(target_os = "macos", target_os = "windows"))]
-pub use platform::{Tray, menu_events};
+pub use platform::{Tray, icon_color, menu_events, subscribe_menu_events};
 
 /// Draws an image as tray icon pixels: straight RGBA, `ICON_SIZE` square for
 /// an SVG. A Lucide icon or an SVG is drawn in `color`, since a tray is not
@@ -113,7 +113,10 @@ pub fn numbered_items(model: &MenuBarModel) -> Vec<&crate::model::MenuBarItem> {
 
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 mod platform {
-    use std::path::Path;
+    use std::{
+        path::Path,
+        sync::{Mutex, OnceLock, PoisonError},
+    };
 
     use anyhow::Result;
     use gpui_kit::SharedString;
@@ -180,8 +183,7 @@ mod platform {
     /// Forwards menu choices as the tray's id and the entry's number, or
     /// `None` for Remove from Tray; set once.
     pub fn menu_events(on_choose: impl Fn(String, Option<usize>) + Send + Sync + 'static) {
-        MenuEvent::set_event_handler(Some(move |event: MenuEvent| {
-            let id = event.id.0;
+        subscribe_menu_events(move |id| {
             let Some((tray, entry)) = id.rsplit_once('#') else {
                 return;
             };
@@ -193,17 +195,51 @@ mod platform {
                     }
                 }
             }
-        }));
+        });
+    }
+
+    type MenuHandler = Box<dyn Fn(&str) + Send + Sync>;
+
+    /// Calls `handler` with the id of every menu entry chosen in any tray.
+    ///
+    /// The platform takes one handler for all menus, so the commands' trays
+    /// and the launcher's own each subscribe here and skip ids not theirs.
+    pub fn subscribe_menu_events(handler: impl Fn(&str) + Send + Sync + 'static) {
+        static HANDLERS: OnceLock<Mutex<Vec<MenuHandler>>> = OnceLock::new();
+        let handlers = HANDLERS.get_or_init(|| {
+            MenuEvent::set_event_handler(Some(|event: MenuEvent| {
+                if let Some(handlers) = HANDLERS.get() {
+                    for handler in handlers
+                        .lock()
+                        .unwrap_or_else(PoisonError::into_inner)
+                        .iter()
+                    {
+                        handler(&event.id.0);
+                    }
+                }
+            }));
+            Mutex::default()
+        });
+        handlers
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push(Box::new(handler));
+    }
+
+    /// The color tray icons are drawn in: black for the macOS template
+    /// image and a light taskbar, white for a dark one.
+    pub fn icon_color() -> &'static str {
+        if cfg!(target_os = "macos") || !taskbar_is_dark() {
+            "#000000"
+        } else {
+            "#ffffff"
+        }
     }
 
     const REMOVE: &str = "remove";
 
     fn icon(model: &MenuBarModel, fallback: &Image, root: &Path) -> Option<Icon> {
-        let color = if cfg!(target_os = "macos") || !taskbar_is_dark() {
-            "#000000"
-        } else {
-            "#ffffff"
-        };
+        let color = icon_color();
         let image = model.icon().unwrap_or(fallback);
         let pixels = icon_pixels(image, root, color)
             .or_else(|error| {

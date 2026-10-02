@@ -15,7 +15,10 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
-use super::{calculator::evaluate_value, conversion::Conversion};
+use super::{
+    calculator::{Notation, evaluate_value},
+    conversion::Conversion,
+};
 
 const SOURCE: &str = "https://open.er-api.com/v6/latest/USD";
 const STALE_AFTER: Duration = Duration::from_secs(24 * 60 * 60);
@@ -124,29 +127,29 @@ fn code(word: &str) -> Option<String> {
 }
 
 /// Splits `€25` or `25 usd` into the amount and the currency.
-fn amount_and_currency(source: &str) -> Option<(f64, String)> {
+fn amount_and_currency(source: &str, notation: Notation) -> Option<(f64, String)> {
     let source = source.trim();
     // A leading symbol: `$5`, `€25`, `NT$100`.
     for symbol in ["nt$", "us$", "hk$", "$", "€", "£", "¥", "₩", "₹"] {
         if let Some(rest) = source.to_lowercase().strip_prefix(symbol) {
-            return Some((evaluate_value(rest.trim())?, code(symbol)?));
+            return Some((evaluate_value(rest.trim(), notation)?, code(symbol)?));
         }
     }
-    let split = source.rfind(|c: char| c.is_ascii_digit() || c == ')' || c == '.')? + 1;
+    let split = source.rfind(|c: char| c.is_ascii_digit() || matches!(c, ')' | '.' | ','))? + 1;
     let (amount, currency) = (source[..split].trim(), source[split..].trim());
-    Some((evaluate_value(amount)?, code(currency)?))
+    Some((evaluate_value(amount, notation)?, code(currency)?))
 }
 
 /// Converts `query` with `rates`, or `None` when it is not a conversion
 /// between two currencies the rates know.
-fn convert_with(query: &str, rates: &Rates) -> Option<Conversion> {
+fn convert_with(query: &str, rates: &Rates, notation: Notation) -> Option<Conversion> {
     // ASCII lowercasing keeps byte offsets, so they slice `query` safely.
     let lower = query.trim().to_ascii_lowercase();
     let (ix, length) = [" to ", " in ", " as "]
         .iter()
         .filter_map(|separator| lower.rfind(separator).map(|ix| (ix, separator.len())))
         .max_by_key(|(ix, _)| *ix)?;
-    let (amount, from) = amount_and_currency(&query.trim()[..ix])?;
+    let (amount, from) = amount_and_currency(&query.trim()[..ix], notation)?;
     let to = code(&lower[ix + length..])?;
     if from == to {
         return None;
@@ -155,18 +158,18 @@ fn convert_with(query: &str, rates: &Rates) -> Option<Conversion> {
     let result = amount / from_rate * to_rate;
     let value = format!("{result:.2}");
     Some(Conversion {
-        display: format!("{} {to}", group_thousands(&value)),
-        value,
+        display: format!("{} {to}", group_thousands(&value, notation)),
+        value: value.replace('.', &notation.decimal_mark().to_string()),
     })
 }
 
-pub fn convert(query: &str) -> Option<Conversion> {
+pub fn convert(query: &str, notation: Notation) -> Option<Conversion> {
     let rates = RATES.lock().ok()?;
-    convert_with(query, rates.as_ref()?)
+    convert_with(query, rates.as_ref()?, notation)
 }
 
-/// `1234567.89` → `1,234,567.89`.
-fn group_thousands(value: &str) -> String {
+/// `1234567.89` → `1,234,567.89`, or `1.234.567,89` in comma notation.
+fn group_thousands(value: &str, notation: Notation) -> String {
     let (whole, fraction) = value.split_once('.').unwrap_or((value, ""));
     let (sign, digits) = match whole.strip_prefix('-') {
         Some(digits) => ("-", digits),
@@ -175,13 +178,13 @@ fn group_thousands(value: &str) -> String {
     let mut grouped = String::new();
     for (ix, digit) in digits.chars().enumerate() {
         if ix > 0 && (digits.len() - ix) % 3 == 0 {
-            grouped.push(',');
+            grouped.push(notation.group_mark());
         }
         grouped.push(digit);
     }
     match fraction.is_empty() {
         true => format!("{sign}{grouped}"),
-        false => format!("{sign}{grouped}.{fraction}"),
+        false => format!("{sign}{grouped}{}{fraction}", notation.decimal_mark()),
     }
 }
 
@@ -200,7 +203,7 @@ mod tests {
     }
 
     fn display(query: &str) -> Option<String> {
-        convert_with(query, &rates()).map(|conversion| conversion.display)
+        convert_with(query, &rates(), Notation::Dot).map(|conversion| conversion.display)
     }
 
     #[test]
@@ -217,6 +220,13 @@ mod tests {
             None,
             "the Kelvin sign must not panic"
         );
-        assert_eq!(group_thousands("-1234567.5"), "-1,234,567.5");
+        assert_eq!(group_thousands("-1234567.5", Notation::Dot), "-1,234,567.5");
+        assert_eq!(
+            group_thousands("-1234567.5", Notation::Comma),
+            "-1.234.567,5"
+        );
+        let comma = convert_with("1.000,5 usd to twd", &rates(), Notation::Comma).unwrap();
+        assert_eq!(comma.display, "32.016,00 TWD");
+        assert_eq!(comma.value, "32016,00");
     }
 }

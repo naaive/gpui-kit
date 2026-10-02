@@ -20,7 +20,8 @@ use gpui_kit::{
 };
 
 use super::{
-    Back, CONTEXT, Confirm, ConfirmSecondary, SelectNext, SelectPrevious, ToggleActions,
+    Back, CONTEXT, Confirm, ConfirmSecondary, EmacsSelectNext, EmacsSelectPrevious, SelectNext,
+    SelectPrevious, ToggleActions, VimSelectNext, VimSelectPrevious,
     action_panel::{OpenPanel, entry_count},
     detail_view::DetailView,
     footer::{Footer, PrimaryHint},
@@ -37,6 +38,7 @@ use crate::{
     },
     pages::{self, PageHandle, RootSearchPage},
     session::{Entry, EntryId, Navigator, Rows},
+    shell::settings::{EscapeKey, NavigationKeys},
 };
 
 /// How long a page may be loading before the window says so. Shorter waits
@@ -243,11 +245,13 @@ impl LauncherWindow {
     }
 
     /// In compact mode, the root search with nothing typed is the search
-    /// field alone; the window shrinks to it and grows back when typing
-    /// starts or a command opens.
-    fn fit_window(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
-        let compact = crate::shell::launcher::settings(cx).window_mode()
-            == crate::shell::settings::WindowMode::Compact
+    /// field alone, or the field and the favorites when settings show them
+    /// and there are some; the window shrinks to the field and grows back
+    /// when typing starts or a command opens.
+    fn fit_window(&mut self, has_items: bool, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        let settings = crate::shell::launcher::settings(cx);
+        let compact = settings.window_mode() == crate::shell::settings::WindowMode::Compact
+            && !(settings.shows_favorites_in_compact() && has_items)
             && self.navigator.depth() == 1
             && self.navigator.current().query().is_empty()
             && self.action_panel.is_none();
@@ -412,6 +416,22 @@ impl LauncherWindow {
 
     fn on_select_next(&mut self, _: &SelectNext, window: &mut Window, cx: &mut Context<Self>) {
         self.move_vertically(1, window, cx);
+    }
+
+    /// Ctrl-N/P or Ctrl-J/K: moves the selection when `keys` are the ones
+    /// chosen in settings, and otherwise leaves the keystroke to the search
+    /// field.
+    fn navigation_key(
+        &mut self,
+        keys: NavigationKeys,
+        delta: isize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match crate::shell::launcher::settings(cx).navigation_keys() == keys {
+            true => self.move_vertically(delta, window, cx),
+            false => cx.propagate(),
+        }
     }
 
     /// Up and down: move the selection a line, or scroll a detail page.
@@ -761,13 +781,18 @@ impl LauncherWindow {
 
     /// `Esc` peels one layer at a time: the action panel (a submenu first),
     /// focus that wandered from the search field, the search text, the page,
-    /// and finally the window.
+    /// and finally the window. Set to close, it closes the window after the
+    /// action panel.
     fn on_back(&mut self, _: &Back, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(open) = &mut self.action_panel {
             if !open.close_submenu(window, cx) {
                 self.close_action_panel(window, cx);
             }
             cx.notify();
+            return;
+        }
+        if crate::shell::launcher::settings(cx).escape_key() == EscapeKey::Close {
+            self.close(window, cx);
             return;
         }
         if matches!(self.model(window, cx), PageModel::List(_)) {
@@ -1312,34 +1337,38 @@ impl LauncherWindow {
         h_flex()
             .relative()
             .flex_none()
-            .h_12()
-            .gap_2()
-            .px_4()
+            .h(px(56.))
+            .gap(px(10.))
+            .pl(px(18.))
+            .pr(px(14.))
             .border_b_1()
             .border_color(theme.border)
-            .map(|this| match can_go_back {
-                true => this.child(
+            .when(can_go_back, |this| {
+                this.child(
                     Button::new("back")
                         .ghost()
-                        .xsmall()
                         .icon(IconName::ChevronLeft)
+                        .size(px(26.))
+                        .rounded(px(7.))
+                        .bg(theme.foreground.opacity(0.07))
+                        .ml(px(-4.))
                         .accessibility_label("Back")
                         // Esc is the keyboard path back; the button is for the pointer.
                         .tab_stop(false)
                         .on_click(cx.listener(|this, _, window, cx| {
                             this.pop(window, cx);
                         })),
-                ),
-                false => this.child(
-                    gpui_kit::component::Icon::new(IconName::Search)
-                        .text_color(theme.muted_foreground),
-                ),
+                )
             })
             .map(|this| match model {
                 // A list is searched, so its page shows the search field.
-                PageModel::List(_) => {
-                    this.child(Input::new(&self.input).appearance(false).p_0().flex_1())
-                }
+                PageModel::List(_) => this.child(
+                    Input::new(&self.input)
+                        .appearance(false)
+                        .large()
+                        .p_0()
+                        .flex_1(),
+                ),
                 // A detail or form page has nothing to search. A disabled
                 // field would suggest otherwise, so the page's title takes
                 // its place, naming what the page is about.
@@ -1349,6 +1378,7 @@ impl LauncherWindow {
                             .flex_1()
                             .min_w_0()
                             .truncate()
+                            .text_lg()
                             .font_weight(gpui_kit::FontWeight::MEDIUM)
                             .child(title),
                     ),
@@ -1395,6 +1425,7 @@ impl Render for LauncherWindow {
             PageModel::Detail(_) | PageModel::Failure { .. } => {}
         }
         let selected_ix = rows.selected_index(self.navigator.current().selected());
+        let has_items = rows.has_items();
         self.frame = Rc::new(Frame::new(rows, selected_ix, window));
 
         let placeholder: SharedString = match &model {
@@ -1473,7 +1504,7 @@ impl Render for LauncherWindow {
             }
         };
         let search_bar = self.render_search_bar(&model, show_loading, window, cx);
-        let compact = self.fit_window(window, cx);
+        let compact = self.fit_window(has_items, window, cx);
 
         v_flex()
             .id("launcher")
@@ -1481,6 +1512,18 @@ impl Render for LauncherWindow {
             .track_focus(&self.focus_handle)
             .on_action(cx.listener(Self::on_select_previous))
             .on_action(cx.listener(Self::on_select_next))
+            .on_action(cx.listener(|this, _: &EmacsSelectPrevious, window, cx| {
+                this.navigation_key(NavigationKeys::Emacs, -1, window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &EmacsSelectNext, window, cx| {
+                this.navigation_key(NavigationKeys::Emacs, 1, window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &VimSelectPrevious, window, cx| {
+                this.navigation_key(NavigationKeys::Vim, -1, window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &VimSelectNext, window, cx| {
+                this.navigation_key(NavigationKeys::Vim, 1, window, cx)
+            }))
             .on_action(cx.listener(Self::on_confirm))
             .on_action(cx.listener(Self::on_confirm_secondary))
             .on_action(cx.listener(Self::on_back))
@@ -1908,6 +1951,23 @@ export default class Plain extends View { render() { return div().child("hello")
             "left wraps to the line above"
         );
         cx.simulate_keystrokes("up");
+        assert_eq!(selected(&launcher, &mut cx), "b");
+    }
+
+    #[gpui::test]
+    fn test_only_the_chosen_navigation_keys_move_the_selection(cx: &mut TestAppContext) {
+        let (launcher, mut cx) = open(cx, &[]);
+        push_page(&launcher, &mut cx, || {
+            PageModel::List(
+                ListModel::new().with_section(Section::new().with_items(["a", "b", "c"].map(item))),
+            )
+        });
+        // The defaults choose Ctrl-N and Ctrl-P.
+        cx.simulate_keystrokes("ctrl-n ctrl-n");
+        assert_eq!(selected(&launcher, &mut cx), "c");
+        cx.simulate_keystrokes("ctrl-p");
+        assert_eq!(selected(&launcher, &mut cx), "b");
+        cx.simulate_keystrokes("ctrl-j ctrl-k ctrl-k");
         assert_eq!(selected(&launcher, &mut cx), "b");
     }
 

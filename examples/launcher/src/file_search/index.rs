@@ -6,32 +6,13 @@ use std::{
     time::UNIX_EPOCH,
 };
 
+use crate::shell::settings::expand_home;
+
 /// The index stops growing here; a home folder with more files than this is
 /// mostly caches and dependencies nobody searches by name.
 pub const MAX_FILES: usize = 300_000;
 /// Folders deeper than this are not walked.
 const MAX_DEPTH: usize = 8;
-
-/// Folders that hold generated or third-party files: walking them costs
-/// much and finds nothing a person named.
-const SKIPPED: &[&str] = &[
-    "node_modules",
-    "target",
-    "build",
-    "dist",
-    "out",
-    "__pycache__",
-    "venv",
-    "site-packages",
-    "vendor",
-    "Pods",
-    "DerivedData",
-    "AppData",
-    "Library",
-    "go",
-    "Caches",
-    "cache",
-];
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct FileEntry {
@@ -67,16 +48,41 @@ impl FileEntry {
     }
 }
 
-/// The folders searched: the home folder, whose usual subfolders (Desktop,
-/// Documents, Downloads…) are found by walking it.
-pub fn default_roots() -> Vec<PathBuf> {
-    dirs::home_dir().into_iter().collect()
+/// Where a walk looks and which folders it skips, as the settings say.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Scope {
+    roots: Vec<PathBuf>,
+    /// Folder names, matched without regard to case.
+    excluded: Vec<String>,
 }
 
-/// Walks `roots`, skipping hidden and generated folders. Blocking.
-pub fn walk(roots: &[PathBuf]) -> Vec<FileEntry> {
+impl Scope {
+    /// The folders in `roots`, `~` meaning the home folder; with none, the
+    /// home folder itself, whose usual subfolders (Desktop, Documents,
+    /// Downloads…) are found by walking it.
+    pub fn new(roots: &[String], excluded: &[String]) -> Self {
+        let roots = match roots.is_empty() {
+            true => dirs::home_dir().into_iter().collect(),
+            false => roots.iter().map(|root| expand_home(root.trim())).collect(),
+        };
+        Self {
+            roots,
+            excluded: excluded.to_vec(),
+        }
+    }
+
+    fn skips(&self, name: &str) -> bool {
+        self.excluded
+            .iter()
+            .any(|excluded| name.eq_ignore_ascii_case(excluded))
+    }
+}
+
+/// Walks the scope's roots, skipping hidden and excluded folders. Blocking.
+pub fn walk(scope: &Scope) -> Vec<FileEntry> {
     let mut files = Vec::new();
-    let mut pending: Vec<(PathBuf, usize)> = roots.iter().map(|root| (root.clone(), 0)).collect();
+    let mut pending: Vec<(PathBuf, usize)> =
+        scope.roots.iter().map(|root| (root.clone(), 0)).collect();
     while let Some((directory, depth)) = pending.pop() {
         let Ok(entries) = std::fs::read_dir(&directory) else {
             continue;
@@ -105,10 +111,7 @@ pub fn walk(roots: &[PathBuf]) -> Vec<FileEntry> {
                 .map_or(0, |elapsed| elapsed.as_secs());
             let path = entry.path();
             if file_type.is_dir() {
-                if SKIPPED
-                    .iter()
-                    .any(|skipped| name.eq_ignore_ascii_case(skipped))
-                {
+                if scope.skips(&name) {
                     continue;
                 }
                 if depth < MAX_DEPTH {
@@ -228,7 +231,7 @@ mod tests {
     }
 
     #[test]
-    fn test_walk_skips_hidden_and_generated_folders() {
+    fn test_walk_skips_hidden_and_excluded_folders() {
         let root = tempfile::tempdir().unwrap();
         for path in [
             "Documents/plan.md",
@@ -240,15 +243,24 @@ mod tests {
             std::fs::create_dir_all(path.parent().unwrap()).unwrap();
             std::fs::write(path, "x").unwrap();
         }
-        let mut names: Vec<String> = walk(&[root.path().to_path_buf()])
-            .iter()
-            .map(FileEntry::name)
-            .collect();
-        names.sort();
-        assert_eq!(names, ["Documents", "code", "main.rs", "plan.md", "src"]);
+        let root_text = root.path().to_string_lossy().into_owned();
+        let names = |excluded: &[&str]| {
+            let excluded: Vec<String> = excluded.iter().map(|name| name.to_string()).collect();
+            let mut names: Vec<String> =
+                walk(&Scope::new(std::slice::from_ref(&root_text), &excluded))
+                    .iter()
+                    .map(FileEntry::name)
+                    .collect();
+            names.sort();
+            names
+        };
         assert_eq!(
-            recent(&walk(&[root.path().to_path_buf()]), 10, |_| true).len(),
-            2
+            names(&["NODE_MODULES"]),
+            ["Documents", "code", "main.rs", "plan.md", "src"]
         );
+        assert_eq!(names(&["node_modules", "code"]), ["Documents", "plan.md"]);
+        assert!(names(&[]).contains(&"index.js".to_owned()));
+        let scope = Scope::new(std::slice::from_ref(&root_text), &["node_modules".into()]);
+        assert_eq!(recent(&walk(&scope), 10, |_| true).len(), 2);
     }
 }

@@ -62,7 +62,7 @@ Settings, holding Caps Lock is Ctrl+Shift+Alt+Win, for hotkeys such as
 | My Schedule                                 | Events of the calendars you subscribe to by iCal address (Google Calendar, Outlook) for the next two weeks; a meeting about to start is offered in the root search to join |
 | Start Focus Session                         | A goal and a length; social media, video, news, games, chat or your own apps and sites are minimized while it runs, websites read from the browser's address bar (Windows) |
 | Search Screenshots                          | Screenshots in the Screenshots folder, newest first, found by the text in them (Windows)                                                       |
-| Change Theme                                | GPUI Kit's themes, and your own from the `themes` folder, one for light and one for dark appearance                                            |
+| Change Theme                                | Orbit, the launcher's own (the default), GPUI Kit's themes, and your own from the `themes` folder, one for light and one for dark appearance |
 | Export Settings & Data, Import…             | Everything but the clipboard history in one JSON file, imported elsewhere without a restart                                                    |
 | Create Script Command                       | Scripts in the script commands folder become commands; Raycast's `@raycast.title`, `mode`, `icon` and `argument1…3` comments are understood   |
 | Search Processes                            | Running programs with CPU and memory, to quit or force quit                                                                                   |
@@ -112,13 +112,38 @@ socket (a named pipe on Windows). The summon shortcut defaults to `Alt-Space`
 and is changed in Launcher Settings. Wayland has no global shortcuts for
 applications: bind `launcher toggle` in your desktop's keyboard settings.
 
+### Settings
+
+Launcher Settings opens a window of its own, as Raycast's does, and every
+change applies at once:
+
+- **General**: the launcher's hotkey (click the field and press the keys),
+  starting at login (`launcher start --background`), the tray icon, the
+  appearance and a theme for each, text size, and the window mode.
+- **Extensions**: every command, the launcher's own grouped by feature and
+  then each extension's, in one searchable table with its type, alias,
+  hotkey and whether it is enabled. A disabled command leaves the root search
+  and its hotkey does nothing. Beside the table: the selected command's
+  alias, hotkey (recorded by pressing it; one already taken is refused) and
+  the settings of the feature or extension, such as how long Clipboard
+  History keeps entries, the folders Search Files looks in, the calculator's
+  decimal separator, or an extension's token.
+- **Advanced**: the screen the launcher opens on, when it returns to the root
+  search, the keys that move the selection (Ctrl-N/P or Ctrl-J/K), what Esc
+  does, the Hyper Key, how loosely the search matches, the extensions folder
+  and store, a proxy, and exporting or importing your data.
+
+`launcher open launcher://settings` opens it, and
+`launcher://settings/<extension-id>`, `…/<command-id>` or `…/advanced` at that
+place; Configure Extension in a command's actions does the same.
+
 ### Where things are kept
 
 Under the platform data directory (for example
 `~/.local/share/gpui-kit-launcher` on Linux, `~/Library/Application
 Support/gpui-kit-launcher` on macOS): `settings.json`, `usage.json` (ranking),
 `permissions.json`, `preferences.json`, `quicklinks.json`, `snippets.json`,
-`customizations.json` (aliases, favorites, hotkeys), `currency-rates.json`,
+`customizations.json` (aliases, favorites, hotkeys, disabled commands), `currency-rates.json`,
 `colors.json`, `emoji.json`, `focus.json`, `reminders.json`,
 `calculator-history.json`, `store-installs.json` (what came from the
 Extension Store), `background-commands.json` (the menu-bar and

@@ -44,6 +44,7 @@ pub struct Startup {
     development_directories: Vec<PathBuf>,
     listener: Option<Listener>,
     open_urls: Option<smol::channel::Receiver<String>>,
+    background: bool,
 }
 
 impl Startup {
@@ -54,7 +55,14 @@ impl Startup {
             development_directories: Vec::new(),
             listener: None,
             open_urls: None,
+            background: false,
         }
+    }
+
+    /// Starts with the window hidden until summoned, as at login.
+    pub fn in_background(mut self) -> Self {
+        self.background = true;
+        self
     }
 
     pub fn with_development_directory(mut self, directory: PathBuf) -> Self {
@@ -213,6 +221,8 @@ pub fn start(startup: Startup, cx: &mut App) {
             })
         })
         .unwrap_or_default();
+    // Pictures on the web: artwork, avatars, store screenshots.
+    super::platform::set_http_client(settings.proxy(), cx);
 
     let (requests, incoming) = smol::channel::unbounded::<Message>();
     let (presses, pressed) = smol::channel::unbounded::<u32>();
@@ -308,6 +318,7 @@ pub fn start(startup: Startup, cx: &mut App) {
     );
     crate::themes::apply(light.as_deref(), dark.as_deref(), cx);
     apply_appearance(appearance, None, cx);
+    crate::themes::keep_text_size(cx);
 
     crate::clipboard::start(cx);
     crate::sources::currency::start();
@@ -325,7 +336,33 @@ pub fn start(startup: Startup, cx: &mut App) {
     super::background::start(cx);
     check_store_updates(cx);
     super::platform::hide_dock_icon();
-    show(cx);
+    super::app_tray::sync(cx);
+    apply_launch_at_login(cx.global::<Launcher>().settings.launch_at_login());
+    if !startup.background {
+        show(cx);
+    }
+}
+
+/// Adds the launcher to what starts at login or removes it. Starting with
+/// the setting on writes the entry again, so it follows the executable.
+fn apply_launch_at_login(enabled: bool) {
+    if !enabled && !super::platform::is_launching_at_login() {
+        return;
+    }
+    if let Err(error) = super::platform::set_launch_at_login(enabled) {
+        tracing::warn!("cannot change whether the launcher starts at login: {error:#}");
+    }
+}
+
+/// Whether the launcher shows, or hid less than `within` ago.
+pub fn is_showing_or_hid_within(within: std::time::Duration, cx: &App) -> bool {
+    cx.try_global::<Launcher>().is_some_and(|launcher| {
+        launcher.is_visible
+            || launcher
+                .left
+                .as_ref()
+                .is_some_and(|(at, _)| at.elapsed() < within)
+    })
 }
 
 /// Carries out a request from another process or a deep link.
@@ -334,6 +371,12 @@ pub fn handle(message: Message, cx: &mut App) {
         Message::Toggle => toggle(cx),
         Message::Show => show(cx),
         Message::Hide => hide(cx),
+        Message::Open(link) if deeplink::settings_target(&link).is_some() => {
+            match deeplink::settings_target(&link).flatten() {
+                Some(target) => crate::settings_window::open_extension(target, cx),
+                None => crate::settings_window::open(cx),
+            }
+        }
         Message::Open(link) => match deeplink::parse(&link) {
             Ok(request) => open_command(request, cx),
             Err(error) => {
@@ -611,7 +654,11 @@ pub fn hotkey_status(cx: &App) -> Option<HotkeyStatus> {
 
 /// Saves settings and applies them: the shortcut and the appearance at once,
 /// the extensions folder the next time the launcher opens.
-pub fn update_settings(settings: Settings, window: &mut Window, cx: &mut App) -> Result<()> {
+pub fn update_settings(
+    settings: Settings,
+    window: Option<&mut Window>,
+    cx: &mut App,
+) -> Result<()> {
     let launcher = cx
         .try_global::<Launcher>()
         .context("the launcher is not running")?;
@@ -637,7 +684,10 @@ pub fn update_settings(settings: Settings, window: &mut Window, cx: &mut App) ->
         crate::themes::apply(settings.theme(false), settings.theme(true), cx);
     }
     if previous.appearance() != settings.appearance() {
-        apply_appearance(settings.appearance(), Some(window), cx);
+        apply_appearance(settings.appearance(), window, cx);
+    }
+    if previous.text_size() != settings.text_size() {
+        crate::themes::apply_text_size(cx);
     }
     if previous.expands_snippets() != settings.expands_snippets() {
         crate::snippets::set_expansion(settings.expands_snippets(), cx);
@@ -648,6 +698,15 @@ pub fn update_settings(settings: Settings, window: &mut Window, cx: &mut App) ->
     }
     if previous.hyper_key() != settings.hyper_key() {
         crate::hyper_key::set(settings.hyper_key());
+    }
+    if previous.launch_at_login() != settings.launch_at_login() {
+        apply_launch_at_login(settings.launch_at_login());
+    }
+    if previous.shows_tray_icon() != settings.shows_tray_icon() {
+        super::app_tray::sync(cx);
+    }
+    if previous.proxy() != settings.proxy() {
+        super::platform::set_http_client(settings.proxy(), cx);
     }
     Ok(())
 }
@@ -704,6 +763,13 @@ pub fn reload_data(cx: &mut App) {
     register_command_hotkeys(cx);
     crate::snippets::set_expansion(settings.expands_snippets(), cx);
     crate::hyper_key::set(settings.hyper_key());
+    if previous.launch_at_login() != settings.launch_at_login() {
+        apply_launch_at_login(settings.launch_at_login());
+    }
+    super::app_tray::sync(cx);
+    if previous.proxy() != settings.proxy() {
+        super::platform::set_http_client(settings.proxy(), cx);
+    }
     crate::focus::reload(cx);
     crate::reminders::reload(cx);
     crate::notes::reload_open_note(cx);
@@ -750,6 +816,10 @@ pub fn set_command_hotkey(item: &str, shortcut: &str, cx: &mut App) -> Result<()
 /// Shows the launcher and opens the root search item `item`, as its hotkey
 /// asks.
 pub fn open_item(item: String, cx: &mut App) {
+    // A disabled command's hotkey stays saved but does nothing, as in Raycast.
+    if crate::customizations::store(cx).is_some_and(|store| store.read(cx).is_disabled(&item)) {
+        return;
+    }
     cx.defer(move |cx| {
         show_now(cx);
         with_window(cx, |window, view, cx| {
@@ -804,6 +874,24 @@ fn show_now(cx: &mut App) {
         launcher.catalog_is_stale = false;
         close_window(cx);
         super::background::sync(cx);
+    }
+    // A hidden window that is kept (macOS) opens again on the display the
+    // settings name; GPUI cannot move a window between displays.
+    let display = super::platform::launcher_display(settings(cx).show_on(), cx);
+    let kept = cx
+        .global::<Launcher>()
+        .window
+        .as_ref()
+        .filter(|_| !cx.global::<Launcher>().is_visible)
+        .map(|open| open.handle);
+    if let (Some(display), Some(handle)) = (display, kept) {
+        let current = handle
+            .update(cx, |_, window, cx| window.display(cx).map(|d| d.id()))
+            .ok()
+            .flatten();
+        if current.is_some_and(|current| current != display) {
+            close_window(cx);
+        }
     }
     // The window may have been closed by the window manager.
     let windows = cx.windows();
@@ -871,6 +959,7 @@ fn open_window(cx: &mut App) -> Result<()> {
     let (catalog, extensions) = (launcher.catalog.clone(), launcher.extensions.clone());
     let mut subscriptions = Vec::new();
     let (handle, view) = gpui_kit::open_window(window_options(cx), cx, |window, cx| {
+        round_corners(window);
         subscriptions.push(window.observe_window_appearance(|window, cx| {
             if settings(cx).appearance() == Appearance::System {
                 Theme::sync_system_appearance(Some(window), cx);
@@ -894,16 +983,53 @@ fn open_window(cx: &mut App) -> Result<()> {
     Ok(())
 }
 
+/// Asks Windows 11 to round the borderless window's corners and draw its
+/// outline, as it does for its own pop-ups. Earlier versions keep them square.
+fn round_corners(window: &Window) {
+    #[cfg(target_os = "windows")]
+    {
+        use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+        use windows::Win32::{
+            Foundation::HWND,
+            Graphics::Dwm::{DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND, DwmSetWindowAttribute},
+        };
+        let Ok(handle) = HasWindowHandle::window_handle(window) else {
+            return;
+        };
+        let RawWindowHandle::Win32(handle) = handle.as_raw() else {
+            return;
+        };
+        let hwnd = HWND(handle.hwnd.get() as *mut std::ffi::c_void);
+        let preference = DWMWCP_ROUND;
+        // SAFETY: the window is alive for the call, and the value is the
+        // attribute's documented four-byte enum.
+        let _ = unsafe {
+            DwmSetWindowAttribute(
+                hwnd,
+                DWMWA_WINDOW_CORNER_PREFERENCE,
+                std::ptr::from_ref(&preference).cast(),
+                std::mem::size_of_val(&preference) as u32,
+            )
+        };
+    }
+    #[cfg(not(target_os = "windows"))]
+    let _ = window;
+}
+
 /// A borderless window above other windows, as far as each platform allows.
 ///
 /// macOS and Windows get a pop-up: a non-activating panel that joins every
 /// space on macOS, a topmost tool window on Windows. On X11 a pop-up is
 /// override-redirect and never receives keyboard focus, so Linux gets a
 /// normal window with client-side decorations instead.
+///
+/// It is centered on the display the settings name.
 fn window_options(cx: &App) -> WindowOptions {
-    let size = size(px(750.), px(475.));
+    let size = size(px(760.), px(476.));
+    let display = super::platform::launcher_display(settings(cx).show_on(), cx);
     WindowOptions {
-        window_bounds: Some(WindowBounds::Windowed(Bounds::centered(None, size, cx))),
+        window_bounds: Some(WindowBounds::Windowed(Bounds::centered(display, size, cx))),
+        display_id: display,
         titlebar: None,
         focus: true,
         show: true,

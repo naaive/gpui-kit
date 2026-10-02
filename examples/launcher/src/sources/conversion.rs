@@ -2,7 +2,7 @@
 //! `100 f in c`), percentages (`20% of 150`, `80 - 15%`) and number bases
 //! (`255 in hex`, `0xff to dec`).
 
-use super::calculator::{evaluate_value, format};
+use super::calculator::{Notation, evaluate_value, format};
 
 /// What a unit measures; only units of one dimension convert.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -241,12 +241,13 @@ pub struct Conversion {
     pub display: String,
 }
 
-/// Converts `query`, or `None` when it is not a conversion.
-pub fn convert(query: &str) -> Option<Conversion> {
+/// Converts `query`, its numbers written in `notation`, or `None` when it is
+/// not a conversion.
+pub fn convert(query: &str, notation: Notation) -> Option<Conversion> {
     let query = query.trim();
-    percentage(query)
+    percentage(query, notation)
         .or_else(|| base(query))
-        .or_else(|| units(query))
+        .or_else(|| units(query, notation))
 }
 
 /// Splits `5 km to mi` at its last ` to ` or ` in `.
@@ -260,21 +261,22 @@ fn split_target(query: &str) -> Option<(&str, &str)> {
         .map(|(ix, length)| (query[..ix].trim(), query[ix + length..].trim()))
 }
 
-fn units(query: &str) -> Option<Conversion> {
+fn units(query: &str, notation: Notation) -> Option<Conversion> {
     let (source, target) = split_target(query)?;
-    // The amount is everything up to the last digit or closing parenthesis.
-    let split = source.rfind(|c: char| c.is_ascii_digit() || c == ')' || c == '.')? + 1;
+    // The amount is everything up to the last digit, mark or closing
+    // parenthesis.
+    let split = source.rfind(|c: char| c.is_ascii_digit() || matches!(c, ')' | '.' | ','))? + 1;
     let (amount, from) = (source[..split].trim(), source[split..].trim());
     let (from, to) = (find_unit(from)?, find_unit(target)?);
     if from.dimension != to.dimension || std::ptr::eq(from, to) {
         return None;
     }
-    let amount = evaluate_value(amount)?;
+    let amount = evaluate_value(amount, notation)?;
     let result = match from.dimension {
         Temperature => from_kelvin(to_kelvin(amount, from.symbol), to.symbol),
         _ => amount * from.factor / to.factor,
     };
-    let value = format(round_significant(result));
+    let value = format(round_significant(result), notation);
     Some(Conversion {
         display: format!("{value} {}", to.symbol),
         value,
@@ -296,29 +298,29 @@ fn round_significant(value: f64) -> f64 {
     }
 }
 
-fn percentage(query: &str) -> Option<Conversion> {
+fn percentage(query: &str, notation: Notation) -> Option<Conversion> {
     let lower = query.to_lowercase();
     // `20% of 150`
     if let Some((percent, of)) = lower.split_once("% of ") {
-        let value = evaluate_value(percent)? / 100. * evaluate_value(of)?;
-        return Some(answer(value));
+        let value = evaluate_value(percent, notation)? / 100. * evaluate_value(of, notation)?;
+        return Some(answer(value, notation));
     }
     // `150 + 20%`, `80 - 15%`
     let body = lower.strip_suffix('%')?;
     let ix = body.rfind(['+', '-'])?;
     let (base, percent) = (
-        evaluate_value(&body[..ix])?,
-        evaluate_value(&body[ix + 1..])?,
+        evaluate_value(&body[..ix], notation)?,
+        evaluate_value(&body[ix + 1..], notation)?,
     );
     let value = match &body[ix..=ix] {
         "+" => base * (1. + percent / 100.),
         _ => base * (1. - percent / 100.),
     };
-    Some(answer(value))
+    Some(answer(value, notation))
 }
 
-fn answer(value: f64) -> Conversion {
-    let value = format(round_significant(value));
+fn answer(value: f64, notation: Notation) -> Conversion {
+    let value = format(round_significant(value), notation);
     Conversion {
         display: value.clone(),
         value,
@@ -355,7 +357,7 @@ mod tests {
     use super::*;
 
     fn display(query: &str) -> Option<String> {
-        convert(query).map(|conversion| conversion.display)
+        convert(query, Notation::Dot).map(|conversion| conversion.display)
     }
 
     #[test]
@@ -389,5 +391,13 @@ mod tests {
         assert_eq!(display("0xff to dec").as_deref(), Some("255"));
         assert_eq!(display("10 to binary").as_deref(), Some("0b1010"));
         assert_eq!(display("10 to nothing"), None);
+    }
+
+    #[test]
+    fn test_comma_notation() {
+        let display = |query| convert(query, Notation::Comma).map(|conversion| conversion.display);
+        assert_eq!(display("1,5 h to min").as_deref(), Some("90 min"));
+        assert_eq!(display("90 min to h").as_deref(), Some("1,5 h"));
+        assert_eq!(display("2,5% of 1.000").as_deref(), Some("25"));
     }
 }

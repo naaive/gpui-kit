@@ -4,26 +4,110 @@
 //! The query is only treated as arithmetic when it contains an operation, so
 //! typing `2024` or `pi` still searches for commands; `2024/12` or `sqrt(2)`
 //! answers instead.
+//!
+//! Numbers are read and written in a [`Notation`]: `1,5 + 2` is `3,5` where
+//! a comma separates decimals.
 
-use std::{f64::consts, iter::Peekable, str::Chars};
+use std::{f64::consts, iter::Peekable, str::Chars, sync::OnceLock};
 
 use gpui_kit::SharedString;
 
-use crate::model::{Accessory, Action, Effect, Item, ItemId};
+use crate::{
+    model::{Accessory, Action, Effect, Item, ItemId},
+    shell::settings::DecimalSeparator,
+};
 
 pub const RESULT_ID: &str = "calculator/result";
 
+/// How numbers are written: the mark before the decimals, and the other
+/// mark, which groups thousands.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum Notation {
+    /// `1,234.5`
+    #[default]
+    Dot,
+    /// `1.234,5`
+    Comma,
+}
+
+impl Notation {
+    /// The notation the setting asks for; `Auto` follows the system's
+    /// region where the launcher can read it, and is a dot elsewhere.
+    pub fn of(separator: DecimalSeparator) -> Self {
+        match separator {
+            DecimalSeparator::Auto => system_notation(),
+            DecimalSeparator::Dot => Self::Dot,
+            DecimalSeparator::Comma => Self::Comma,
+        }
+    }
+
+    pub fn decimal_mark(self) -> char {
+        match self {
+            Self::Dot => '.',
+            Self::Comma => ',',
+        }
+    }
+
+    pub fn group_mark(self) -> char {
+        match self {
+            Self::Dot => ',',
+            Self::Comma => '.',
+        }
+    }
+}
+
+/// The region's decimal mark, read once: the user's region format on
+/// Windows, a dot elsewhere.
+fn system_notation() -> Notation {
+    static SYSTEM: OnceLock<Notation> = OnceLock::new();
+    *SYSTEM.get_or_init(|| match region_decimal_mark() {
+        Some(mark) if mark.trim() == "," => Notation::Comma,
+        _ => Notation::Dot,
+    })
+}
+
+#[cfg(target_os = "windows")]
+fn region_decimal_mark() -> Option<String> {
+    use windows::{
+        Win32::System::Registry::{HKEY_CURRENT_USER, RRF_RT_REG_SZ, RegGetValueW},
+        core::w,
+    };
+    let mut buffer = [0u16; 8];
+    let mut size = size_of_val(&buffer) as u32;
+    let status = unsafe {
+        RegGetValueW(
+            HKEY_CURRENT_USER,
+            w!("Control Panel\\International"),
+            w!("sDecimal"),
+            RRF_RT_REG_SZ,
+            None,
+            Some(buffer.as_mut_ptr().cast()),
+            Some(&mut size),
+        )
+    };
+    if status.is_err() {
+        return None;
+    }
+    let length = buffer.iter().position(|&unit| unit == 0)?;
+    Some(String::from_utf16_lossy(&buffer[..length]))
+}
+
+#[cfg(not(target_os = "windows"))]
+fn region_decimal_mark() -> Option<String> {
+    None
+}
+
 /// The answer to `query`: the value copied and the text shown, such as
 /// `1.5` and `1.5 km`; `None` when it is not arithmetic or a conversion.
-pub fn answer(query: &str) -> Option<(SharedString, String)> {
-    Some(match evaluate(query) {
+pub fn answer(query: &str, notation: Notation) -> Option<(SharedString, String)> {
+    Some(match evaluate(query, notation) {
         Some(value) => {
-            let answer = format(value);
+            let answer = format(value, notation);
             (answer.clone().into(), answer)
         }
         None => {
-            let conversion = super::conversion::convert(query)
-                .or_else(|| super::currency::convert(query))
+            let conversion = super::conversion::convert(query, notation)
+                .or_else(|| super::currency::convert(query, notation))
                 .or_else(|| super::dates::answer(query))?;
             (conversion.value.into(), conversion.display)
         }
@@ -31,8 +115,8 @@ pub fn answer(query: &str) -> Option<(SharedString, String)> {
 }
 
 /// The answer to `query` as an item, or `None` when it is not arithmetic.
-pub fn item(query: &str) -> Option<Item> {
-    let (answer, display) = answer(query)?;
+pub fn item(query: &str, notation: Notation) -> Option<Item> {
+    let (answer, display) = answer(query, notation)?;
     Some(
         Item::new(ItemId::new(RESULT_ID), format!("= {display}"))
             .with_subtitle(query.trim().to_owned())
@@ -49,9 +133,10 @@ pub fn item(query: &str) -> Option<Item> {
 ///
 /// Returns `None` for anything else, for a lone number or constant, and for
 /// results that are not finite, such as division by zero.
-pub fn evaluate(expression: &str) -> Option<f64> {
+pub fn evaluate(expression: &str, notation: Notation) -> Option<f64> {
     let mut parser = Parser {
         chars: expression.chars().peekable(),
+        notation,
         operations: 0,
     };
     let value = parser.expression()?;
@@ -61,9 +146,10 @@ pub fn evaluate(expression: &str) -> Option<f64> {
 
 /// Evaluates `expression` like [`evaluate`], but a plain number is an answer
 /// too: the `5` of `5 km to mi`.
-pub fn evaluate_value(expression: &str) -> Option<f64> {
+pub fn evaluate_value(expression: &str, notation: Notation) -> Option<f64> {
     let mut parser = Parser {
         chars: expression.chars().peekable(),
+        notation,
         operations: 0,
     };
     let value = parser.expression()?;
@@ -73,23 +159,25 @@ pub fn evaluate_value(expression: &str) -> Option<f64> {
 
 /// The answer as a person would write it: no trailing zeros, no floating-point
 /// noise (`0.1 + 0.2` is `0.3`), and scientific notation only for very large
-/// or very small magnitudes.
-pub fn format(value: f64) -> String {
+/// or very small magnitudes. The decimals follow `notation`'s mark.
+pub fn format(value: f64, notation: Notation) -> String {
     let magnitude = value.abs();
-    if magnitude != 0.0 && !(1e-6..1e15).contains(&magnitude) {
-        return format!("{value:e}");
-    }
-    let fixed = format!("{value:.10}");
-    let trimmed = fixed.trim_end_matches('0').trim_end_matches('.');
-    match trimmed {
-        "-0" => "0".to_owned(),
-        _ => trimmed.to_owned(),
-    }
+    let text = if magnitude != 0.0 && !(1e-6..1e15).contains(&magnitude) {
+        format!("{value:e}")
+    } else {
+        let fixed = format!("{value:.10}");
+        match fixed.trim_end_matches('0').trim_end_matches('.') {
+            "-0" => "0".to_owned(),
+            trimmed => trimmed.to_owned(),
+        }
+    };
+    text.replace('.', &notation.decimal_mark().to_string())
 }
 
 /// A recursive-descent parser; each method is one precedence level.
 struct Parser<'a> {
     chars: Peekable<Chars<'a>>,
+    notation: Notation,
     /// Binary operators and function calls seen; zero means the query was a
     /// plain number, which is a search, not a calculation.
     operations: usize,
@@ -202,7 +290,7 @@ impl Parser<'_> {
                 self.chars.next();
                 Some(value)
             }
-            '0'..='9' | '.' => self.number(),
+            c if c.is_ascii_digit() || c == self.notation.decimal_mark() => self.number(),
             'π' => {
                 self.chars.next();
                 Some(consts::PI)
@@ -212,10 +300,26 @@ impl Parser<'_> {
         }
     }
 
+    /// Digits with the notation's decimal mark; its group mark may split
+    /// the whole part into threes, as in `1,234.5`, and is then skipped.
     fn number(&mut self) -> Option<f64> {
+        let (decimal, group) = (self.notation.decimal_mark(), self.notation.group_mark());
         let mut text = String::new();
-        while let Some(c) = self.chars.next_if(|c| c.is_ascii_digit() || *c == '.') {
-            text.push(c);
+        while let Some(&c) = self.chars.peek() {
+            if c.is_ascii_digit() {
+                text.push(c);
+            } else if c == decimal {
+                text.push('.');
+            } else if c == group && !text.is_empty() && !text.contains('.') {
+                let mut ahead = self.chars.clone();
+                ahead.next();
+                if ahead.take_while(char::is_ascii_digit).count() != 3 {
+                    return None;
+                }
+            } else {
+                break;
+            }
+            self.chars.next();
         }
         text.parse().ok()
     }
@@ -251,7 +355,11 @@ mod tests {
     use super::*;
 
     fn answer(expression: &str) -> Option<String> {
-        evaluate(expression).map(format)
+        answer_in(expression, Notation::Dot)
+    }
+
+    fn answer_in(expression: &str, notation: Notation) -> Option<String> {
+        evaluate(expression, notation).map(|value| format(value, notation))
     }
 
     #[test]
@@ -284,13 +392,33 @@ mod tests {
             "", "2024", "-5", "pi", "(3)", "chrome", "1 +", "2 3", "1/0", "sqrt 4", "1..2 + 1",
             "sqrt(-1)",
         ] {
-            assert_eq!(evaluate(query), None, "{query:?}");
+            assert_eq!(evaluate(query, Notation::Dot), None, "{query:?}");
         }
     }
 
     #[test]
+    fn test_reads_and_writes_the_chosen_decimal_mark() {
+        let comma = Notation::Comma;
+        assert_eq!(answer_in("1,5 + 2", comma).as_deref(), Some("3,5"));
+        assert_eq!(answer_in(",5 * 4", comma).as_deref(), Some("2"));
+        assert_eq!(answer_in("1.234,5 + 1", comma).as_deref(), Some("1235,5"));
+        assert_eq!(answer_in("10^20 * 1,5", comma).as_deref(), Some("1,5e20"));
+        assert_eq!(answer_in("1.5 + 2", comma), None, "a dot only groups");
+        assert_eq!(answer("1,234.5 + 1").as_deref(), Some("1235.5"));
+        assert_eq!(answer("1,234,567 * 1").as_deref(), Some("1234567"));
+        assert_eq!(answer("1,5 + 2"), None, "a comma only groups");
+        assert_eq!(
+            answer("1.5,000 + 1"),
+            None,
+            "no grouping after the decimals"
+        );
+        assert_eq!(Notation::of(DecimalSeparator::Comma), comma);
+        assert_eq!(Notation::of(DecimalSeparator::Dot), Notation::Dot);
+    }
+
+    #[test]
     fn test_result_item_copies_and_pastes_the_answer() {
-        let item = item(" 6*7 ").unwrap();
+        let item = item(" 6*7 ", Notation::Dot).unwrap();
         assert_eq!(item.title().as_ref(), "= 42");
         assert_eq!(item.subtitle().map(|s| s.as_ref()), Some("6*7"));
         assert!(

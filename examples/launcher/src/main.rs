@@ -38,6 +38,7 @@ mod script_commands;
 mod search;
 mod selection;
 mod session;
+mod settings_window;
 mod shell;
 mod snippets;
 mod sources;
@@ -180,12 +181,6 @@ fn main() -> ExitCode {
         gpui_kit::init(cx);
         gpui_shell::init(cx);
         ui::init(cx);
-        // Pictures on the web: artwork, avatars, store screenshots.
-        match reqwest_client::ReqwestClient::user_agent("gpui-kit-launcher") {
-            Ok(client) => cx.set_http_client(std::sync::Arc::new(client)),
-            Err(error) => tracing::warn!("cannot load images from the web: {error:#}"),
-        }
-
         let extensions = match ExtensionHost::new(cx) {
             Ok(host) => Rc::new(host),
             Err(error) => {
@@ -200,6 +195,7 @@ fn main() -> ExitCode {
             .with_open_urls(opened_urls);
         let startup = match &command {
             Command::Dev(directory) => startup.with_development_directory(directory.clone()),
+            Command::Start { background: true } => startup.in_background(),
             _ => startup,
         };
         launcher::start(startup, cx);
@@ -215,7 +211,13 @@ fn main() -> ExitCode {
 /// left for this process to do.
 fn forward_or_listen(command: &Command) -> anyhow::Result<Option<Listener>> {
     let endpoint = Endpoint::for_current_user()?;
-    let message = command.message().expect("only help has no message");
+    // A background start, as at login, leaves a running launcher alone.
+    let Some(message) = command.message() else {
+        return match endpoint.claim()? {
+            Claim::Listening(listener) => Ok(Some(listener)),
+            Claim::Running => Ok(None),
+        };
+    };
     if endpoint.send(&message)? {
         return Ok(None);
     }

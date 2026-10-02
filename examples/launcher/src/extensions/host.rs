@@ -457,6 +457,12 @@ impl ExtensionHost {
 
     /// The launcher's data directory. Its `extensions_dir()` holds the
     /// extensions installed from Git and belongs among the catalog roots.
+    /// Where extensions' preference values are kept, for settings that edit
+    /// them outside a page.
+    pub fn preference_store(&self) -> PreferenceStore {
+        self.state.services.preferences.clone()
+    }
+
     pub fn data(&self) -> &DataDirectory {
         &self.state.services.data
     }

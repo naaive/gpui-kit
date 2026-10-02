@@ -23,8 +23,9 @@ use gpui_kit::{
 use super::{
     LauncherWindow,
     detail_view::DetailView,
+    keycaps::hotkey_caps,
     keyed_id,
-    picture::{PictureSize, picture, tag},
+    picture::{Badge, PictureSize, badge, picture, tag},
 };
 use crate::{
     model::{Accessory, Item, ItemId, ListModel},
@@ -65,7 +66,7 @@ impl Frame {
 
 /// Line geometry, in `rem`.
 const ITEM_LINE_REMS: f32 = 2.5;
-const HEADER_LINE_REMS: f32 = 2.;
+const HEADER_LINE_REMS: f32 = 2.25;
 /// The inset of the list on every side, and between grid cells.
 const LIST_INSET_REMS: f32 = 0.5;
 /// The title under a grid cell's picture, with the gap above it.
@@ -229,12 +230,15 @@ impl LauncherWindow {
             return div().into_any_element();
         };
         let selected = frame.selected() == Some(row_ix);
+        // The root search tells commands apart by color; inside a command
+        // the rows are its content, and stay quiet.
+        let style = match self.navigator.depth() {
+            1 => Badge::Colored,
+            _ => Badge::Neutral,
+        };
         let target = self.pointer_target(item.id(), cx);
         let theme = cx.theme();
-        let muted = match selected {
-            true => theme.accent_foreground.opacity(0.7),
-            false => theme.muted_foreground,
-        };
+        let muted = theme.muted_foreground;
         target
             .role(Role::ListBoxOption)
             .aria_selected(selected)
@@ -243,9 +247,10 @@ impl LauncherWindow {
             .h(frame.geometry.item)
             .flex()
             .items_center()
-            .gap_3()
-            .px_2()
+            .gap(px(11.))
+            .px(px(10.))
             .rounded(theme.radius)
+            .text_sm()
             .cursor_default()
             .when(selected, |this| {
                 this.bg(theme.accent).text_color(theme.accent_foreground)
@@ -254,12 +259,9 @@ impl LauncherWindow {
                 // A fixed slot, so titles keep one spine with or without pictures.
                 div()
                     .flex_none()
-                    .size_5()
-                    .flex()
-                    .items_center()
-                    .justify_center()
+                    .size(px(22.))
                     .when_some(item.image(), |this, image| {
-                        this.child(picture(image, PictureSize::Row, muted, theme))
+                        this.child(badge(image, style, muted, theme))
                     }),
             )
             .child(
@@ -272,6 +274,7 @@ impl LauncherWindow {
                             .flex_none()
                             .max_w(relative(0.7))
                             .truncate()
+                            .font_weight(FontWeight::MEDIUM)
                             .child(item.title().clone()),
                     )
                     .when_some(item.subtitle().cloned(), |this, subtitle| {
@@ -375,8 +378,8 @@ fn section_header(
         .h(height)
         .items_end()
         .gap_2()
-        .px_2()
-        .pb_1()
+        .px(px(10.))
+        .pb(px(6.))
         .text_xs()
         .text_color(cx.theme().muted_foreground)
         .child(div().font_weight(FontWeight::MEDIUM).child(title))
@@ -391,11 +394,15 @@ fn accessory_element(
     cx: &Context<LauncherWindow>,
 ) -> AnyElement {
     let theme = cx.theme();
+    let is_hotkey = accessory
+        .tooltip()
+        .is_some_and(|tooltip| tooltip.as_ref() == "Hotkey");
     let content = match (accessory.tone(), accessory.label()) {
-        (Some(tone), Some(text)) => tag(text.clone(), tone),
+        (Some(tone), Some(text)) => tag(text.clone(), tone, theme),
+        (None, Some(text)) if is_hotkey => hotkey_caps(text, cx),
         (_, text) => h_flex()
             .gap_1()
-            .text_sm()
+            .text_xs()
             .text_color(muted)
             .when_some(accessory.picture(), |this, image| {
                 this.child(picture(image, PictureSize::Row, muted, theme))

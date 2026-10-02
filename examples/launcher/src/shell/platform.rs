@@ -2,8 +2,12 @@
 
 mod files;
 mod hud;
+mod login;
+mod screen;
 
 pub use files::{open_with, trash};
+pub use login::{is_launching_at_login, set_launch_at_login};
+pub use screen::launcher_display;
 
 use std::{process::Command, time::Duration};
 
@@ -97,6 +101,38 @@ pub fn show_hud(text: SharedString, cx: &mut App) {
     cx.defer(move |cx| hud::show(text, cx));
 }
 
+/// The user agent of the launcher's own requests.
+const USER_AGENT: &str = "gpui-kit-launcher";
+
+/// Sets the client the launcher loads web pictures with, through `proxy`
+/// when one is set and the system's proxy otherwise.
+pub fn set_http_client(proxy: Option<&str>, cx: &mut App) {
+    let proxy = proxy.and_then(|proxy| {
+        let url = proxy_url(proxy);
+        if url.is_none() {
+            tracing::warn!("`{proxy}` is not a proxy URL; using the system proxy");
+        }
+        url
+    });
+    match reqwest_client::ReqwestClient::proxy_and_user_agent(proxy, USER_AGENT) {
+        Ok(client) => cx.set_http_client(std::sync::Arc::new(client)),
+        Err(error) => tracing::warn!("cannot load images from the web: {error:#}"),
+    }
+}
+
+/// A proxy setting as a URL; `127.0.0.1:7890` is taken to mean HTTP.
+fn proxy_url(proxy: &str) -> Option<url::Url> {
+    let proxy = proxy.trim();
+    if proxy.is_empty() {
+        return None;
+    }
+    let url = match proxy.contains("://") {
+        true => url::Url::parse(proxy),
+        false => url::Url::parse(&format!("http://{proxy}")),
+    };
+    url.ok().filter(|url| url.host().is_some())
+}
+
 /// Keeps the launcher out of the Dock and the application switcher on macOS,
 /// as a utility summoned by a shortcut should be. GPUI makes every
 /// application a regular one when it finishes launching; this runs after.
@@ -141,5 +177,23 @@ mod tests {
             Some("wtype")
         );
         assert_eq!(paste_program("ios", None, false), None);
+    }
+
+    #[test]
+    fn test_proxy_url() {
+        assert_eq!(
+            proxy_url("http://127.0.0.1:7890").map(String::from),
+            Some("http://127.0.0.1:7890/".into())
+        );
+        assert_eq!(
+            proxy_url(" 127.0.0.1:7890 ").map(String::from),
+            Some("http://127.0.0.1:7890/".into())
+        );
+        assert_eq!(
+            proxy_url("socks5://localhost:1080").map(String::from),
+            Some("socks5://localhost:1080".into())
+        );
+        assert_eq!(proxy_url(""), None);
+        assert_eq!(proxy_url("http://"), None);
     }
 }

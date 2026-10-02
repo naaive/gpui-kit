@@ -15,6 +15,7 @@ use crate::{
     },
     pages::{self, Page, PageHandle},
     search::now,
+    shell::settings::ClipboardAction,
 };
 
 /// The preview shows at most this much text; the whole entry is still pasted.
@@ -99,18 +100,22 @@ impl ClipboardHistoryPage {
         // Pinned entries lead, wherever their copies fall in time; the rest
         // are grouped by the day they were copied.
         let now = now();
+        let primary = crate::shell::launcher::settings(cx).clipboard_action();
         let (pinned, recent): (Vec<&Entry>, Vec<&Entry>) =
             entries.into_iter().partition(|entry| entry.is_pinned());
         let mut sections: Vec<(SharedString, Vec<Item>)> = Vec::new();
         if !pinned.is_empty() {
             sections.push((
                 "Pinned".into(),
-                pinned.iter().map(|entry| self.item(entry, now)).collect(),
+                pinned
+                    .iter()
+                    .map(|entry| self.item(entry, now, primary))
+                    .collect(),
             ));
         }
         for entry in recent {
             let title = day_title(entry.copied_at(), now);
-            let item = self.item(entry, now);
+            let item = self.item(entry, now, primary);
             match sections.last_mut() {
                 Some((last, items)) if *last == title => items.push(item),
                 _ => sections.push((title, vec![item])),
@@ -138,7 +143,7 @@ impl ClipboardHistoryPage {
         )
     }
 
-    fn item(&self, entry: &Entry, now: u64) -> Item {
+    fn item(&self, entry: &Entry, now: u64, primary: ClipboardAction) -> Item {
         let content = entry.content();
         let kind = content.kind();
         let image = match content {
@@ -152,10 +157,12 @@ impl ClipboardHistoryPage {
                     .with_tooltip(format_time(entry.copied_at())),
             )
             .with_detail(detail(entry))
-            .with_actions(self.actions(entry))
+            .with_actions(self.actions(entry, primary))
     }
 
-    fn actions(&self, entry: &Entry) -> ActionPanel {
+    /// The entry's actions; `primary` decides whether Enter pastes or
+    /// copies, and the other takes the secondary key.
+    fn actions(&self, entry: &Entry, primary: ClipboardAction) -> ActionPanel {
         let content = entry.content();
         let (paste, copy) = match content {
             Content::Text { text } => (
@@ -182,14 +189,12 @@ impl ClipboardHistoryPage {
                 (later(true), later(false))
             }
         };
-        let mut actions = ActionPanel::new()
-            .with_action(
-                Action::new("Paste to Active App", paste)
-                    .with_image(Image::Icon("clipboard-paste".into())),
-            )
-            .with_action(
-                Action::new("Copy to Clipboard", copy).with_image(Image::Icon("copy".into())),
-            );
+        let paste = Action::new("Paste to Active App", paste)
+            .with_image(Image::Icon("clipboard-paste".into()));
+        let copy = Action::new("Copy to Clipboard", copy).with_image(Image::Icon("copy".into()));
+        let mut actions = in_order(primary, paste, copy)
+            .into_iter()
+            .fold(ActionPanel::new(), ActionPanel::with_action);
         actions = match content {
             Content::Text { text } if content.kind() == ContentType::Link => actions.with_action(
                 Action::new(
@@ -262,7 +267,7 @@ impl ClipboardHistoryPage {
                     Effect::Run(RunHandler::new(move |(), window, cx| {
                         let settings = crate::shell::launcher::settings(cx)
                             .with_clipboard_ignored_app(&source);
-                        crate::shell::launcher::update_settings(settings, window, cx).ok();
+                        crate::shell::launcher::update_settings(settings, Some(window), cx).ok();
                         crate::shell::launcher::perform(
                             Effect::ShowToast(crate::model::Toast::new(
                                 crate::model::ToastStyle::Success,
@@ -331,6 +336,14 @@ impl Page for ClipboardHistoryPage {
             self.query = query.to_owned();
             self.invalidate(cx);
         }
+    }
+}
+
+/// Paste and copy, the one Enter performs first.
+fn in_order(primary: ClipboardAction, paste: Action, copy: Action) -> [Action; 2] {
+    match primary {
+        ClipboardAction::Paste => [paste, copy],
+        ClipboardAction::Copy => [copy, paste],
     }
 }
 
@@ -457,6 +470,20 @@ mod tests {
         );
         assert_eq!(code_block("a ``` b"), "````text\na ``` b\n````");
         assert_eq!(code_block("plain"), "```text\nplain\n```");
+    }
+
+    #[test]
+    fn test_enter_pastes_or_copies_as_chosen() {
+        let titles = |primary| {
+            in_order(
+                primary,
+                Action::new("Paste", Effect::Paste("a".into())),
+                Action::new("Copy", Effect::Copy("a".into())),
+            )
+            .map(|action| action.title().to_string())
+        };
+        assert_eq!(titles(ClipboardAction::Paste), ["Paste", "Copy"]);
+        assert_eq!(titles(ClipboardAction::Copy), ["Copy", "Paste"]);
     }
 
     #[test]

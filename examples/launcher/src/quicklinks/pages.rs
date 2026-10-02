@@ -115,7 +115,9 @@ fn open_action(quicklink: &Quicklink, query: Option<String>) -> Action {
 
 fn open(quicklink: &Quicklink, values: &[(String, String)], cx: &mut App) {
     let clipboard = cx.read_from_clipboard().and_then(|item| item.text());
-    perform(quicklink.open_effect(values, clipboard.as_deref()), cx);
+    let settings = crate::shell::launcher::settings(cx);
+    let effect = quicklink.open_effect(values, clipboard.as_deref(), settings.quicklink_browser());
+    perform(effect, cx);
 }
 
 /// The quicklinks that take one argument, offered with the root query.

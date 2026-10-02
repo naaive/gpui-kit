@@ -14,11 +14,15 @@ Usage: launcher [COMMAND]
 
 Commands:
   (none)             Start the launcher, or show the one already running
+  start [--background]
+                     The same; in the background the window stays hidden
+                     until summoned, as when starting at login
   toggle             Show the launcher, or hide it if it is in front
   show               Show the launcher
   hide               Hide the launcher
   open <url>         Open a deep link, such as
-                     launcher://extensions/<extension-id>/<command>
+                     launcher://extensions/<extension-id>/<command>, or
+                     launcher://settings[/<extension-id>] for settings
   dev <directory>    Load an extension directory ahead of the installed ones,
                      writing its TypeScript declarations first
   types <directory>  Write TypeScript declarations and the launcher.json
@@ -36,8 +40,12 @@ Options:
 /// What this process was asked to do.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Command {
-    /// Start the launcher, or show it if it is already running.
-    Start,
+    /// Start the launcher, or show it if it is already running. In the
+    /// background, as at login, the window stays hidden and a running
+    /// launcher is left alone.
+    Start {
+        background: bool,
+    },
     Toggle,
     Show,
     Hide,
@@ -62,15 +70,16 @@ pub enum Command {
 
 impl Command {
     /// The message this command sends to a running instance. Asking for help
-    /// needs no instance.
+    /// needs no instance, and a background start asks nothing of one.
     pub fn message(&self) -> Option<Message> {
         Some(match self {
-            Self::Start | Self::Show => Message::Show,
+            Self::Start { background: false } | Self::Show => Message::Show,
             Self::Toggle => Message::Toggle,
             Self::Hide => Message::Hide,
             Self::Open(url) => Message::Open(url.clone()),
             Self::Dev(directory) => Message::Dev(directory.clone()),
-            Self::Types(_)
+            Self::Start { background: true }
+            | Self::Types(_)
             | Self::New { .. }
             | Self::Lint(_)
             | Self::StoreIndex(_)
@@ -101,16 +110,23 @@ pub fn parse(
 ) -> Result<Command, UsageError> {
     let mut arguments = arguments.into_iter();
     let Some(verb) = arguments.next() else {
-        return Ok(Command::Start);
+        return Ok(Command::Start { background: false });
     };
     let command = match verb.as_str() {
         "-h" | "--help" | "help" => Command::Help,
+        "start" => match arguments.next().as_deref() {
+            None => Command::Start { background: false },
+            Some("--background") => Command::Start { background: true },
+            Some(other) => return Err(UsageError(format!("unexpected argument `{other}`"))),
+        },
         "toggle" => Command::Toggle,
         "show" => Command::Show,
         "hide" => Command::Hide,
         "open" => {
             let url = operand(&mut arguments, "open", "a URL")?;
-            super::deeplink::parse(&url).map_err(|error| UsageError(format!("{error:#}")))?;
+            if super::deeplink::settings_target(&url).is_none() {
+                super::deeplink::parse(&url).map_err(|error| UsageError(format!("{error:#}")))?;
+            }
             Command::Open(url)
         }
         "dev" => {
@@ -183,7 +199,12 @@ mod tests {
 
     #[test]
     fn test_parse_verbs() {
-        assert_eq!(run(&[]), Ok(Command::Start));
+        assert_eq!(run(&[]), Ok(Command::Start { background: false }));
+        assert_eq!(run(&["start"]), Ok(Command::Start { background: false }));
+        assert_eq!(
+            run(&["start", "--background"]),
+            Ok(Command::Start { background: true })
+        );
         assert_eq!(run(&["toggle"]), Ok(Command::Toggle));
         assert_eq!(run(&["show"]), Ok(Command::Show));
         assert_eq!(run(&["hide"]), Ok(Command::Hide));
@@ -231,6 +252,8 @@ mod tests {
         assert!(run(&["open"]).is_err(), "`open` needs a URL");
         assert!(run(&["dev", ""]).is_err(), "`dev` needs a directory");
         assert!(run(&["toggle", "now"]).is_err(), "no trailing arguments");
+        assert!(run(&["start", "--hidden"]).is_err());
+        assert!(run(&["start", "--background", "now"]).is_err());
         assert!(
             run(&["open", "https://gpui-kit.com"]).is_err(),
             "a deep link is checked before it is forwarded"
@@ -239,7 +262,11 @@ mod tests {
 
     #[test]
     fn test_command_message() {
-        assert_eq!(Command::Start.message(), Some(Message::Show));
+        assert_eq!(
+            Command::Start { background: false }.message(),
+            Some(Message::Show)
+        );
+        assert_eq!(Command::Start { background: true }.message(), None);
         assert_eq!(Command::Toggle.message(), Some(Message::Toggle));
         assert_eq!(
             Command::Dev("/x".into()).message(),

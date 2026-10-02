@@ -66,6 +66,10 @@ pub struct Extension {
     id: SharedString,
     preferences: Vec<PreferenceManifest>,
     name: SharedString,
+    icon: Option<SharedString>,
+    description: Option<SharedString>,
+    author: Option<SharedString>,
+    version: SharedString,
     root: PathBuf,
     commands: Vec<ExtensionCommand>,
 }
@@ -103,6 +107,10 @@ impl Extension {
             id,
             preferences: launcher.preferences,
             name: shell.name().to_owned().into(),
+            icon: launcher.icon.map(Into::into),
+            description: launcher.description.map(Into::into),
+            author: launcher.author.map(Into::into),
+            version: shell.version().to_owned().into(),
             root: directory.to_path_buf(),
             commands,
         })
@@ -114,6 +122,27 @@ impl Extension {
 
     pub fn root(&self) -> &Path {
         &self.root
+    }
+
+    pub fn icon(&self) -> Option<&SharedString> {
+        self.icon.as_ref()
+    }
+
+    pub fn description(&self) -> Option<&SharedString> {
+        self.description.as_ref()
+    }
+
+    pub fn author(&self) -> Option<&SharedString> {
+        self.author.as_ref()
+    }
+
+    pub fn version(&self) -> &SharedString {
+        &self.version
+    }
+
+    /// The extension's commands, in the order its manifest lists them.
+    pub fn commands(&self) -> &[ExtensionCommand] {
+        &self.commands
     }
 
     pub fn id(&self) -> &SharedString {
