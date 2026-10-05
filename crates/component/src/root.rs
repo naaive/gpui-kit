@@ -21,6 +21,21 @@ pub(crate) fn init(cx: &mut App) {
     gpui_base::Root::register_plugin::<WindowState>(cx, WindowState::new);
 }
 
+/// Draws the window without the client-side frame, for a window the platform
+/// places without one.
+///
+/// On Wayland, GPUI reports client decorations for every surface without an
+/// `xdg_toplevel` decoration, including anchored popups and layer-shell
+/// surfaces, so the frame's shadow inset would offset their content.
+/// `gpui_kit::open_window` calls this for those window kinds before the first
+/// frame: once drawn, the frame has already grown the surface by its inset.
+#[doc(hidden)]
+pub fn set_window_frameless(root: &Entity<gpui_base::Root>, cx: &mut App) {
+    if let Some(state) = root.read(cx).plugin::<WindowState>() {
+        state.update(cx, |state, _| state.frameless = true);
+    }
+}
+
 /// Component-owned window state and presentation; Base owns the actual root.
 pub(crate) struct WindowState {
     pub(crate) active_sheet: Option<ActiveSheet>,
@@ -32,6 +47,9 @@ pub(crate) struct WindowState {
     touch_selection_overlay: Entity<WindowTouchSelectionOverlay>,
     sheet_size: Option<DefiniteLength>,
     pending_focus_restore: Option<WeakFocusHandle>,
+    /// The platform places this window without a frame (an anchored popup or
+    /// a layer-shell surface), so it gets no client-side border or shadow.
+    frameless: bool,
 }
 
 #[derive(Clone)]
@@ -82,6 +100,7 @@ impl WindowState {
             touch_selection_overlay: cx.new(|cx| WindowTouchSelectionOverlay::new(window, cx)),
             sheet_size: None,
             pending_focus_restore: None,
+            frameless: false,
         }
     }
 
@@ -454,7 +473,11 @@ impl gpui_base::RootPlugin for WindowState {
         _window: &mut Window,
         _cx: &mut App,
     ) -> impl IntoElement {
-        window_border().child(surface)
+        if self.frameless {
+            surface
+        } else {
+            window_border().child(surface).into_any_element()
+        }
     }
 }
 

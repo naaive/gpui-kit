@@ -2407,6 +2407,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "desktop"
+version = "0.7.1"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "gpui-kit",
+ "serde",
+ "serde_json",
+ "smol",
+]
+
+[[package]]
 name = "deunicode"
 version = "1.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
