@@ -151,16 +151,34 @@ pub fn open_window<V: Render>(
     cx: &mut App,
     build: impl FnOnce(&mut Window, &mut App) -> Entity<V>,
 ) -> Result<(AnyWindowHandle, Entity<V>)> {
+    #[cfg(feature = "component")]
+    let framed = has_frame(&options.kind);
     let mut built = None;
     let window = cx.open_window(options, |window, cx| {
         let view = build(window, cx);
         built = Some(view.clone());
-        cx.new(|cx| base::Root::new(view, window, cx))
+        let root = cx.new(|cx| base::Root::new(view, window, cx));
+        #[cfg(feature = "component")]
+        if !framed {
+            gpui_component::set_window_frameless(&root, cx);
+        }
+        root
     })?;
     Ok((
         window.into(),
         built.expect("open_window ran its build closure"),
     ))
+}
+
+/// Whether the platform gives a window of this kind a frame to decorate.
+/// Anchored popups and layer-shell surfaces (the variant that exists only on
+/// Linux with Wayland) are placed by the compositor without one.
+#[cfg(feature = "component")]
+fn has_frame(kind: &WindowKind) -> bool {
+    matches!(
+        kind,
+        WindowKind::Normal | WindowKind::PopUp | WindowKind::Floating | WindowKind::Dialog
+    )
 }
 
 // Mobile applications provide their platform with `Application::with_platform`.
