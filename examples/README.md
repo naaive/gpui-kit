@@ -10,6 +10,7 @@ not enable the gallery's test-support development dependency.
 | --- | --- |
 | Editor | `cargo run -p example-editor` |
 | Brush | `cargo run -p example-brush` |
+| Desktop shell (Linux, Wayland) | `cargo run -p desktop` |
 | Dock | `cargo run -p example-dock` |
 | HTML | `cargo run -p example-html` |
 | Large text | `cargo run -p example-large-text` |

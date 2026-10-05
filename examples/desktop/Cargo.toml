@@ -1,0 +1,17 @@
+[package]
+name = "desktop"
+description = "A GNOME-style desktop shell prototype: a top bar and a dock on Wayland layer-shell surfaces."
+version = "0.7.1"
+publish = false
+edition.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+chrono = "0.4"
+gpui-kit.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+smol.workspace = true
+
+[lints]
+workspace = true
